@@ -17,6 +17,8 @@ This folder is the operating manual for AI-assisted work on this project. Keep i
 - No Linear task is complete until related documentation is updated and any associated PR is created or clearly marked as not needed.
 - Move quickly, but leave enough context that the next session can continue without a fresh explanation.
 - Prefer small tasks that can be completed, reviewed, and documented independently.
+- When a task is being defined, use `task-creation.md`.
+- When the session is planning instead of implementing, use `planning-and-subagents.md`.
 - When a task changes behavior across process boundaries, update `contracts.md`.
 - When a task changes how or why the project works, update `decisions.md`.
 
@@ -25,6 +27,8 @@ This folder is the operating manual for AI-assisted work on this project. Keep i
 - Current task stack: `memory/active.md`
 - Branch state: `memory/branches.md`
 - Decisions: `decisions.md`
+- Task creation policy: `task-creation.md`
+- Planning and subagents: `planning-and-subagents.md`
 - Permanent server/Python/plugin contracts: `contracts.md`
 - Session rules: `session-lifecycle.md`
 - Task states: `task-state-contract.md`

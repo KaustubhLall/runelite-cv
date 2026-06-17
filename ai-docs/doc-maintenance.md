@@ -20,6 +20,8 @@ These files can grow moderately, but should stay indexed:
 - `contracts.md`
 - `setup.md`
 - `task-state-contract.md`
+- `task-creation.md`
+- `planning-and-subagents.md`
 - `session-lifecycle.md`
 - `memory/archive/`
 
