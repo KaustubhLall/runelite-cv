@@ -6,7 +6,7 @@ Track active or paused branches here so session memory does not bleed across wor
 
 | Branch | State | Purpose | Linear | Last Updated | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `codex/osr-1-set-up-ai-docs-harness-and-default-mcp-tooling` | active | Initial AI docs harness setup and MCP defaults | [OSR-1](https://linear.app/hutechventures/issue/OSR-1/set-up-ai-docs-harness-and-default-mcp-tooling) | 2026-06-16 | PR: https://github.com/KaustubhLall/runelite-cv/pull/1 |
+| `codex/osr-1-set-up-ai-docs-harness-and-default-mcp-tooling` | archived | Initial AI docs harness setup and MCP defaults | [OSR-1](https://linear.app/hutechventures/issue/OSR-1/set-up-ai-docs-harness-and-default-mcp-tooling) | 2026-06-17 | Merged PR: https://github.com/KaustubhLall/runelite-cv/pull/1 |
 
 ## Rules
 
