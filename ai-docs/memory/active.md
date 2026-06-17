@@ -4,10 +4,11 @@ Use this file as the short working map for the current session. Keep it concise.
 
 ## Current Focus
 
-- Branch: `codex/osr-1-set-up-ai-docs-harness-and-default-mcp-tooling` pending
+- Branch: `codex/osr-1-set-up-ai-docs-harness-and-default-mcp-tooling`
 - Linear task: `OSR-1`
 - State: active
-- Next action: finalize docs and create the verification PR
+- PR: https://github.com/KaustubhLall/runelite-cv/pull/1
+- Next action: review the PR and decide whether it is ready to merge
 
 ## Active Task Stack
 
