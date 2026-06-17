@@ -5,7 +5,7 @@ This file tracks the local and connected setup needed for automated work.
 ## Required Local Setup
 
 - Java and Gradle for the RuneLite codebase.
-- Moonlight development environment.
+- RuneLite development environment.
 - Python runtime for any bridge or companion process.
 - Browser automation for visual verification.
 - GitHub access for branches, PRs, and review workflows.
@@ -33,7 +33,7 @@ These tools are useful for the intended workflow:
 
 ## Open Setup Items
 
-- Define Moonlight plugin run command.
+- Define RuneLite plugin run command.
 - Define server run command.
 - Define Python bridge run command.
 - Define health check endpoints.

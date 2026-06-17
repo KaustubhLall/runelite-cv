@@ -9,7 +9,7 @@ Use this file as the short working map for the current session. Keep it concise.
 - State: active
 - PR: https://github.com/KaustubhLall/runelite-cv/pull/1
 - Next action: review the PR and decide whether it is ready to merge
-- Next queued task: `OSR-2` planning for the example Moonlight plugin and broadcast server
+- Next queued task: `OSR-2` planning for the example RuneLite plugin and broadcast server
 
 ## Active Task Stack
 
@@ -22,4 +22,4 @@ Use this file as the short working map for the current session. Keep it concise.
 - Linear should serve as live per-task memory through comments, links, and status updates.
 - Branch-specific memory must be explicit to avoid mixing state across parallel work.
 - Copilot MCP defaults are now being wired locally in the IntelliJ config.
-- The next product task is a planning pass for the example plugin / broadcast server demo.
+- The next product task is a planning pass for the example RuneLite plugin / broadcast server demo.

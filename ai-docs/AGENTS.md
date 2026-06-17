@@ -1,4 +1,4 @@
-# Start Here
+# AGENTS
 
 This folder is the operating manual for AI-assisted work on this project. Keep it lightweight, current, and useful during real sessions.
 
@@ -9,6 +9,7 @@ This folder is the operating manual for AI-assisted work on this project. Keep i
 3. Check `memory/branches.md` before switching branches or continuing paused work.
 4. Review the linked Linear task and recent comments.
 5. Follow `session-lifecycle.md` for start, work, and end-of-session requirements.
+6. Self-document the docs when repeated mistakes or friction show up.
 
 ## Working Rules
 
@@ -19,6 +20,7 @@ This folder is the operating manual for AI-assisted work on this project. Keep i
 - Prefer small tasks that can be completed, reviewed, and documented independently.
 - When a task is being defined, use `task-creation.md`.
 - When the session is planning instead of implementing, use `planning-and-subagents.md`.
+- When you notice the same mistake twice, update the docs so the harness teaches the better default next time.
 - When a task changes behavior across process boundaries, update `contracts.md`.
 - When a task changes how or why the project works, update `decisions.md`.
 
@@ -35,6 +37,7 @@ This folder is the operating manual for AI-assisted work on this project. Keep i
 - Keeping docs small: `doc-maintenance.md`
 - Default tools: `gh`, Linear MCP, GitHub MCP, `agent-browser`
 - MCP and local tool setup: `setup.md`
+- Common mistakes: `common-mistakes.md`
 
 ## Session Completion Checklist
 
@@ -49,3 +52,10 @@ This folder is the operating manual for AI-assisted work on this project. Keep i
 ## Context Budget Rule
 
 Keep this file and `memory/active.md` short enough to read at the start of every session. When a file starts becoming a history log, summarize the current state at the top and move older detail into `memory/archive/` or a linked Linear task.
+
+## Common Mistakes To Avoid
+
+- Repeating the same fix without documenting the root cause or the preferred default.
+- Mixing planning output into implementation updates.
+- Letting branch-specific context leak into another branch.
+- Forgetting to update contracts when an interface changes.

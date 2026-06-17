@@ -6,7 +6,7 @@ The docs should stay complete without becoming too large to load every session.
 
 These files should remain short:
 
-- `start-here.md`
+- `AGENTS.md`
 - `memory/active.md`
 - `memory/branches.md`
 - The linked Linear task
@@ -23,6 +23,7 @@ These files can grow moderately, but should stay indexed:
 - `task-creation.md`
 - `planning-and-subagents.md`
 - `session-lifecycle.md`
+- `common-mistakes.md`
 - `memory/archive/`
 
 ## Archive Rule

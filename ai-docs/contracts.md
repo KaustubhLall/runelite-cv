@@ -6,7 +6,7 @@ This file records durable contracts between moving parts of the project. Update 
 
 - Server API contracts: endpoints, request/response shapes, auth assumptions, error formats, and versioning.
 - Python bridge contracts: input/output schemas, process lifecycle, logs, health checks, and failure behavior.
-- Moonlight plugin contracts: plugin configuration, expected server behavior, UI integration points, and user-visible states.
+- RuneLite plugin contracts: plugin configuration, expected server behavior, UI integration points, and user-visible states.
 - MCP/tool contracts: tools that must be available for automation, setup requirements, and fallback behavior.
 - Data contracts: file formats, persisted state, cache rules, and migration expectations.
 
