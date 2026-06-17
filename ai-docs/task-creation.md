@@ -35,6 +35,7 @@ A good task should usually include:
 - If a task needs to branch into unrelated work, create a new task instead of mixing scopes.
 - If a task changes a contract or decision, update the relevant doc in the same session when possible.
 - If a task is blocked, log the blocker in Linear and in the active memory file.
+- If the user repeats a stable preference, capture it as a task note or doc update instead of asking again in future sessions.
 
 ## Suggested Minimum Fields
 

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>CV Helper Verifier</title>
+	<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+	<main class="shell">
+		<section class="hero">
+			<div>
+				<p class="eyebrow">RuneLite CV Helper</p>
+				<h1>Verifier Console</h1>
+				<p class="lede">A local dashboard for checking what the plugin exports before Python trusts it.</p>
+			</div>
+			<form id="connection-form" class="connection">
+				<label for="port">CV Helper port</label>
+				<div class="port-row">
+					<input id="port" name="port" inputmode="numeric" value="11777" autocomplete="off">
+					<button type="submit">Connect</button>
+				</div>
+				<p id="connection-status" class="status-pill">Idle</p>
+			</form>
+		</section>
+
+		<section class="actions">
+			<button data-capture="/capture">Capture frame</button>
+			<button data-capture="/capture/screen">Capture screen</button>
+			<button data-capture="/capture/minimap">Capture minimap</button>
+			<span id="capture-status" class="capture-status">Captures save under your RuneLite screenshots folder.</span>
+			<label class="auto-refresh">
+				<input id="auto-refresh" type="checkbox" checked>
+				Auto refresh
+			</label>
+		</section>
+
+		<section class="grid">
+			<article class="card span-2">
+				<header>
+					<h2>Status</h2>
+					<button id="refresh-now">Refresh now</button>
+				</header>
+				<div id="status-grid" class="stat-grid"></div>
+			</article>
+
+			<article class="card">
+				<header>
+					<h2>Target Counts</h2>
+				</header>
+				<div id="count-grid" class="count-grid"></div>
+			</article>
+
+			<article class="card">
+				<header>
+					<h2>Warnings</h2>
+				</header>
+				<ul id="warnings" class="warnings"></ul>
+			</article>
+		</section>
+
+		<section class="capture-grid" id="capture-grid"></section>
+
+		<section id="surfaces" class="surfaces"></section>
+	</main>
+
+	<script src="./app.js"></script>
+</body>
+</html>

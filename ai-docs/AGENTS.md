@@ -21,6 +21,7 @@ This folder is the operating manual for AI-assisted work on this project. Keep i
 - When a task is being defined, use `task-creation.md`.
 - When the session is planning instead of implementing, use `planning-and-subagents.md`.
 - When you notice the same mistake twice, update the docs so the harness teaches the better default next time.
+- When the user repeats a preference or workflow instruction, record it in Linear and in the relevant doc so it becomes the default for future sessions.
 - When a task changes behavior across process boundaries, update `contracts.md`.
 - When a task changes how or why the project works, update `decisions.md`.
 
