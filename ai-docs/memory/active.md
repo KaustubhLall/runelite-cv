@@ -67,6 +67,8 @@ Use this file as the short working map for the current session. Keep it concise.
 - Fixed on 2026-06-17: in-game target labels are suppressed for inventory/equipment/panel boxes to avoid overlapping label clutter. The verifier still shows target labels in tables.
 - Fixed on 2026-06-17: verifier warnings no longer treat cached target snapshots as errors. Cached state remains visible in each surface header.
 - Implemented on 2026-06-17: `/capture/latest/client-frame`, `/capture/latest/screen`, and `/capture/latest/minimap` stream the latest saved PNG. The verifier renders capture preview cards from these endpoints. Verified `/capture/latest/screen` returned HTTP 200 and the verifier rendered a screen capture preview.
+- Known bug captured on 2026-06-18: `/capture/minimap` can crop the wrong region, closer to the center of the screen, when compared against a same-angle full screen capture. Do not block the current verifier/API work on this; track a follow-up to fix minimap crop source/bounds.
+- Implemented on 2026-06-18: nearby player/NPC entities are now visible in the verifier through a dedicated `/entities` table and can be drawn in-game with the `Nearby entity boxes` overlay toggle.
 - Fast launcher script: `scripts/run-cv-helper.ps1`. Desktop shortcut: `C:\Users\kaust\OneDrive\Desktop\RuneLite CV Helper.lnk`.
 - Workflow preference from user: when runtime verification needs live widgets, ask the user to log in to the newest client before treating logged-out endpoint state as meaningful.
 - The dev launcher should pin live RuneLite services to a stable release with `-Drunelite.pluginhub.version=<release>` and `-Drunelite.http-service.url=https://api.runelite.net/runelite-<release>` while the local jar remains a snapshot.

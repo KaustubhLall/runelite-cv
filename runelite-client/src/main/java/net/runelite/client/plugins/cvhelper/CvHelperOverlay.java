@@ -131,7 +131,42 @@ class CvHelperOverlay extends Overlay
 			}
 		}
 
+		if (plugin.getConfig().showEntityTargets())
+		{
+			for (Map<String, Object> entity : plugin.getLiveEntities())
+			{
+				drawEntity(graphics, entity, new Color(64, 160, 255));
+				rendered = true;
+			}
+		}
+
 		return rendered ? new Dimension(1, 1) : null;
+	}
+
+	private void drawEntity(Graphics2D graphics, Map<String, Object> entity, Color color)
+	{
+		Rectangle bounds = rectangleFromMap(entity.get("canvasBounds"));
+		if (bounds == null)
+		{
+			return;
+		}
+		graphics.setColor(color);
+		graphics.draw(bounds);
+		if (!plugin.getConfig().showTargetLabels())
+		{
+			return;
+		}
+		String label = String.valueOf(entity.get("name"));
+		if (label == null || label.isEmpty() || "null".equals(label))
+		{
+			return;
+		}
+		int tx = bounds.x + 2;
+		int ty = Math.max(12, bounds.y - 3);
+		graphics.setColor(Color.BLACK);
+		graphics.drawString(Text.removeTags(label), tx + 1, ty + 1);
+		graphics.setColor(Color.WHITE);
+		graphics.drawString(Text.removeTags(label), tx, ty);
 	}
 
 	private void drawTarget(Graphics2D graphics, Map<String, Object> target, Color color)
@@ -176,7 +211,11 @@ class CvHelperOverlay extends Overlay
 
 	private Rectangle boundsFromTarget(Map<String, Object> target)
 	{
-		Object value = target.get("bounds");
+		return rectangleFromMap(target.get("bounds"));
+	}
+
+	private Rectangle rectangleFromMap(Object value)
+	{
 		if (!(value instanceof Map))
 		{
 			return null;

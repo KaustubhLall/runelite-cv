@@ -6,6 +6,7 @@ const connectionStatus = document.querySelector("#connection-status");
 const statusGrid = document.querySelector("#status-grid");
 const countGrid = document.querySelector("#count-grid");
 const warningsList = document.querySelector("#warnings");
+const entitiesRoot = document.querySelector("#entities");
 const surfacesRoot = document.querySelector("#surfaces");
 const refreshNow = document.querySelector("#refresh-now");
 const autoRefresh = document.querySelector("#auto-refresh");
@@ -65,12 +66,15 @@ async function refreshAll() {
 	try {
 		const [status, ...targetPayloads] = await Promise.all([
 			request("/status"),
+			request("/entities"),
 			...surfaces.map(surface => request(`/targets/${surface}`)),
 		]);
+		const entitiesPayload = targetPayloads.shift();
 
 		setConnection(`Connected to ${baseUrl()}`, true);
 		renderStatus(status);
-		renderCounts(status, targetPayloads);
+		renderCounts(status, targetPayloads, entitiesPayload);
+		renderEntities(entitiesPayload);
 		renderSurfaces(targetPayloads);
 		renderWarnings(status, targetPayloads);
 	} catch (error) {
@@ -118,12 +122,13 @@ function renderStatus(status) {
 	statusGrid.innerHTML = stats.map(([label, value]) => statCard(label, value)).join("");
 }
 
-function renderCounts(status, targetPayloads) {
+function renderCounts(status, targetPayloads, entitiesPayload) {
 	const payloadCounts = Object.fromEntries(targetPayloads.map(payload => [payload.surface, payload.count]));
 	const counts = surfaces.map(surface => [
 		surface,
 		payloadCounts[surface] ?? status[`${surface}Targets`] ?? 0,
 	]);
+	counts.push(["entities", entitiesPayload?.count ?? status.entities ?? 0]);
 
 	countGrid.innerHTML = counts.map(([surface, count]) => `
 		<div class="count">
@@ -135,6 +140,56 @@ function renderCounts(status, targetPayloads) {
 
 function renderSurfaces(targetPayloads) {
 	surfacesRoot.innerHTML = targetPayloads.map(renderSurface).join("");
+}
+
+function renderEntities(payload) {
+	const rows = payload?.entities || [];
+	const body = rows
+		.slice()
+		.sort((a, b) => (a.distance ?? 9999) - (b.distance ?? 9999))
+		.map(renderEntityRow)
+		.join("");
+	entitiesRoot.innerHTML = `
+		<article class="surface entity-surface">
+			<header>
+				<div class="surface-title">
+					<h2>nearby entities</h2>
+					<span class="badge">${payload?.count || 0}</span>
+				</div>
+				<small>${escapeHtml(payload?.gameState || "")}</small>
+			</header>
+			${rows.length ? `
+				<div class="table-wrap">
+					<table>
+						<thead>
+							<tr>
+								<th>Name</th>
+								<th>Type</th>
+								<th>ID</th>
+								<th>Distance</th>
+								<th>World</th>
+								<th>Bounds</th>
+							</tr>
+						</thead>
+						<tbody>${body}</tbody>
+					</table>
+				</div>
+			` : `<p class="empty">No nearby players/NPCs exported yet. Log in and refresh after the scene is visible.</p>`}
+		</article>
+	`;
+}
+
+function renderEntityRow(entity) {
+	return `
+		<tr>
+			<td>${escapeHtml(entity.name || "(unnamed)")}</td>
+			<td>${escapeHtml(entity.type || "")}</td>
+			<td>${escapeHtml(entity.id ?? "")}</td>
+			<td>${escapeHtml(entity.distance ?? "")}</td>
+			<td>${escapeHtml(formatPoint(entity.worldLocation))}</td>
+			<td>${formatRect(entity.canvasBounds || {})}</td>
+		</tr>
+	`;
 }
 
 function renderSurface(payload) {

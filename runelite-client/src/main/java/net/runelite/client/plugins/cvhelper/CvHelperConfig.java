@@ -30,6 +30,7 @@ public interface CvHelperConfig extends Config
 	String SHOW_EQUIPMENT_TARGETS = "showEquipmentTargets";
 	String SHOW_PANEL_TARGETS = "showPanelTargets";
 	String SHOW_COMBAT_TARGETS = "showCombatTargets";
+	String SHOW_ENTITY_TARGETS = "showEntityTargets";
 	String SHOW_TARGET_LABELS = "showTargetLabels";
 	String ENABLE_LOCAL_EXPORT = "enableLocalExport";
 	String LOCAL_PORT = "localPort";
@@ -121,6 +122,16 @@ public interface CvHelperConfig extends Config
 		description = "Draw combat option targets such as attack styles, auto-retaliate, and autocast controls when visible."
 	)
 	default boolean showCombatTargets()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = SHOW_ENTITY_TARGETS,
+		name = "Show nearby entity boxes",
+		description = "Draw nearby player and NPC canvas bounds where RuneLite exposes them."
+	)
+	default boolean showEntityTargets()
 	{
 		return true;
 	}

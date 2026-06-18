@@ -337,6 +337,12 @@ public class CvHelperPlugin extends Plugin
 		return lastCombatTargets;
 	}
 
+	List<Map<String, Object>> getLiveEntities()
+	{
+		lastEntities = collectEntities();
+		return lastEntities;
+	}
+
 	List<Rectangle> getLivePrayerTargetBounds()
 	{
 		getLivePrayerTargets();
@@ -443,6 +449,15 @@ public class CvHelperPlugin extends Plugin
 		if (value)
 		{
 			refreshTargets("combat", this::collectCombatTargets);
+		}
+	}
+
+	void setShowEntityTargets(boolean value)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.SHOW_ENTITY_TARGETS, value);
+		if (value)
+		{
+			refreshEntities();
 		}
 	}
 
@@ -573,6 +588,17 @@ public class CvHelperPlugin extends Plugin
 	void refreshEquipmentTargets()
 	{
 		refreshTargets("equipment", this::collectEquipmentTargets);
+	}
+
+	void refreshEntities()
+	{
+		clientThread.invokeLater(() ->
+		{
+			lastEntities = collectEntities();
+			lastEvent.set("entities@" + lastEntities.size() + "@" + Instant.now());
+			sendWebhook(eventPayload("entities", lastEntities));
+			updatePanelStatus("Entities: " + lastEntities.size());
+		});
 	}
 
 	private void refreshTargets(String surface, java.util.function.Supplier<List<Map<String, Object>>> collector)
