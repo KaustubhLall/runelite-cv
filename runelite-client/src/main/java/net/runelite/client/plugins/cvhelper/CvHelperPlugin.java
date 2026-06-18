@@ -874,6 +874,20 @@ public class CvHelperPlugin extends Plugin
 		clientThread.invokeLater(() ->
 		{
 			String previousPanel = String.valueOf(interfaceStatus().get("activeSidePanel"));
+			Point requiredPanelPoint = requiredPanelPoint(surface, previousPanel);
+			if (requiredPanelPoint != null)
+			{
+				runPanelOpenThenAction(slot, surface, targetLabel, clickAfterMode, returnPanel, returnMouseCenter, previousPanel, currentMouseScreenPoint, requiredPanelPoint);
+				return;
+			}
+			performConfiguredActionResolved(slot, surface, targetLabel, clickAfterMode, returnPanel, returnMouseCenter, previousPanel, currentMouseScreenPoint);
+		});
+	}
+
+	private void performConfiguredActionResolved(int slot, CvHelperActionSurface surface, String targetLabel, CvHelperClickAfterMode clickAfterMode, boolean returnPanel, boolean returnMouseCenter, String previousPanel, Point originalMouseScreenPoint)
+	{
+		clientThread.invokeLater(() ->
+		{
 			Map<String, Object> target = resolveActionTarget(surface, targetLabel);
 			if (target == null)
 			{
@@ -891,18 +905,39 @@ public class CvHelperPlugin extends Plugin
 			Map<String, Object> randomizedClickPoint = randomizedClickPoint(target, clickPoint);
 			Point targetScreenPoint = canvasPointToScreen(randomizedClickPoint);
 			boolean clickMouseAfterTarget = shouldClickMouseAfter(surface, target, clickAfterMode);
-			Point mouseScreenPoint = clickMouseAfterTarget ? currentMouseScreenPoint : null;
+			Point mouseScreenPoint = clickMouseAfterTarget ? originalMouseScreenPoint : null;
 			Point returnPanelPoint = returnPanel ? panelReturnPoint(previousPanel) : null;
-			Point centerPoint = returnMouseCenter ? canvasCenterScreenPoint() : null;
+			Point restoreMousePoint = returnMouseCenter ? originalMouseScreenPoint : null;
 			if (targetScreenPoint == null)
 			{
 				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper action " + slot + " | target is off-canvas", "");
 				return;
 			}
 
-			runRobotClick(slot, surface, target, randomizedClickPoint, targetScreenPoint, mouseScreenPoint, returnPanelPoint, centerPoint);
+			runRobotClick(slot, surface, target, randomizedClickPoint, targetScreenPoint, mouseScreenPoint, returnPanelPoint, restoreMousePoint);
 			lastEvent.set("action-hotkey-" + slot + "@" + surface + "@" + Instant.now());
 		});
+	}
+
+	private void runPanelOpenThenAction(int slot, CvHelperActionSurface surface, String targetLabel, CvHelperClickAfterMode clickAfterMode, boolean returnPanel, boolean returnMouseCenter, String previousPanel, Point originalMouseScreenPoint, Point panelPoint)
+	{
+		Thread openThread = new Thread(() ->
+		{
+			try
+			{
+				Robot robot = new Robot();
+				clickScreenPoint(robot, panelPoint);
+				robot.delay(75);
+				performConfiguredActionResolved(slot, surface, targetLabel, clickAfterMode, returnPanel, returnMouseCenter, previousPanel, originalMouseScreenPoint);
+			}
+			catch (RuntimeException | java.awt.AWTException e)
+			{
+				log.warn("CV Helper action panel-open failed", e);
+				clientThread.invokeLater(() -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper action " + slot + " panel open failed: " + e.getMessage(), ""));
+			}
+		}, "cv-helper-action-open-panel");
+		openThread.setDaemon(true);
+		openThread.start();
 	}
 
 	private void runRobotClick(int slot, CvHelperActionSurface surface, Map<String, Object> target, Map<String, Object> randomizedClickPoint, Point targetScreenPoint, Point mouseScreenPoint, Point returnPanelPoint, Point centerPoint)
@@ -992,13 +1027,39 @@ public class CvHelperPlugin extends Plugin
 
 		Map<String, Object> panelTarget = findTargetByLabel(collectPanelTargets(), previousPanel, previousPanel.equals("spellbook") ? "magic" : previousPanel);
 		Map<String, Object> clickPoint = panelTarget == null ? null : firstPoint(panelTarget, "clickPoint", "center");
-		return clickPoint == null ? null : canvasPointToScreen(randomizedClickPoint(panelTarget, clickPoint));
+		return clickPoint == null ? null : canvasPointToScreen(clickPoint);
 	}
 
-	private Point canvasCenterScreenPoint()
+	private Point requiredPanelPoint(CvHelperActionSurface surface, String activePanel)
 	{
-		Rectangle bounds = client.getCanvas().getBounds();
-		return canvasPointToScreen(pointMap(bounds.width / 2, bounds.height / 2));
+		String requiredPanel = requiredPanelName(surface);
+		if (requiredPanel == null || requiredPanel.equals(activePanel))
+		{
+			return null;
+		}
+
+		Map<String, Object> panelTarget = findTargetByLabel(collectPanelTargets(), requiredPanel, requiredPanel.equals("spellbook") ? "magic" : requiredPanel);
+		Map<String, Object> clickPoint = panelTarget == null ? null : firstPoint(panelTarget, "clickPoint", "center");
+		return clickPoint == null ? null : canvasPointToScreen(clickPoint);
+	}
+
+	private String requiredPanelName(CvHelperActionSurface surface)
+	{
+		switch (surface)
+		{
+			case PRAYER:
+				return "prayer";
+			case SPELL:
+				return "spellbook";
+			case INVENTORY:
+				return "inventory";
+			case EQUIPMENT:
+				return "equipment";
+			case COMBAT:
+				return "combat";
+			default:
+				return null;
+		}
 	}
 
 	private void clickScreenPoint(Robot robot, Point point)

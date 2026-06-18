@@ -23,8 +23,10 @@ import javax.swing.JComponent;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JSeparator;
 import javax.swing.JTextField;
 import javax.swing.JToggleButton;
+import javax.swing.SwingConstants;
 import javax.swing.border.EmptyBorder;
 import net.runelite.client.config.Keybind;
 import net.runelite.client.ui.ColorScheme;
@@ -257,6 +259,12 @@ class CvHelperPanel extends PluginPanel
 		for (int slot = 1; slot <= 8; slot++)
 		{
 			body.add(createActionSlot(slot));
+			if (slot < 8)
+			{
+				JSeparator separator = new JSeparator(SwingConstants.HORIZONTAL);
+				stretch(separator);
+				body.add(separator);
+			}
 		}
 
 		JToggleButton expand = new JToggleButton("Expand");
@@ -315,7 +323,7 @@ class CvHelperPanel extends PluginPanel
 		styleCheckbox(returnPanel);
 		returnPanel.addActionListener(e -> plugin.setActionReturnPanel(slot, returnPanel.isSelected()));
 
-		JCheckBox returnMouseCenter = new JCheckBox("Move mouse back to canvas center", plugin.getActionReturnMouseCenter(slot));
+		JCheckBox returnMouseCenter = new JCheckBox("Restore mouse to original position", plugin.getActionReturnMouseCenter(slot));
 		styleCheckbox(returnMouseCenter);
 		returnMouseCenter.addActionListener(e -> plugin.setActionReturnMouseCenter(slot, returnMouseCenter.isSelected()));
 

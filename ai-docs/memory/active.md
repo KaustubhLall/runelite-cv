@@ -76,6 +76,8 @@ Use this file as the short working map for the current session. Keep it concise.
 - Implemented on 2026-06-18: action slots can optionally return to the previously active side panel and move the mouse back to the canvas center after the action finishes.
 - Fixed on 2026-06-18: click-after now uses the actual OS mouse pointer location captured before Java Robot moves to the spell/widget target. This should make "hover target, press hotkey" click the hovered target instead of a misconverted canvas coordinate near the top of the screen.
 - Implemented on 2026-06-18: action slots have enable toggles and the runtime now supports 8 slots. Slots 1-4 appear in RuneLite native config under `Action hotkeys`; slots 5-8 are managed from the CV Helper panel.
+- Fixed on 2026-06-18: action slots now open the required side panel before resolving spell/prayer/inventory/equipment/combat targets, so inventory-to-spell and inventory-to-prayer hotkeys can work.
+- Fixed on 2026-06-18: click-after and mouse restore use the exact original OS mouse point without safe-circle randomization; safe-circle randomization is only for widget/entity target clicks.
 - Implemented on 2026-06-18: `/entities` includes canvas-space `center`, `canvasTileCenter`, and preferred `clickPoint` fields for nearby player/NPC actors. `/entities/nearest` returns the closest actor with a usable `clickPoint`, and the verifier shows nearest/per-row click coordinates for Python click planning.
 - Fast launcher script: `scripts/run-cv-helper.ps1`. Desktop shortcut: `C:\Users\kaust\OneDrive\Desktop\RuneLite CV Helper.lnk`.
 - Workflow preference from user: when runtime verification needs live widgets, ask the user to log in to the newest client before treating logged-out endpoint state as meaningful.

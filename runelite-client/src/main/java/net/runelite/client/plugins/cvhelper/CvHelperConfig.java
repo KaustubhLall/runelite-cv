@@ -352,8 +352,8 @@ public interface CvHelperConfig extends Config
 
 	@ConfigItem(
 		keyName = ACTION_RETURN_MOUSE_CENTER_1,
-		name = "Action 1 center mouse",
-		description = "After action slot 1 finishes, move the mouse to the center of the game canvas.",
+		name = "Action 1 restore mouse",
+		description = "After action slot 1 finishes, restore the mouse to its original screen position.",
 		section = actionSection
 	)
 	default boolean actionReturnMouseCenter1()
@@ -440,8 +440,8 @@ public interface CvHelperConfig extends Config
 
 	@ConfigItem(
 		keyName = ACTION_RETURN_MOUSE_CENTER_2,
-		name = "Action 2 center mouse",
-		description = "After action slot 2 finishes, move the mouse to the center of the game canvas.",
+		name = "Action 2 restore mouse",
+		description = "After action slot 2 finishes, restore the mouse to its original screen position.",
 		section = actionSection
 	)
 	default boolean actionReturnMouseCenter2()
@@ -528,8 +528,8 @@ public interface CvHelperConfig extends Config
 
 	@ConfigItem(
 		keyName = ACTION_RETURN_MOUSE_CENTER_3,
-		name = "Action 3 center mouse",
-		description = "After action slot 3 finishes, move the mouse to the center of the game canvas.",
+		name = "Action 3 restore mouse",
+		description = "After action slot 3 finishes, restore the mouse to its original screen position.",
 		section = actionSection
 	)
 	default boolean actionReturnMouseCenter3()
@@ -616,8 +616,8 @@ public interface CvHelperConfig extends Config
 
 	@ConfigItem(
 		keyName = ACTION_RETURN_MOUSE_CENTER_4,
-		name = "Action 4 center mouse",
-		description = "After action slot 4 finishes, move the mouse to the center of the game canvas.",
+		name = "Action 4 restore mouse",
+		description = "After action slot 4 finishes, restore the mouse to its original screen position.",
 		section = actionSection
 	)
 	default boolean actionReturnMouseCenter4()
