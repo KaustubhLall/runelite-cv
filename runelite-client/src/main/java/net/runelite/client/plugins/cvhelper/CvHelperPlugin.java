@@ -1067,7 +1067,7 @@ public class CvHelperPlugin extends Plugin
 				return;
 			}
 
-			runRobotClick(slot, surface, target, randomizedClickPoint, targetScreenPoint, mouseScreenPoint, returnPanelPoint, restoreMousePoint);
+			runRobotClick(slot, surface, target, randomizedClickPoint, targetScreenPoint, mouseScreenPoint, returnPanelPoint, restoreMousePoint, surface == CvHelperActionSurface.SPELL && mouseScreenPoint == null);
 			lastEvent.set("action-hotkey-" + slot + "@" + surface + "@" + Instant.now());
 		});
 	}
@@ -1112,7 +1112,7 @@ public class CvHelperPlugin extends Plugin
 		openThread.start();
 	}
 
-	private void runRobotClick(int slot, CvHelperActionSurface surface, Map<String, Object> target, Map<String, Object> randomizedClickPoint, Point targetScreenPoint, Point mouseScreenPoint, Point returnPanelPoint, Point centerPoint)
+	private void runRobotClick(int slot, CvHelperActionSurface surface, Map<String, Object> target, Map<String, Object> randomizedClickPoint, Point targetScreenPoint, Point mouseScreenPoint, Point returnPanelPoint, Point centerPoint, boolean skipReturnPanelForSelectedSpell)
 	{
 		Thread clickThread = new Thread(() ->
 		{
@@ -1120,6 +1120,7 @@ public class CvHelperPlugin extends Plugin
 			{
 				Robot robot = new Robot();
 				clickScreenPoint(robot, targetScreenPoint);
+				boolean clickedMouseTarget = false;
 				if (mouseScreenPoint != null)
 				{
 					if (surface == CvHelperActionSurface.SPELL && !waitForSelectedWidget())
@@ -1134,8 +1135,9 @@ public class CvHelperPlugin extends Plugin
 					}
 					robot.delay(timing(config.actionWidgetTargetDelayMs(), 0, 3000));
 					clickScreenPoint(robot, mouseScreenPoint);
+					clickedMouseTarget = true;
 				}
-				if (returnPanelPoint != null)
+				if (returnPanelPoint != null && (!skipReturnPanelForSelectedSpell || clickedMouseTarget))
 				{
 					robot.delay(timing(config.actionReturnPanelDelayMs(), 0, 3000));
 					clickScreenPoint(robot, returnPanelPoint);
@@ -1169,6 +1171,7 @@ public class CvHelperPlugin extends Plugin
 			try
 			{
 				Robot robot = new Robot();
+				boolean clickedMouseTarget = false;
 				if (mouseScreenPoint != null)
 				{
 					if (waitForSelectedWidget && !waitForSelectedWidget())
@@ -1183,8 +1186,9 @@ public class CvHelperPlugin extends Plugin
 					}
 					robot.delay(timing(config.actionWidgetTargetDelayMs(), 0, 3000));
 					clickScreenPoint(robot, mouseScreenPoint);
+					clickedMouseTarget = true;
 				}
-				if (returnPanelPoint != null)
+				if (returnPanelPoint != null && (!waitForSelectedWidget || clickedMouseTarget))
 				{
 					robot.delay(timing(config.actionReturnPanelDelayMs(), 0, 3000));
 					clickScreenPoint(robot, returnPanelPoint);
