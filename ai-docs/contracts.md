@@ -78,6 +78,7 @@ Expose lightweight RuneLite UI capture state to local development tools without 
 - `OSR-3` owns the first Python receiver contract for consuming local endpoints and webhook payloads.
 - `OSR-4` owns the future tick-synchronized delivery contract: state changes enqueue snapshots immediately, then queued exports flush on RuneLite `GameTick` for coherent tick-aligned Python decisions.
 - `OSR-5` owns hotkey action work. Current CV Helper hotkeys include configurable RuneLite `Keybind`s for debug status, bounds printing, raw screen capture, entity refresh, nearest-entity click-point logging, and four configurable action slots. Each action slot has a keybind, target surface, target label substring, and optional "click mouse after target" behavior. Action slots can click exported prayer/spell/UI targets directly; spell-like flows can click a spell target and then click the current mouse canvas position.
+- Action slot clicks should randomize within a safe circle inside the target bounds rather than always clicking the exact center point. The CV Helper side panel must expose these slots in a collapsible section so users do not need to discover them through RuneLite's generic configuration panel.
 - `OSR-6` owns the verifier client site. Browser consumers call CV Helper through `http://127.0.0.1:<port>`, so plugin JSON responses include permissive local-development CORS headers.
 
 ### Verification

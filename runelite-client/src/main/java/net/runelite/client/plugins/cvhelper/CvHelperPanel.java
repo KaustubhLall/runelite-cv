@@ -8,6 +8,8 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.FlowLayout;
 import java.awt.GridLayout;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -16,12 +18,15 @@ import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
+import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
 import javax.swing.JToggleButton;
 import javax.swing.border.EmptyBorder;
+import net.runelite.client.config.Keybind;
 import net.runelite.client.ui.ColorScheme;
+import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
 
 class CvHelperPanel extends PluginPanel
@@ -116,6 +121,7 @@ class CvHelperPanel extends PluginPanel
 
 		JPanel prayerSection = createNestedSection("Prayer toggles", plugin.getPrayerNames(), true, true);
 		JPanel spellSection = createNestedSection("Spellbook toggles", plugin.getSpellbookNames(), false, true);
+		JPanel actionSection = createActionSection();
 
 		JPanel serverSettings = new JPanel(new BorderLayout(0, 4));
 		serverSettings.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -158,6 +164,7 @@ class CvHelperPanel extends PluginPanel
 		lower.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		lower.add(prayerSection);
 		lower.add(spellSection);
+		lower.add(actionSection);
 		lower.add(serverSettings);
 		lower.add(playerPanel);
 		center.add(lower, BorderLayout.SOUTH);
@@ -229,6 +236,90 @@ class CvHelperPanel extends PluginPanel
 		return section;
 	}
 
+	private JPanel createActionSection()
+	{
+		JPanel section = new JPanel(new BorderLayout(0, 4));
+		section.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		section.setBorder(BorderFactory.createTitledBorder("Action hotkeys"));
+
+		JPanel body = new JPanel();
+		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
+		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
+
+		JLabel help = new JLabel("<html>Configure a hotkey, choose a target surface, type part of the target label, then press the hotkey or Run. For spells, enable mouse-after to click the current mouse target after selecting the spell.</html>");
+		help.setForeground(Color.LIGHT_GRAY);
+		help.setBorder(new EmptyBorder(0, 0, 6, 0));
+		body.add(help);
+
+		for (int slot = 1; slot <= 4; slot++)
+		{
+			body.add(createActionSlot(slot));
+		}
+
+		JToggleButton expand = new JToggleButton("Expand");
+		body.setVisible(false);
+		expand.setSelected(true);
+		expand.addActionListener(e ->
+		{
+			boolean isCollapsed = expand.isSelected();
+			expand.setText(isCollapsed ? "Expand" : "Collapse");
+			body.setVisible(!isCollapsed);
+			section.revalidate();
+		});
+		expand.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		expand.setForeground(Color.LIGHT_GRAY);
+
+		section.add(expand, BorderLayout.NORTH);
+		section.add(body, BorderLayout.CENTER);
+		setCompact(section);
+		return section;
+	}
+
+	private JPanel createActionSlot(int slot)
+	{
+		JPanel panel = new JPanel();
+		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		panel.setBorder(BorderFactory.createTitledBorder("Action " + slot));
+
+		KeyCaptureButton hotkey = new KeyCaptureButton(plugin.getActionHotkey(slot), value -> plugin.setActionHotkey(slot, value));
+		JComboBox<CvHelperActionSurface> surface = new JComboBox<>(CvHelperActionSurface.values());
+		surface.setSelectedItem(plugin.getActionSurface(slot));
+		surface.addActionListener(e -> plugin.setActionSurface(slot, (CvHelperActionSurface) surface.getSelectedItem()));
+
+		JTextField target = new JTextField(plugin.getActionTarget(slot));
+		target.setToolTipText("Examples: Protect from Magic, High Level Alchemy, inventory slot 1");
+		JButton saveTarget = new JButton("Save target");
+		saveTarget.addActionListener(e -> plugin.setActionTarget(slot, target.getText()));
+
+		JCheckBox clickMouse = new JCheckBox("Click current mouse after target", plugin.getActionClickMouse(slot));
+		styleCheckbox(clickMouse);
+		clickMouse.addActionListener(e -> plugin.setActionClickMouse(slot, clickMouse.isSelected()));
+
+		JButton run = new JButton("Run action " + slot);
+		run.addActionListener(e -> plugin.performConfiguredAction(slot));
+
+		panel.add(label("Hotkey"));
+		panel.add(hotkey);
+		panel.add(label("Surface"));
+		panel.add(surface);
+		panel.add(label("Target label contains"));
+		panel.add(target);
+		panel.add(saveTarget);
+		panel.add(clickMouse);
+		panel.add(run);
+		setCompact(panel);
+		return panel;
+	}
+
+	private JLabel label(String text)
+	{
+		JLabel label = new JLabel(text);
+		label.setForeground(Color.LIGHT_GRAY);
+		label.setBorder(new EmptyBorder(4, 0, 1, 0));
+		return label;
+	}
+
 	private void styleCheckbox(JCheckBox checkbox)
 	{
 		checkbox.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -255,5 +346,39 @@ class CvHelperPanel extends PluginPanel
 	{
 		updateServerStatus(plugin.getServerStatusText());
 		updateStatus("Refreshed at " + LocalDateTime.now().format(TIME_FORMAT));
+	}
+
+	private static final class KeyCaptureButton extends JButton
+	{
+		private Keybind value;
+		private final java.util.function.Consumer<Keybind> onChange;
+
+		private KeyCaptureButton(Keybind value, java.util.function.Consumer<Keybind> onChange)
+		{
+			this.onChange = onChange;
+			setFocusTraversalKeysEnabled(false);
+			setFont(FontManager.getDefaultFont().deriveFont(12.f));
+			setValue(value);
+			addActionListener(e ->
+			{
+				setValue(Keybind.NOT_SET);
+				onChange.accept(KeyCaptureButton.this.value);
+			});
+			addKeyListener(new KeyAdapter()
+			{
+				@Override
+				public void keyPressed(KeyEvent e)
+				{
+					setValue(new Keybind(e));
+					onChange.accept(KeyCaptureButton.this.value);
+				}
+			});
+		}
+
+		private void setValue(Keybind value)
+		{
+			this.value = value == null ? Keybind.NOT_SET : value;
+			setText(this.value.toString());
+		}
 	}
 }

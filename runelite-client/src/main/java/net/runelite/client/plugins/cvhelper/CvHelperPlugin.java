@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.imageio.ImageIO;
@@ -58,6 +59,7 @@ import net.runelite.api.widgets.Widget;
 import net.runelite.api.widgets.WidgetInfo;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.config.Keybind;
 import net.runelite.client.input.KeyManager;
 import net.runelite.client.RuneLite;
 import net.runelite.client.ui.ClientToolbar;
@@ -615,6 +617,103 @@ public class CvHelperPlugin extends Plugin
 		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.WEBHOOK_URL, value == null ? "" : value);
 	}
 
+	void setActionHotkey(int slot, Keybind keybind)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, "actionHotkey" + slot, keybind == null ? Keybind.NOT_SET : keybind);
+		updatePanelStatus("Action " + slot + " hotkey saved");
+	}
+
+	void setActionSurface(int slot, CvHelperActionSurface surface)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, "actionSurface" + slot, surface == null ? CvHelperActionSurface.DISABLED : surface);
+		updatePanelStatus("Action " + slot + " surface saved");
+	}
+
+	void setActionTarget(int slot, String target)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, "actionTarget" + slot, target == null ? "" : target.trim());
+		updatePanelStatus("Action " + slot + " target saved");
+	}
+
+	void setActionClickMouse(int slot, boolean value)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, "actionClickMouse" + slot, value);
+		updatePanelStatus("Action " + slot + " mouse-after setting saved");
+	}
+
+	Keybind getActionHotkey(int slot)
+	{
+		switch (slot)
+		{
+			case 1:
+				return config.actionHotkey1();
+			case 2:
+				return config.actionHotkey2();
+			case 3:
+				return config.actionHotkey3();
+			case 4:
+				return config.actionHotkey4();
+			default:
+				return Keybind.NOT_SET;
+		}
+	}
+
+	CvHelperActionSurface getActionSurface(int slot)
+	{
+		switch (slot)
+		{
+			case 1:
+				return config.actionSurface1();
+			case 2:
+				return config.actionSurface2();
+			case 3:
+				return config.actionSurface3();
+			case 4:
+				return config.actionSurface4();
+			default:
+				return CvHelperActionSurface.DISABLED;
+		}
+	}
+
+	String getActionTarget(int slot)
+	{
+		switch (slot)
+		{
+			case 1:
+				return config.actionTarget1();
+			case 2:
+				return config.actionTarget2();
+			case 3:
+				return config.actionTarget3();
+			case 4:
+				return config.actionTarget4();
+			default:
+				return "";
+		}
+	}
+
+	boolean getActionClickMouse(int slot)
+	{
+		switch (slot)
+		{
+			case 1:
+				return config.actionClickMouse1();
+			case 2:
+				return config.actionClickMouse2();
+			case 3:
+				return config.actionClickMouse3();
+			case 4:
+				return config.actionClickMouse4();
+			default:
+				return false;
+		}
+	}
+
+	void performConfiguredAction(int slot)
+	{
+		performConfiguredAction(slot, getActionSurface(slot), getActionTarget(slot), getActionClickMouse(slot));
+	}
+
 	void debugOverlayState()
 	{
 		clientThread.invokeLater(() ->
@@ -704,7 +803,8 @@ public class CvHelperPlugin extends Plugin
 				return;
 			}
 
-			Point targetScreenPoint = canvasPointToScreen(clickPoint);
+			Map<String, Object> randomizedClickPoint = randomizedClickPoint(target, clickPoint);
+			Point targetScreenPoint = canvasPointToScreen(randomizedClickPoint);
 			Point mouseScreenPoint = clickMouseAfterTarget ? canvasPointToScreen(pointValue(client.getMouseCanvasPosition())) : null;
 			if (targetScreenPoint == null)
 			{
@@ -712,12 +812,12 @@ public class CvHelperPlugin extends Plugin
 				return;
 			}
 
-			runRobotClick(slot, surface, target, targetScreenPoint, mouseScreenPoint);
+			runRobotClick(slot, surface, target, randomizedClickPoint, targetScreenPoint, mouseScreenPoint);
 			lastEvent.set("action-hotkey-" + slot + "@" + surface + "@" + Instant.now());
 		});
 	}
 
-	private void runRobotClick(int slot, CvHelperActionSurface surface, Map<String, Object> target, Point targetScreenPoint, Point mouseScreenPoint)
+	private void runRobotClick(int slot, CvHelperActionSurface surface, Map<String, Object> target, Map<String, Object> randomizedClickPoint, Point targetScreenPoint, Point mouseScreenPoint)
 	{
 		Thread clickThread = new Thread(() ->
 		{
@@ -733,7 +833,7 @@ public class CvHelperPlugin extends Plugin
 				clientThread.invokeLater(() -> client.addChatMessage(
 					ChatMessageType.GAMEMESSAGE,
 					"",
-					"CV Helper action " + slot + " | clicked " + surface + " " + targetLabelForMessage(target) + " at " + target.get("clickPoint"),
+					"CV Helper action " + slot + " | clicked " + surface + " " + targetLabelForMessage(target) + " at " + randomizedClickPoint,
 					""
 				));
 			}
@@ -753,6 +853,36 @@ public class CvHelperPlugin extends Plugin
 		robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
 		robot.delay(35);
 		robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+	}
+
+	private Map<String, Object> randomizedClickPoint(Map<String, Object> target, Map<String, Object> clickPoint)
+	{
+		Object boundsValue = target.get("bounds");
+		if (!(boundsValue instanceof Map))
+		{
+			boundsValue = target.get("canvasBounds");
+		}
+		if (!(boundsValue instanceof Map))
+		{
+			return clickPoint;
+		}
+
+		Map<?, ?> bounds = (Map<?, ?>) boundsValue;
+		Number width = (Number) bounds.get("width");
+		Number height = (Number) bounds.get("height");
+		Number x = (Number) clickPoint.get("x");
+		Number y = (Number) clickPoint.get("y");
+		if (width == null || height == null || x == null || y == null)
+		{
+			return clickPoint;
+		}
+
+		double radius = Math.max(1.0, Math.min(10.0, Math.min(width.doubleValue(), height.doubleValue()) / 2.0 - 2.0));
+		double angle = ThreadLocalRandom.current().nextDouble(0.0, Math.PI * 2.0);
+		double distance = Math.sqrt(ThreadLocalRandom.current().nextDouble()) * radius;
+		int randomizedX = (int) Math.round(x.doubleValue() + Math.cos(angle) * distance);
+		int randomizedY = (int) Math.round(y.doubleValue() + Math.sin(angle) * distance);
+		return pointMap(randomizedX, randomizedY);
 	}
 
 	private Map<String, Object> resolveActionTarget(CvHelperActionSurface surface, String targetLabel)

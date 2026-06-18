@@ -36,6 +36,7 @@ The Python process should not have to infer every UI coordinate from pixels. Whe
 - Implemented on 2026-06-17: target endpoints keep last-known UI target positions cached after panels close and mark whether exported targets are fresh or cached/stale. This lets the controller click a panel/tab target even after the panel has closed, as long as the layout has not changed.
 - Implemented on 2026-06-18: configurable CV Helper hotkeys are available for debug status, bounds printing, raw screen capture, nearby entity refresh, nearest-entity click-point logging, and four configurable action-click slots.
 - Implemented on 2026-06-18: entity exports include `center`, `canvasTileCenter`, and preferred canvas-space `clickPoint`; `/entities/nearest` returns the closest clickable player/NPC export.
+- Implemented on 2026-06-18: the CV Helper side panel has a collapsible `Action hotkeys` section so action slots can be configured without hunting through RuneLite's generic config panel.
 
 ## Core Responsibilities
 
@@ -249,6 +250,7 @@ RuneLite has existing hotkey primitives (`Keybind`, `HotkeyButton`, `KeyManager`
 - `Refresh entities hotkey`: refreshes nearby player/NPC exports and forwards them to the webhook if configured.
 - `Nearest entity hotkey`: writes the nearest exported entity and preferred canvas `clickPoint` to in-game chat.
 - `Action 1-4 hotkeys`: each slot has a keybind, target surface dropdown, target-label substring, and optional "click mouse after target" toggle. The slot resolves the current exported target, converts its canvas point into a screen point, and clicks automatically.
+- Clicks are randomized inside a safe circle around the exported target point. The circle is derived from the target bounds and capped to a small radius so repeated hotkeys do not click the exact same pixel while still staying inside the target.
 
 Action slot examples:
 
@@ -257,6 +259,8 @@ Action slot examples:
 - Nearest actor click: `Surface = NEAREST_ENTITY`, no target label required.
 
 The action slot implementation intentionally uses exported geometry as the source of truth, so the same target contract used by Python is exercised by the hotkey layer. If a surface depends on a visible tab, the tab must be visible or the target must be available from a cached snapshot before the action can resolve.
+
+The CV Helper right-side panel includes a collapsible `Action hotkeys` section with four slots. Each slot exposes a hotkey capture button, surface dropdown, target-label text field, mouse-after checkbox, and `Run action` button for manual testing.
 
 ## Debugging In Game
 
