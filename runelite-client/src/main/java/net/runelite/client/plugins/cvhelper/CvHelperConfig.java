@@ -41,6 +41,22 @@ public interface CvHelperConfig extends Config
 	String CAPTURE_SCREEN_HOTKEY = "captureScreenHotkey";
 	String REFRESH_ENTITIES_HOTKEY = "refreshEntitiesHotkey";
 	String NEAREST_ENTITY_HOTKEY = "nearestEntityHotkey";
+	String ACTION_HOTKEY_1 = "actionHotkey1";
+	String ACTION_SURFACE_1 = "actionSurface1";
+	String ACTION_TARGET_1 = "actionTarget1";
+	String ACTION_CLICK_MOUSE_1 = "actionClickMouse1";
+	String ACTION_HOTKEY_2 = "actionHotkey2";
+	String ACTION_SURFACE_2 = "actionSurface2";
+	String ACTION_TARGET_2 = "actionTarget2";
+	String ACTION_CLICK_MOUSE_2 = "actionClickMouse2";
+	String ACTION_HOTKEY_3 = "actionHotkey3";
+	String ACTION_SURFACE_3 = "actionSurface3";
+	String ACTION_TARGET_3 = "actionTarget3";
+	String ACTION_CLICK_MOUSE_3 = "actionClickMouse3";
+	String ACTION_HOTKEY_4 = "actionHotkey4";
+	String ACTION_SURFACE_4 = "actionSurface4";
+	String ACTION_TARGET_4 = "actionTarget4";
+	String ACTION_CLICK_MOUSE_4 = "actionClickMouse4";
 
 	@ConfigItem(
 		keyName = SHOW_HOVER_OVERLAY,
@@ -230,5 +246,165 @@ public interface CvHelperConfig extends Config
 	default Keybind nearestEntityHotkey()
 	{
 		return Keybind.NOT_SET;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_HOTKEY_1,
+		name = "Action 1 hotkey",
+		description = "Hotkey for action slot 1."
+	)
+	default Keybind actionHotkey1()
+	{
+		return Keybind.NOT_SET;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_SURFACE_1,
+		name = "Action 1 surface",
+		description = "Which exported target surface action slot 1 should click."
+	)
+	default CvHelperActionSurface actionSurface1()
+	{
+		return CvHelperActionSurface.DISABLED;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_TARGET_1,
+		name = "Action 1 target label",
+		description = "Case-insensitive target label text to match, such as Protect from Magic or High Level Alchemy."
+	)
+	default String actionTarget1()
+	{
+		return "";
+	}
+
+	@ConfigItem(
+		keyName = ACTION_CLICK_MOUSE_1,
+		name = "Action 1 click mouse after",
+		description = "After clicking the target widget, click the current mouse canvas position. Useful for target spells."
+	)
+	default boolean actionClickMouse1()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_HOTKEY_2,
+		name = "Action 2 hotkey",
+		description = "Hotkey for action slot 2."
+	)
+	default Keybind actionHotkey2()
+	{
+		return Keybind.NOT_SET;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_SURFACE_2,
+		name = "Action 2 surface",
+		description = "Which exported target surface action slot 2 should click."
+	)
+	default CvHelperActionSurface actionSurface2()
+	{
+		return CvHelperActionSurface.DISABLED;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_TARGET_2,
+		name = "Action 2 target label",
+		description = "Case-insensitive target label text to match."
+	)
+	default String actionTarget2()
+	{
+		return "";
+	}
+
+	@ConfigItem(
+		keyName = ACTION_CLICK_MOUSE_2,
+		name = "Action 2 click mouse after",
+		description = "After clicking the target widget, click the current mouse canvas position."
+	)
+	default boolean actionClickMouse2()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_HOTKEY_3,
+		name = "Action 3 hotkey",
+		description = "Hotkey for action slot 3."
+	)
+	default Keybind actionHotkey3()
+	{
+		return Keybind.NOT_SET;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_SURFACE_3,
+		name = "Action 3 surface",
+		description = "Which exported target surface action slot 3 should click."
+	)
+	default CvHelperActionSurface actionSurface3()
+	{
+		return CvHelperActionSurface.DISABLED;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_TARGET_3,
+		name = "Action 3 target label",
+		description = "Case-insensitive target label text to match."
+	)
+	default String actionTarget3()
+	{
+		return "";
+	}
+
+	@ConfigItem(
+		keyName = ACTION_CLICK_MOUSE_3,
+		name = "Action 3 click mouse after",
+		description = "After clicking the target widget, click the current mouse canvas position."
+	)
+	default boolean actionClickMouse3()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_HOTKEY_4,
+		name = "Action 4 hotkey",
+		description = "Hotkey for action slot 4."
+	)
+	default Keybind actionHotkey4()
+	{
+		return Keybind.NOT_SET;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_SURFACE_4,
+		name = "Action 4 surface",
+		description = "Which exported target surface action slot 4 should click."
+	)
+	default CvHelperActionSurface actionSurface4()
+	{
+		return CvHelperActionSurface.DISABLED;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_TARGET_4,
+		name = "Action 4 target label",
+		description = "Case-insensitive target label text to match."
+	)
+	default String actionTarget4()
+	{
+		return "";
+	}
+
+	@ConfigItem(
+		keyName = ACTION_CLICK_MOUSE_4,
+		name = "Action 4 click mouse after",
+		description = "After clicking the target widget, click the current mouse canvas position."
+	)
+	default boolean actionClickMouse4()
+	{
+		return false;
 	}
 }

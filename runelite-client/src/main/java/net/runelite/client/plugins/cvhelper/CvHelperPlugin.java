@@ -8,8 +8,11 @@ import com.google.gson.Gson;
 import com.google.inject.Provides;
 import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.Point;
 import java.awt.Rectangle;
+import java.awt.Robot;
 import java.awt.Shape;
+import java.awt.event.InputEvent;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
@@ -253,6 +256,42 @@ public class CvHelperPlugin extends Plugin
 		}
 	};
 
+	private final HotkeyListener actionHotkeyListener1 = new HotkeyListener(() -> config.actionHotkey1())
+	{
+		@Override
+		public void hotkeyPressed()
+		{
+			performConfiguredAction(1, config.actionSurface1(), config.actionTarget1(), config.actionClickMouse1());
+		}
+	};
+
+	private final HotkeyListener actionHotkeyListener2 = new HotkeyListener(() -> config.actionHotkey2())
+	{
+		@Override
+		public void hotkeyPressed()
+		{
+			performConfiguredAction(2, config.actionSurface2(), config.actionTarget2(), config.actionClickMouse2());
+		}
+	};
+
+	private final HotkeyListener actionHotkeyListener3 = new HotkeyListener(() -> config.actionHotkey3())
+	{
+		@Override
+		public void hotkeyPressed()
+		{
+			performConfiguredAction(3, config.actionSurface3(), config.actionTarget3(), config.actionClickMouse3());
+		}
+	};
+
+	private final HotkeyListener actionHotkeyListener4 = new HotkeyListener(() -> config.actionHotkey4())
+	{
+		@Override
+		public void hotkeyPressed()
+		{
+			performConfiguredAction(4, config.actionSurface4(), config.actionTarget4(), config.actionClickMouse4());
+		}
+	};
+
 	private void registerHotkeys()
 	{
 		keyManager.registerKeyListener(debugHotkeyListener);
@@ -260,6 +299,10 @@ public class CvHelperPlugin extends Plugin
 		keyManager.registerKeyListener(captureScreenHotkeyListener);
 		keyManager.registerKeyListener(refreshEntitiesHotkeyListener);
 		keyManager.registerKeyListener(nearestEntityHotkeyListener);
+		keyManager.registerKeyListener(actionHotkeyListener1);
+		keyManager.registerKeyListener(actionHotkeyListener2);
+		keyManager.registerKeyListener(actionHotkeyListener3);
+		keyManager.registerKeyListener(actionHotkeyListener4);
 	}
 
 	private void unregisterHotkeys()
@@ -269,6 +312,10 @@ public class CvHelperPlugin extends Plugin
 		keyManager.unregisterKeyListener(captureScreenHotkeyListener);
 		keyManager.unregisterKeyListener(refreshEntitiesHotkeyListener);
 		keyManager.unregisterKeyListener(nearestEntityHotkeyListener);
+		keyManager.unregisterKeyListener(actionHotkeyListener1);
+		keyManager.unregisterKeyListener(actionHotkeyListener2);
+		keyManager.unregisterKeyListener(actionHotkeyListener3);
+		keyManager.unregisterKeyListener(actionHotkeyListener4);
 	}
 
 	CvHelperConfig getConfig()
@@ -632,6 +679,169 @@ public class CvHelperPlugin extends Plugin
 			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", sb.toString(), "");
 			lastEvent.set("nearest-entity@" + nearest.get("name") + "@" + Instant.now());
 		});
+	}
+
+	void performConfiguredAction(int slot, CvHelperActionSurface surface, String targetLabel, boolean clickMouseAfterTarget)
+	{
+		if (surface == null || surface == CvHelperActionSurface.DISABLED)
+		{
+			return;
+		}
+
+		clientThread.invokeLater(() ->
+		{
+			Map<String, Object> target = resolveActionTarget(surface, targetLabel);
+			if (target == null)
+			{
+				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper action " + slot + " | no target matched " + surface + " / " + targetLabel, "");
+				return;
+			}
+
+			Map<String, Object> clickPoint = firstPoint(target, "clickPoint", "center", "canvasTileCenter");
+			if (clickPoint == null)
+			{
+				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper action " + slot + " | matched target has no canvas click point", "");
+				return;
+			}
+
+			Point targetScreenPoint = canvasPointToScreen(clickPoint);
+			Point mouseScreenPoint = clickMouseAfterTarget ? canvasPointToScreen(pointValue(client.getMouseCanvasPosition())) : null;
+			if (targetScreenPoint == null)
+			{
+				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper action " + slot + " | target is off-canvas", "");
+				return;
+			}
+
+			runRobotClick(slot, surface, target, targetScreenPoint, mouseScreenPoint);
+			lastEvent.set("action-hotkey-" + slot + "@" + surface + "@" + Instant.now());
+		});
+	}
+
+	private void runRobotClick(int slot, CvHelperActionSurface surface, Map<String, Object> target, Point targetScreenPoint, Point mouseScreenPoint)
+	{
+		Thread clickThread = new Thread(() ->
+		{
+			try
+			{
+				Robot robot = new Robot();
+				clickScreenPoint(robot, targetScreenPoint);
+				if (mouseScreenPoint != null)
+				{
+					robot.delay(90);
+					clickScreenPoint(robot, mouseScreenPoint);
+				}
+				clientThread.invokeLater(() -> client.addChatMessage(
+					ChatMessageType.GAMEMESSAGE,
+					"",
+					"CV Helper action " + slot + " | clicked " + surface + " " + targetLabelForMessage(target) + " at " + target.get("clickPoint"),
+					""
+				));
+			}
+			catch (RuntimeException | java.awt.AWTException e)
+			{
+				log.warn("CV Helper action hotkey failed", e);
+				clientThread.invokeLater(() -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper action " + slot + " failed: " + e.getMessage(), ""));
+			}
+		}, "cv-helper-action-click");
+		clickThread.setDaemon(true);
+		clickThread.start();
+	}
+
+	private void clickScreenPoint(Robot robot, Point point)
+	{
+		robot.mouseMove(point.x, point.y);
+		robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
+		robot.delay(35);
+		robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+	}
+
+	private Map<String, Object> resolveActionTarget(CvHelperActionSurface surface, String targetLabel)
+	{
+		if (surface == CvHelperActionSurface.NEAREST_ENTITY)
+		{
+			lastEntities = collectEntities();
+			return nearestClickableEntity(lastEntities);
+		}
+
+		List<Map<String, Object>> targets = collectActionSurfaceTargets(surface);
+		String needle = normalize(targetLabel);
+		if (needle.isEmpty())
+		{
+			return targets.isEmpty() ? null : targets.get(0);
+		}
+
+		for (Map<String, Object> target : targets)
+		{
+			String haystack = normalize(targetLabelForMessage(target) + " " + target.get("name") + " " + target.get("text") + " " + Arrays.toString((String[]) target.get("actions")));
+			if (haystack.contains(needle))
+			{
+				return target;
+			}
+		}
+		return null;
+	}
+
+	private List<Map<String, Object>> collectActionSurfaceTargets(CvHelperActionSurface surface)
+	{
+		switch (surface)
+		{
+			case PRAYER:
+				return collectPrayerTargets();
+			case SPELL:
+				return collectSpellTargets();
+			case MINIMAP:
+				return collectMinimapTargets();
+			case INVENTORY:
+				return collectInventoryTargets();
+			case EQUIPMENT:
+				return collectEquipmentTargets();
+			case PANELS:
+				return collectPanelTargets();
+			case COMBAT:
+				return collectCombatTargets();
+			default:
+				return new ArrayList<>();
+		}
+	}
+
+	private Map<String, Object> firstPoint(Map<String, Object> target, String... keys)
+	{
+		for (String key : keys)
+		{
+			Object value = target.get(key);
+			if (value instanceof Map)
+			{
+				return (Map<String, Object>) value;
+			}
+		}
+		return null;
+	}
+
+	private Point canvasPointToScreen(Map<String, Object> canvasPoint)
+	{
+		if (canvasPoint == null)
+		{
+			return null;
+		}
+		Number x = (Number) canvasPoint.get("x");
+		Number y = (Number) canvasPoint.get("y");
+		if (x == null || y == null)
+		{
+			return null;
+		}
+
+		Point canvasLocation = client.getCanvas().getLocationOnScreen();
+		return new Point(canvasLocation.x + x.intValue(), canvasLocation.y + y.intValue());
+	}
+
+	private String targetLabelForMessage(Map<String, Object> target)
+	{
+		Object label = target.get("label");
+		if (label == null || String.valueOf(label).trim().isEmpty() || "null".equals(label))
+		{
+			label = target.get("name");
+		}
+		return label == null ? "(unnamed)" : String.valueOf(label);
 	}
 
 	void refreshPrayerTargets()

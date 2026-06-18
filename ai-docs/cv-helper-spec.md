@@ -34,7 +34,7 @@ The Python process should not have to infer every UI coordinate from pixels. Whe
 - Implemented on 2026-06-17: `/player/status` and `/status` export mouse position, current player world/local coordinates, self/player screen bounds if available, current open interface/tab metadata, capture statuses, and target snapshot status.
 - Implemented on 2026-06-17: panel/navigation targets, compass/north target, combat option/attack-style targets, and nearby player/NPC entities are exported.
 - Implemented on 2026-06-17: target endpoints keep last-known UI target positions cached after panels close and mark whether exported targets are fresh or cached/stale. This lets the controller click a panel/tab target even after the panel has closed, as long as the layout has not changed.
-- Implemented on 2026-06-18: configurable CV Helper hotkeys are available for debug status, bounds printing, raw screen capture, nearby entity refresh, and nearest-entity click-point logging.
+- Implemented on 2026-06-18: configurable CV Helper hotkeys are available for debug status, bounds printing, raw screen capture, nearby entity refresh, nearest-entity click-point logging, and four configurable action-click slots.
 - Implemented on 2026-06-18: entity exports include `center`, `canvasTileCenter`, and preferred canvas-space `clickPoint`; `/entities/nearest` returns the closest clickable player/NPC export.
 
 ## Core Responsibilities
@@ -248,15 +248,15 @@ RuneLite has existing hotkey primitives (`Keybind`, `HotkeyButton`, `KeyManager`
 - `Capture screen hotkey`: queues a raw client-canvas capture.
 - `Refresh entities hotkey`: refreshes nearby player/NPC exports and forwards them to the webhook if configured.
 - `Nearest entity hotkey`: writes the nearest exported entity and preferred canvas `clickPoint` to in-game chat.
+- `Action 1-4 hotkeys`: each slot has a keybind, target surface dropdown, target-label substring, and optional "click mouse after target" toggle. The slot resolves the current exported target, converts its canvas point into a screen point, and clicks automatically.
 
-Future action hotkeys remain:
+Action slot examples:
 
-- Add/dropdown-style UI for mapping hotkeys to semantic actions such as `toggle-prayer:Protect from Magic` or `select-spell:High Level Alchemy`.
-- Start by logging/debug-printing the resolved action and current target geometry.
-- Use existing prayer/spell exports as the source of truth for the target center and widget metadata.
-- Decide deliberately whether CV Helper should execute in-game actions itself or whether it should emit action intents for the Python/controller layer to click/cast.
+- Prayer toggle: `Surface = PRAYER`, `Target label = Protect from Magic`, `Click mouse after = false`.
+- Targeted spell: `Surface = SPELL`, `Target label = High Level Alchemy`, `Click mouse after = true`. Pressing the hotkey clicks the spell widget, waits briefly, then clicks the current mouse canvas position.
+- Nearest actor click: `Surface = NEAREST_ENTITY`, no target label required.
 
-Until that boundary is decided, CV Helper should remain a helper/exporter rather than a direct autonomous player.
+The action slot implementation intentionally uses exported geometry as the source of truth, so the same target contract used by Python is exercised by the hotkey layer. If a surface depends on a visible tab, the tab must be visible or the target must be available from a cached snapshot before the action can resolve.
 
 ## Debugging In Game
 
