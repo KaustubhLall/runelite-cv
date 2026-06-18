@@ -75,6 +75,11 @@ public interface CvHelperConfig extends Config
 	String ACTION_CLICK_AFTER_MODE_4 = "actionClickAfterMode4";
 	String ACTION_RETURN_PANEL_4 = "actionReturnPanel4";
 	String ACTION_RETURN_MOUSE_CENTER_4 = "actionReturnMouseCenter4";
+	String ACTION_PANEL_OPEN_DELAY_MS = "actionPanelOpenDelayMs";
+	String ACTION_WIDGET_TARGET_DELAY_MS = "actionWidgetTargetDelayMs";
+	String ACTION_SELECTED_WIDGET_TIMEOUT_MS = "actionSelectedWidgetTimeoutMs";
+	String ACTION_RETURN_PANEL_DELAY_MS = "actionReturnPanelDelayMs";
+	String ACTION_MOUSE_RESTORE_DELAY_MS = "actionMouseRestoreDelayMs";
 
 	@ConfigSection(
 		name = "Action hotkeys",
@@ -274,6 +279,61 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = ACTION_PANEL_OPEN_DELAY_MS,
+		name = "Panel-open delay ms",
+		description = "Delay after opening a required side panel before resolving and invoking the action.",
+		section = actionSection
+	)
+	default int actionPanelOpenDelayMs()
+	{
+		return 125;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_WIDGET_TARGET_DELAY_MS,
+		name = "Widget-target delay ms",
+		description = "Delay after a spell/widget action is selected before clicking the current mouse target.",
+		section = actionSection
+	)
+	default int actionWidgetTargetDelayMs()
+	{
+		return 350;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_SELECTED_WIDGET_TIMEOUT_MS,
+		name = "Spell selected timeout ms",
+		description = "Maximum time to wait for RuneLite to report a selected spell/widget before target-clicking.",
+		section = actionSection
+	)
+	default int actionSelectedWidgetTimeoutMs()
+	{
+		return 900;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_RETURN_PANEL_DELAY_MS,
+		name = "Return-panel delay ms",
+		description = "Delay before clicking back to the previously open side panel.",
+		section = actionSection
+	)
+	default int actionReturnPanelDelayMs()
+	{
+		return 80;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_MOUSE_RESTORE_DELAY_MS,
+		name = "Mouse-restore delay ms",
+		description = "Delay before restoring the OS mouse to its original position.",
+		section = actionSection
+	)
+	default int actionMouseRestoreDelayMs()
+	{
+		return 40;
+	}
+
+	@ConfigItem(
 		keyName = ACTION_ENABLED_1,
 		name = "Action 1 enabled",
 		description = "Enable or disable action slot 1 without clearing its hotkey.",
@@ -347,7 +407,7 @@ public interface CvHelperConfig extends Config
 	)
 	default boolean actionReturnPanel1()
 	{
-		return false;
+		return true;
 	}
 
 	@ConfigItem(
@@ -358,7 +418,7 @@ public interface CvHelperConfig extends Config
 	)
 	default boolean actionReturnMouseCenter1()
 	{
-		return false;
+		return true;
 	}
 
 	@ConfigItem(
@@ -435,7 +495,7 @@ public interface CvHelperConfig extends Config
 	)
 	default boolean actionReturnPanel2()
 	{
-		return false;
+		return true;
 	}
 
 	@ConfigItem(
@@ -446,7 +506,7 @@ public interface CvHelperConfig extends Config
 	)
 	default boolean actionReturnMouseCenter2()
 	{
-		return false;
+		return true;
 	}
 
 	@ConfigItem(
@@ -523,7 +583,7 @@ public interface CvHelperConfig extends Config
 	)
 	default boolean actionReturnPanel3()
 	{
-		return false;
+		return true;
 	}
 
 	@ConfigItem(
@@ -534,7 +594,7 @@ public interface CvHelperConfig extends Config
 	)
 	default boolean actionReturnMouseCenter3()
 	{
-		return false;
+		return true;
 	}
 
 	@ConfigItem(
@@ -611,7 +671,7 @@ public interface CvHelperConfig extends Config
 	)
 	default boolean actionReturnPanel4()
 	{
-		return false;
+		return true;
 	}
 
 	@ConfigItem(
@@ -622,6 +682,6 @@ public interface CvHelperConfig extends Config
 	)
 	default boolean actionReturnMouseCenter4()
 	{
-		return false;
+		return true;
 	}
 }

@@ -98,7 +98,6 @@ public class CvHelperPlugin extends Plugin
 	private static final int ACTION_SLOT_COUNT = 8;
 	private static final int ACTION_RESOLVE_RETRIES = 4;
 	private static final int ACTION_RESOLVE_DELAY_MS = 80;
-	private static final int ACTION_CLICK_AFTER_DELAY_MS = 200;
 	private static final DateTimeFormatter CAPTURE_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
 	private static final int[] PRAYER_COMPONENTS = {
 		InterfaceID.Prayerbook.PRAYER1,
@@ -856,7 +855,7 @@ public class CvHelperPlugin extends Plugin
 				return config.actionReturnPanel4();
 			default:
 				Boolean returnPanel = configManager.getConfiguration(CvHelperConfig.GROUP, "actionReturnPanel" + slot, Boolean.class);
-				return returnPanel != null && returnPanel;
+				return returnPanel == null || returnPanel;
 		}
 	}
 
@@ -874,7 +873,7 @@ public class CvHelperPlugin extends Plugin
 				return config.actionReturnMouseCenter4();
 			default:
 				Boolean returnMouseCenter = configManager.getConfiguration(CvHelperConfig.GROUP, "actionReturnMouseCenter" + slot, Boolean.class);
-				return returnMouseCenter != null && returnMouseCenter;
+				return returnMouseCenter == null || returnMouseCenter;
 		}
 	}
 
@@ -1009,9 +1008,9 @@ public class CvHelperPlugin extends Plugin
 			Point mouseScreenPoint = clickMouseAfterTarget ? originalMouseScreenPoint : null;
 			Point returnPanelPoint = returnPanel ? panelReturnPoint(previousPanel) : null;
 			Point restoreMousePoint = returnMouseCenter ? originalMouseScreenPoint : null;
-			if (surface == CvHelperActionSurface.SPELL && invokeWidgetAction(target))
+			if (isWidgetActionSurface(surface) && invokeWidgetAction(surface, target))
 			{
-				runRobotAfterWidgetAction(slot, surface, target, mouseScreenPoint, returnPanelPoint, restoreMousePoint);
+				runRobotAfterWidgetAction(slot, surface, target, mouseScreenPoint, returnPanelPoint, restoreMousePoint, surface == CvHelperActionSurface.SPELL && mouseScreenPoint != null);
 				lastEvent.set("action-hotkey-" + slot + "@" + surface + "@" + Instant.now());
 				return;
 			}
@@ -1053,7 +1052,7 @@ public class CvHelperPlugin extends Plugin
 			{
 				Robot robot = new Robot();
 				clickScreenPoint(robot, panelPoint);
-				robot.delay(75);
+				robot.delay(timing(config.actionPanelOpenDelayMs(), 0, 1500));
 				performConfiguredActionResolved(slot, surface, targetLabel, clickAfterMode, returnPanel, returnMouseCenter, previousPanel, originalMouseScreenPoint);
 			}
 			catch (RuntimeException | java.awt.AWTException e)
@@ -1076,17 +1075,17 @@ public class CvHelperPlugin extends Plugin
 				clickScreenPoint(robot, targetScreenPoint);
 				if (mouseScreenPoint != null)
 				{
-					robot.delay(ACTION_CLICK_AFTER_DELAY_MS);
+					robot.delay(timing(config.actionWidgetTargetDelayMs(), 0, 3000));
 					clickScreenPoint(robot, mouseScreenPoint);
 				}
 				if (returnPanelPoint != null)
 				{
-					robot.delay(45);
+					robot.delay(timing(config.actionReturnPanelDelayMs(), 0, 3000));
 					clickScreenPoint(robot, returnPanelPoint);
 				}
 				if (centerPoint != null)
 				{
-					robot.delay(20);
+					robot.delay(timing(config.actionMouseRestoreDelayMs(), 0, 3000));
 					robot.mouseMove(centerPoint.x, centerPoint.y);
 				}
 				clientThread.invokeLater(() -> client.addChatMessage(
@@ -1106,7 +1105,7 @@ public class CvHelperPlugin extends Plugin
 		clickThread.start();
 	}
 
-	private void runRobotAfterWidgetAction(int slot, CvHelperActionSurface surface, Map<String, Object> target, Point mouseScreenPoint, Point returnPanelPoint, Point restoreMousePoint)
+	private void runRobotAfterWidgetAction(int slot, CvHelperActionSurface surface, Map<String, Object> target, Point mouseScreenPoint, Point returnPanelPoint, Point restoreMousePoint, boolean waitForSelectedWidget)
 	{
 		Thread clickThread = new Thread(() ->
 		{
@@ -1115,17 +1114,28 @@ public class CvHelperPlugin extends Plugin
 				Robot robot = new Robot();
 				if (mouseScreenPoint != null)
 				{
-					robot.delay(ACTION_CLICK_AFTER_DELAY_MS);
+					if (waitForSelectedWidget && !waitForSelectedWidget())
+					{
+						clientThread.invokeLater(() -> client.addChatMessage(
+							ChatMessageType.GAMEMESSAGE,
+							"",
+							"CV Helper action " + slot + " | invoked " + surface + " " + targetLabelForMessage(target) + " via widget | spell was not selected before timeout, skipped mouse target click",
+							""
+						));
+						restoreAfterSkippedTarget(robot, returnPanelPoint, restoreMousePoint);
+						return;
+					}
+					robot.delay(timing(config.actionWidgetTargetDelayMs(), 0, 3000));
 					clickScreenPoint(robot, mouseScreenPoint);
 				}
 				if (returnPanelPoint != null)
 				{
-					robot.delay(45);
+					robot.delay(timing(config.actionReturnPanelDelayMs(), 0, 3000));
 					clickScreenPoint(robot, returnPanelPoint);
 				}
 				if (restoreMousePoint != null)
 				{
-					robot.delay(20);
+					robot.delay(timing(config.actionMouseRestoreDelayMs(), 0, 3000));
 					robot.mouseMove(restoreMousePoint.x, restoreMousePoint.y);
 				}
 				clientThread.invokeLater(() -> client.addChatMessage(
@@ -1145,7 +1155,72 @@ public class CvHelperPlugin extends Plugin
 		clickThread.start();
 	}
 
-	private boolean invokeWidgetAction(Map<String, Object> target)
+	private void restoreAfterSkippedTarget(Robot robot, Point returnPanelPoint, Point restoreMousePoint)
+	{
+		if (returnPanelPoint != null)
+		{
+			robot.delay(timing(config.actionReturnPanelDelayMs(), 0, 3000));
+			clickScreenPoint(robot, returnPanelPoint);
+		}
+		if (restoreMousePoint != null)
+		{
+			robot.delay(timing(config.actionMouseRestoreDelayMs(), 0, 3000));
+			robot.mouseMove(restoreMousePoint.x, restoreMousePoint.y);
+		}
+	}
+
+	private boolean waitForSelectedWidget()
+	{
+		long deadline = System.currentTimeMillis() + timing(config.actionSelectedWidgetTimeoutMs(), 0, 5000);
+		while (System.currentTimeMillis() <= deadline)
+		{
+			if (isWidgetSelectedOnClientThread())
+			{
+				return true;
+			}
+			try
+			{
+				Thread.sleep(25);
+			}
+			catch (InterruptedException e)
+			{
+				Thread.currentThread().interrupt();
+				return false;
+			}
+		}
+		return false;
+	}
+
+	private boolean isWidgetSelectedOnClientThread()
+	{
+		CountDownLatch latch = new CountDownLatch(1);
+		AtomicReference<Boolean> selected = new AtomicReference<>(false);
+		clientThread.invokeLater(() ->
+		{
+			selected.set(client.isWidgetSelected());
+			latch.countDown();
+		});
+		try
+		{
+			if (!latch.await(250, TimeUnit.MILLISECONDS))
+			{
+				return false;
+			}
+		}
+		catch (InterruptedException e)
+		{
+			Thread.currentThread().interrupt();
+			return false;
+		}
+		return Boolean.TRUE.equals(selected.get());
+	}
+
+	private boolean isWidgetActionSurface(CvHelperActionSurface surface)
+	{
+		return surface == CvHelperActionSurface.SPELL || surface == CvHelperActionSurface.PRAYER;
+	}
+
+	private boolean invokeWidgetAction(CvHelperActionSurface surface, Map<String, Object> target)
 	{
 		Object widgetIdValue = target.get("widgetId");
 		if (!(widgetIdValue instanceof Number))
@@ -1162,8 +1237,14 @@ public class CvHelperPlugin extends Plugin
 		Object itemIdValue = target.get("itemId");
 		int itemId = itemIdValue instanceof Number ? ((Number) itemIdValue).intValue() : -1;
 		String label = targetLabelForMessage(target);
-		client.menuAction(-1, widgetId, MenuAction.CC_OP, 1, itemId, "Cast", label);
+		String option = surface == CvHelperActionSurface.PRAYER ? "Activate" : "Cast";
+		client.menuAction(-1, widgetId, MenuAction.CC_OP, 1, itemId, option, label);
 		return true;
+	}
+
+	private int timing(int value, int min, int max)
+	{
+		return Math.max(min, Math.min(max, value));
 	}
 
 	private boolean shouldClickMouseAfter(CvHelperActionSurface surface, Map<String, Object> target, CvHelperClickAfterMode mode)
@@ -1979,6 +2060,7 @@ public class CvHelperPlugin extends Plugin
 	private List<Map<String, Object>> collectPrayerTargets()
 	{
 		List<Map<String, Object>> targets = new ArrayList<>();
+		collectDirectPrayerTargets(targets);
 		Widget prayerParent = client.getWidget(ComponentID.PRAYER_PARENT);
 		if (prayerParent != null)
 		{
@@ -1991,12 +2073,7 @@ public class CvHelperPlugin extends Plugin
 			collectWidgetTargets("quickPrayer", quickPrayerParent, targets);
 		}
 
-		if (targets.isEmpty())
-		{
-			collectDirectPrayerTargets(targets);
-		}
-
-		return targets;
+		return dedupeTargets(targets);
 	}
 
 	private void collectDirectPrayerTargets(List<Map<String, Object>> targets)
