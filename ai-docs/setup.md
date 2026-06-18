@@ -34,6 +34,7 @@ These tools are useful for the intended workflow:
 ## Open Setup Items
 
 - RuneLite plugin run command: `powershell -ExecutionPolicy Bypass -File .\scripts\launch-dev-runelite.ps1`.
+- `scripts\launch-dev-runelite.ps1` auto-detects Java from `JAVA_HOME`, `C:\Program Files\Android\openjdk\jdk-21.0.8`, or `C:\Users\kaust\.jdks\corretto-22.0.2`. Pass `-JavaHome <path>` only if using a different JDK.
 - Faster CV Helper launch command: `powershell -ExecutionPolicy Bypass -File .\scripts\run-cv-helper.ps1`.
 - Desktop shortcut: `C:\Users\kaust\OneDrive\Desktop\RuneLite CV Helper.lnk`.
 - RuneLite live-service compatibility override: the dev launch script defaults to `-ServiceVersion 1.12.28`, which maps Plugin Hub and RuneLite API requests to the stable `https://api.runelite.net/runelite-1.12.28` service while running the local snapshot jar.

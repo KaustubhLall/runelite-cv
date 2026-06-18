@@ -37,6 +37,8 @@ The Python process should not have to infer every UI coordinate from pixels. Whe
 - Implemented on 2026-06-18: configurable CV Helper hotkeys are available for debug status, bounds printing, raw screen capture, nearby entity refresh, nearest-entity click-point logging, and four configurable action-click slots.
 - Implemented on 2026-06-18: entity exports include `center`, `canvasTileCenter`, and preferred canvas-space `clickPoint`; `/entities/nearest` returns the closest clickable player/NPC export.
 - Implemented on 2026-06-18: the CV Helper side panel has a collapsible `Action hotkeys` section so action slots can be configured without hunting through RuneLite's generic config panel.
+- Implemented on 2026-06-18: action slots expose invocation mode (`AUTO`, `WIDGET`, `CLICK`) and a refresh-choices button. Target dropdowns use the same cached/live target snapshots as overlays, verifier tables, and Python exports, with broader Standard spell seed names such as Crumble Undead for hidden-tab setup.
+- Implemented on 2026-06-18: `/status` and `/player/status` export grouped vitals (`HP`, prayer points, run, special attack, active prayers), selected-widget state, and coarse inventory/equipment/current-loot/risked-value summaries.
 
 ## Core Responsibilities
 
@@ -159,7 +161,7 @@ Returns visible equipped-item/equipment slot targets with click centers, item id
 
 ### `GET /player/status`
 
-Returns player and client state, including login state, world info, base coordinates, player world/local coordinates, mouse canvas position, optional self/player screen bounds, run energy, weight, current spellbook, current visible interface/tab metadata, all skills, and prayer active/export state where available.
+Returns player and client state, including login state, world info, base coordinates, player world/local coordinates, mouse canvas position, optional self/player screen bounds, run energy, special attack energy/enabled state, HP/prayer boosted and real levels, weight, current spellbook, selected widget state, current visible interface/tab metadata, coarse inventory/equipment/current-loot/risked-value summaries, all skills, and prayer active/export state where available.
 
 ### `GET /targets/panels`
 
@@ -249,14 +251,15 @@ RuneLite has existing hotkey primitives (`Keybind`, `HotkeyButton`, `KeyManager`
 - `Capture screen hotkey`: queues a raw client-canvas capture.
 - `Refresh entities hotkey`: refreshes nearby player/NPC exports and forwards them to the webhook if configured.
 - `Nearest entity hotkey`: writes the nearest exported entity and preferred canvas `clickPoint` to in-game chat.
-- `Action 1-8 hotkeys`: each slot has an enabled toggle, keybind, target surface dropdown, editable target-label dropdown, click-after mode, optional return-to-previous-panel toggle, optional return-mouse-to-center toggle, and a manual run button. The slot resolves the current exported target, converts its canvas point into a screen point, and clicks automatically.
+- `Action 1-8 hotkeys`: each slot has an enabled toggle, keybind, target surface dropdown, editable target-label dropdown, refresh-choices button, invocation mode, click-after mode, optional return-to-previous-panel toggle, optional restore-mouse-to-original-position toggle, and a manual run button. The slot resolves the current exported target, converts its canvas point into a screen point, and clicks automatically when using physical clicks.
 - Action timing controls are available in RuneLite config: panel-open delay, widget-target delay, selected-widget timeout, return-panel delay, and mouse-restore delay. These are deliberately configurable because targeted spells depend on client state becoming selected before the follow-up target click.
 - Clicks are randomized inside a safe circle around the exported target point. The circle is derived from the target bounds and capped to a small radius so repeated hotkeys do not click the exact same pixel while still staying inside the target.
 - Click-after mode is `AUTO`, `ALWAYS`, or `NEVER`. `AUTO` does not click after prayers or self-resolving spells such as teleports, but does click after most other spell targets so the current OS mouse position can be used as the spell target.
 - Spell, prayer, inventory, equipment, and combat actions first open the required side panel if it is not currently active, wait briefly, then resolve and click the target.
 - Click-after uses the exact OS mouse position captured at hotkey press time. It is not randomized; this is what makes "hover target, press spell hotkey" click the hovered target.
 - Combat spells such as Wind Strike/Bolt/Blast/Surge force click-after in `AUTO`, retry target resolution after opening the spellbook, and wait briefly after selecting the spell before clicking the captured mouse target.
-- Spell action slots select/cast the spell widget through RuneLite's widget action path instead of moving the physical mouse to the spell icon. Java Robot is only used for the optional follow-up mouse-target click, return-panel click, and mouse restore. This avoids spellbook icon flicker/double-click behavior.
+- Invocation mode is `AUTO`, `WIDGET`, or `CLICK`. `AUTO` prefers RuneLite widget actions for spells/prayers and falls back to physical clicks when no widget action is available. `WIDGET` forces widget invocation and fails closed if the target lacks a widget id/action. `CLICK` forces Java Robot physical clicks for debugging or fallback.
+- Spell action slots select/cast the spell widget through RuneLite's widget action path by default instead of moving the physical mouse to the spell icon. Java Robot is only used for the optional follow-up mouse-target click, return-panel click, and mouse restore unless `CLICK` mode is selected. This avoids spellbook icon flicker/double-click behavior.
 - Prayer action slots also invoke the target prayer widget through RuneLite widget actions, and direct friendly prayer component targets are preferred over ambiguous child widgets.
 - Targeted spell actions wait until RuneLite reports a selected widget/spell before clicking the current mouse target. If selection does not happen before timeout, CV Helper skips the target click to avoid accidentally walking.
 - Hotkeys are suppressed while RuneLite chat/message-layer input is active or while a CV Helper side-panel text field has focus, so typing in chat/config does not fire action slots.
@@ -287,7 +290,9 @@ The hotkey executor is the first local implementation of the broader Python-driv
 
 Sequences should fail closed: if a required state transition does not happen before timeout, skip unsafe downstream clicks rather than guessing.
 
-The CV Helper right-side panel includes a collapsible `Action hotkeys` section with eight full-width slots separated by dividers. Each slot exposes an enabled toggle, hotkey capture button, surface dropdown, editable target dropdown, click-after mode dropdown, return options, and `Run action` button for manual testing. Slots 1-4 are also represented in RuneLite's native config under the `Action hotkeys` section; slots 5-8 are managed from the CV Helper panel to avoid making the native config page unwieldy.
+The CV Helper right-side panel includes a collapsible `Action hotkeys` section with eight full-width slots separated by dividers. Each slot exposes an enabled toggle, hotkey capture button, surface dropdown, editable target dropdown, refresh-choices button, invocation mode dropdown, click-after mode dropdown, return options, and `Run action` button for manual testing. Slots 1-4 are also represented in RuneLite's native config under the `Action hotkeys` section; slots 5-8 are managed from the CV Helper panel to avoid making the native config page unwieldy.
+
+The verifier dashboard groups `/status` data into connection, vitals, wealth, and interface sections. It shows HP/prayer, run energy, special attack energy/enabled state, active prayers, current loot/equipment/total carried/risked-value approximation, selected widget state, and latest capture preview/path.
 
 ## Debugging In Game
 

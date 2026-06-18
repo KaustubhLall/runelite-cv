@@ -1,5 +1,5 @@
 param(
-    [string] $JavaHome = "C:\Program Files\Android\openjdk\jdk-21.0.8",
+    [string] $JavaHome = "",
     [string] $ServiceVersion = "1.12.28"
 )
 
@@ -7,6 +7,22 @@ $ErrorActionPreference = "Stop"
 
 $credentialsPath = Join-Path $env:USERPROFILE ".runelite\credentials.properties"
 $jarPath = Join-Path $PSScriptRoot "..\runelite-client\build\libs\client-1.12.29-SNAPSHOT-shaded.jar"
+
+if ([string]::IsNullOrWhiteSpace($JavaHome)) {
+    $candidateHomes = @(
+        $env:JAVA_HOME,
+        "C:\Program Files\Android\openjdk\jdk-21.0.8",
+        (Join-Path $env:USERPROFILE ".jdks\corretto-22.0.2")
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+    foreach ($candidate in $candidateHomes) {
+        if (Test-Path (Join-Path $candidate "bin\java.exe")) {
+            $JavaHome = $candidate
+            break
+        }
+    }
+}
+
 $javaExe = Join-Path $JavaHome "bin\java.exe"
 
 if (!(Test-Path $credentialsPath)) {

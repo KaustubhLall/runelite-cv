@@ -241,6 +241,27 @@ h2 {
 	gap: 10px;
 }
 
+.stat-grid {
+	align-items: stretch;
+}
+
+.status-group {
+	padding: 14px;
+	border: 1px solid var(--line);
+	border-radius: 22px;
+	background: rgba(255, 251, 240, .48);
+}
+
+.status-group h3 {
+	margin: 0 0 10px;
+	font-size: 1rem;
+	text-transform: lowercase;
+}
+
+.status-group-grid {
+	grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
 .stat,
 .count {
 	padding: 12px;

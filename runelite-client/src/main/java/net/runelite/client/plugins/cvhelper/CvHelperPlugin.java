@@ -48,12 +48,17 @@ import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.EnumID;
 import net.runelite.api.GameState;
+import net.runelite.api.InventoryID;
+import net.runelite.api.Item;
+import net.runelite.api.ItemComposition;
+import net.runelite.api.ItemContainer;
 import net.runelite.api.MenuAction;
 import net.runelite.api.NPC;
 import net.runelite.api.Perspective;
 import net.runelite.api.Player;
 import net.runelite.api.Prayer;
 import net.runelite.api.Skill;
+import net.runelite.api.VarPlayer;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.gameval.InterfaceID;
@@ -66,6 +71,7 @@ import net.runelite.api.widgets.WidgetInfo;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.config.Keybind;
+import net.runelite.client.game.ItemManager;
 import net.runelite.client.input.KeyManager;
 import net.runelite.client.RuneLite;
 import net.runelite.client.ui.ClientToolbar;
@@ -164,6 +170,9 @@ public class CvHelperPlugin extends Plugin
 
 	@Inject
 	private KeyManager keyManager;
+
+	@Inject
+	private ItemManager itemManager;
 
 	private NavigationButton navButton;
 	private CvHelperPanel panel;
@@ -427,6 +436,9 @@ public class CvHelperPlugin extends Plugin
 		status.put("captures", captureStatuses());
 		status.put("skills", safeValue(this::allSkillSnapshots, new LinkedHashMap<>()));
 		status.put("prayers", safeValue(this::prayerStatus, new LinkedHashMap<>()));
+		status.put("vitals", safeValue(this::vitalStatus, new LinkedHashMap<>()));
+		status.put("wealth", safeValue(this::wealthStatus, new LinkedHashMap<>()));
+		status.put("selectedWidget", safeValue(this::selectedWidgetStatus, new LinkedHashMap<>()));
 		return status;
 	}
 
@@ -722,6 +734,12 @@ public class CvHelperPlugin extends Plugin
 		updatePanelStatus("Action " + slot + " click-after mode saved");
 	}
 
+	void setActionInvocationMode(int slot, CvHelperActionInvocationMode mode)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, "actionInvocationMode" + slot, mode == null ? CvHelperActionInvocationMode.AUTO : mode);
+		updatePanelStatus("Action " + slot + " invocation mode saved");
+	}
+
 	void setActionReturnPanel(int slot, boolean value)
 	{
 		configManager.setConfiguration(CvHelperConfig.GROUP, "actionReturnPanel" + slot, value);
@@ -841,6 +859,24 @@ public class CvHelperPlugin extends Plugin
 		}
 	}
 
+	CvHelperActionInvocationMode getActionInvocationMode(int slot)
+	{
+		switch (slot)
+		{
+			case 1:
+				return config.actionInvocationMode1();
+			case 2:
+				return config.actionInvocationMode2();
+			case 3:
+				return config.actionInvocationMode3();
+			case 4:
+				return config.actionInvocationMode4();
+			default:
+				CvHelperActionInvocationMode mode = configManager.getConfiguration(CvHelperConfig.GROUP, "actionInvocationMode" + slot, CvHelperActionInvocationMode.class);
+				return mode == null ? CvHelperActionInvocationMode.AUTO : mode;
+		}
+	}
+
 	boolean getActionReturnPanel(int slot)
 	{
 		switch (slot)
@@ -884,7 +920,7 @@ public class CvHelperPlugin extends Plugin
 			updatePanelStatus("Action " + slot + " is disabled");
 			return;
 		}
-		performConfiguredAction(slot, getActionSurface(slot), getActionTarget(slot), getActionClickAfterMode(slot), getActionReturnPanel(slot), getActionReturnMouseCenter(slot));
+		performConfiguredAction(slot, getActionSurface(slot), getActionTarget(slot), getActionClickAfterMode(slot), getActionInvocationMode(slot), getActionReturnPanel(slot), getActionReturnMouseCenter(slot));
 	}
 
 	void debugOverlayState()
@@ -953,12 +989,13 @@ public class CvHelperPlugin extends Plugin
 		});
 	}
 
-	void performConfiguredAction(int slot, CvHelperActionSurface surface, String targetLabel, CvHelperClickAfterMode clickAfterMode, boolean returnPanel, boolean returnMouseCenter)
+	void performConfiguredAction(int slot, CvHelperActionSurface surface, String targetLabel, CvHelperClickAfterMode clickAfterMode, CvHelperActionInvocationMode invocationMode, boolean returnPanel, boolean returnMouseCenter)
 	{
 		if (surface == null || surface == CvHelperActionSurface.DISABLED)
 		{
 			return;
 		}
+		CvHelperActionInvocationMode effectiveInvocationMode = invocationMode == null ? CvHelperActionInvocationMode.AUTO : invocationMode;
 
 		Point currentMouseScreenPoint = currentMouseScreenPoint();
 		clientThread.invokeLater(() ->
@@ -967,19 +1004,19 @@ public class CvHelperPlugin extends Plugin
 			Point requiredPanelPoint = requiredPanelPoint(surface, previousPanel);
 			if (requiredPanelPoint != null)
 			{
-				runPanelOpenThenAction(slot, surface, targetLabel, clickAfterMode, returnPanel, returnMouseCenter, previousPanel, currentMouseScreenPoint, requiredPanelPoint);
+				runPanelOpenThenAction(slot, surface, targetLabel, clickAfterMode, effectiveInvocationMode, returnPanel, returnMouseCenter, previousPanel, currentMouseScreenPoint, requiredPanelPoint);
 				return;
 			}
-			performConfiguredActionResolved(slot, surface, targetLabel, clickAfterMode, returnPanel, returnMouseCenter, previousPanel, currentMouseScreenPoint);
+			performConfiguredActionResolved(slot, surface, targetLabel, clickAfterMode, effectiveInvocationMode, returnPanel, returnMouseCenter, previousPanel, currentMouseScreenPoint);
 		});
 	}
 
-	private void performConfiguredActionResolved(int slot, CvHelperActionSurface surface, String targetLabel, CvHelperClickAfterMode clickAfterMode, boolean returnPanel, boolean returnMouseCenter, String previousPanel, Point originalMouseScreenPoint)
+	private void performConfiguredActionResolved(int slot, CvHelperActionSurface surface, String targetLabel, CvHelperClickAfterMode clickAfterMode, CvHelperActionInvocationMode invocationMode, boolean returnPanel, boolean returnMouseCenter, String previousPanel, Point originalMouseScreenPoint)
 	{
-		performConfiguredActionResolved(slot, surface, targetLabel, clickAfterMode, returnPanel, returnMouseCenter, previousPanel, originalMouseScreenPoint, ACTION_RESOLVE_RETRIES);
+		performConfiguredActionResolved(slot, surface, targetLabel, clickAfterMode, invocationMode, returnPanel, returnMouseCenter, previousPanel, originalMouseScreenPoint, ACTION_RESOLVE_RETRIES);
 	}
 
-	private void performConfiguredActionResolved(int slot, CvHelperActionSurface surface, String targetLabel, CvHelperClickAfterMode clickAfterMode, boolean returnPanel, boolean returnMouseCenter, String previousPanel, Point originalMouseScreenPoint, int retriesRemaining)
+	private void performConfiguredActionResolved(int slot, CvHelperActionSurface surface, String targetLabel, CvHelperClickAfterMode clickAfterMode, CvHelperActionInvocationMode invocationMode, boolean returnPanel, boolean returnMouseCenter, String previousPanel, Point originalMouseScreenPoint, int retriesRemaining)
 	{
 		clientThread.invokeLater(() ->
 		{
@@ -988,7 +1025,7 @@ public class CvHelperPlugin extends Plugin
 			{
 				if (retriesRemaining > 0)
 				{
-					scheduleActionResolve(slot, surface, targetLabel, clickAfterMode, returnPanel, returnMouseCenter, previousPanel, originalMouseScreenPoint, retriesRemaining - 1);
+					scheduleActionResolve(slot, surface, targetLabel, clickAfterMode, invocationMode, returnPanel, returnMouseCenter, previousPanel, originalMouseScreenPoint, retriesRemaining - 1);
 					return;
 				}
 				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper action " + slot + " | no target matched " + surface + " / " + targetLabel, "");
@@ -1008,11 +1045,21 @@ public class CvHelperPlugin extends Plugin
 			Point mouseScreenPoint = clickMouseAfterTarget ? originalMouseScreenPoint : null;
 			Point returnPanelPoint = returnPanel ? panelReturnPoint(previousPanel) : null;
 			Point restoreMousePoint = returnMouseCenter ? originalMouseScreenPoint : null;
-			if (isWidgetActionSurface(surface) && invokeWidgetAction(surface, target))
+			boolean shouldTryWidgetAction = invocationMode == CvHelperActionInvocationMode.WIDGET
+				|| (invocationMode == CvHelperActionInvocationMode.AUTO && isWidgetActionSurface(surface));
+			if (shouldTryWidgetAction)
 			{
-				runRobotAfterWidgetAction(slot, surface, target, mouseScreenPoint, returnPanelPoint, restoreMousePoint, surface == CvHelperActionSurface.SPELL && mouseScreenPoint != null);
-				lastEvent.set("action-hotkey-" + slot + "@" + surface + "@" + Instant.now());
-				return;
+				if (invokeWidgetAction(surface, target))
+				{
+					runRobotAfterWidgetAction(slot, surface, target, mouseScreenPoint, returnPanelPoint, restoreMousePoint, surface == CvHelperActionSurface.SPELL && mouseScreenPoint != null);
+					lastEvent.set("action-hotkey-" + slot + "@" + surface + "@widget@" + Instant.now());
+					return;
+				}
+				if (invocationMode == CvHelperActionInvocationMode.WIDGET)
+				{
+					client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper action " + slot + " | target has no widget action for " + surface + " / " + targetLabel, "");
+					return;
+				}
 			}
 			if (targetScreenPoint == null)
 			{
@@ -1025,7 +1072,7 @@ public class CvHelperPlugin extends Plugin
 		});
 	}
 
-	private void scheduleActionResolve(int slot, CvHelperActionSurface surface, String targetLabel, CvHelperClickAfterMode clickAfterMode, boolean returnPanel, boolean returnMouseCenter, String previousPanel, Point originalMouseScreenPoint, int retriesRemaining)
+	private void scheduleActionResolve(int slot, CvHelperActionSurface surface, String targetLabel, CvHelperClickAfterMode clickAfterMode, CvHelperActionInvocationMode invocationMode, boolean returnPanel, boolean returnMouseCenter, String previousPanel, Point originalMouseScreenPoint, int retriesRemaining)
 	{
 		Thread retryThread = new Thread(() ->
 		{
@@ -1038,13 +1085,13 @@ public class CvHelperPlugin extends Plugin
 				Thread.currentThread().interrupt();
 				return;
 			}
-			performConfiguredActionResolved(slot, surface, targetLabel, clickAfterMode, returnPanel, returnMouseCenter, previousPanel, originalMouseScreenPoint, retriesRemaining);
+			performConfiguredActionResolved(slot, surface, targetLabel, clickAfterMode, invocationMode, returnPanel, returnMouseCenter, previousPanel, originalMouseScreenPoint, retriesRemaining);
 		}, "cv-helper-action-resolve-retry");
 		retryThread.setDaemon(true);
 		retryThread.start();
 	}
 
-	private void runPanelOpenThenAction(int slot, CvHelperActionSurface surface, String targetLabel, CvHelperClickAfterMode clickAfterMode, boolean returnPanel, boolean returnMouseCenter, String previousPanel, Point originalMouseScreenPoint, Point panelPoint)
+	private void runPanelOpenThenAction(int slot, CvHelperActionSurface surface, String targetLabel, CvHelperClickAfterMode clickAfterMode, CvHelperActionInvocationMode invocationMode, boolean returnPanel, boolean returnMouseCenter, String previousPanel, Point originalMouseScreenPoint, Point panelPoint)
 	{
 		Thread openThread = new Thread(() ->
 		{
@@ -1053,7 +1100,7 @@ public class CvHelperPlugin extends Plugin
 				Robot robot = new Robot();
 				clickScreenPoint(robot, panelPoint);
 				robot.delay(timing(config.actionPanelOpenDelayMs(), 0, 1500));
-				performConfiguredActionResolved(slot, surface, targetLabel, clickAfterMode, returnPanel, returnMouseCenter, previousPanel, originalMouseScreenPoint);
+				performConfiguredActionResolved(slot, surface, targetLabel, clickAfterMode, invocationMode, returnPanel, returnMouseCenter, previousPanel, originalMouseScreenPoint);
 			}
 			catch (RuntimeException | java.awt.AWTException e)
 			{
@@ -1571,6 +1618,44 @@ public class CvHelperPlugin extends Plugin
 		});
 	}
 
+	void refreshActionSurface(CvHelperActionSurface surface)
+	{
+		if (surface == null)
+		{
+			return;
+		}
+		switch (surface)
+		{
+			case PRAYER:
+				refreshPrayerTargets();
+				break;
+			case SPELL:
+				refreshSpellTargets();
+				break;
+			case MINIMAP:
+				refreshMinimapTargets();
+				break;
+			case INVENTORY:
+				refreshInventoryTargets();
+				break;
+			case EQUIPMENT:
+				refreshEquipmentTargets();
+				break;
+			case PANELS:
+				refreshTargets("panels", this::collectPanelTargets);
+				break;
+			case COMBAT:
+				refreshTargets("combat", this::collectCombatTargets);
+				break;
+			case NEAREST_ENTITY:
+				refreshEntities();
+				break;
+			default:
+				updatePanelStatus("No target refresh for " + surface);
+				break;
+		}
+	}
+
 	void captureScreenshot()
 	{
 		captureImage("client-frame", true, null);
@@ -1774,6 +1859,9 @@ public class CvHelperPlugin extends Plugin
 			body.put("player", playerStatus);
 			body.put("spellbook", playerStatus.get("spellbook"));
 			body.put("interfaces", playerStatus.get("interfaces"));
+			body.put("vitals", playerStatus.get("vitals"));
+			body.put("wealth", playerStatus.get("wealth"));
+			body.put("selectedWidget", playerStatus.get("selectedWidget"));
 			body.put("captures", captureStatuses());
 			body.put("prayerTargets", lastPrayerTargets.size());
 			body.put("spellTargets", lastSpellTargets.size());
@@ -2630,6 +2718,120 @@ public class CvHelperPlugin extends Plugin
 		return interfaces;
 	}
 
+	private Map<String, Object> vitalStatus()
+	{
+		Map<String, Object> vitals = new LinkedHashMap<>();
+		vitals.put("hitpoints", skillSnapshot(Skill.HITPOINTS));
+		vitals.put("prayer", skillSnapshot(Skill.PRAYER));
+		vitals.put("runEnergyRaw", client.getEnergy());
+		vitals.put("runEnergyPercent", client.getEnergy() / 100.0);
+		int specialRaw = client.getVarpValue(VarPlayer.SPECIAL_ATTACK_PERCENT);
+		vitals.put("specialAttackRaw", specialRaw);
+		vitals.put("specialAttackPercent", specialRaw / 10.0);
+		vitals.put("specialAttackEnabled", client.getVarpValue(VarPlayer.SPECIAL_ATTACK_ENABLED) == 1);
+		vitals.put("weight", client.getWeight());
+		List<String> activePrayers = new ArrayList<>();
+		for (Prayer prayer : Prayer.values())
+		{
+			if (client.isPrayerActive(prayer))
+			{
+				activePrayers.add(friendlyName(prayer.name()));
+			}
+		}
+		vitals.put("activePrayers", activePrayers);
+		vitals.put("prayerActive", !activePrayers.isEmpty());
+		return vitals;
+	}
+
+	private Map<String, Object> selectedWidgetStatus()
+	{
+		Map<String, Object> status = new LinkedHashMap<>();
+		status.put("selected", client.isWidgetSelected());
+		Widget selectedWidget = client.getSelectedWidget();
+		if (selectedWidget != null)
+		{
+			status.put("widgetId", selectedWidget.getId());
+			status.put("name", selectedWidget.getName());
+			status.put("text", selectedWidget.getText());
+			status.put("actions", selectedWidget.getActions());
+		}
+		return status;
+	}
+
+	private Map<String, Object> wealthStatus()
+	{
+		Map<String, Object> inventory = containerValue("inventory", InventoryID.INVENTORY);
+		Map<String, Object> equipment = containerValue("equipment", InventoryID.EQUIPMENT);
+		long inventoryGe = longValue(inventory.get("gePrice"));
+		long equipmentGe = longValue(equipment.get("gePrice"));
+		long inventoryHa = longValue(inventory.get("haPrice"));
+		long equipmentHa = longValue(equipment.get("haPrice"));
+
+		Map<String, Object> wealth = new LinkedHashMap<>();
+		wealth.put("inventory", inventory);
+		wealth.put("equipment", equipment);
+		wealth.put("currentLootValueGe", inventoryGe);
+		wealth.put("currentLootValueHa", inventoryHa);
+		wealth.put("totalCarriedValueGe", inventoryGe + equipmentGe);
+		wealth.put("totalCarriedValueHa", inventoryHa + equipmentHa);
+		wealth.put("riskedValueGeApprox", inventoryGe + equipmentGe);
+		wealth.put("riskedValueHaApprox", inventoryHa + equipmentHa);
+		wealth.put("riskModel", "coarse-total-carried");
+		return wealth;
+	}
+
+	private Map<String, Object> containerValue(String name, InventoryID inventoryId)
+	{
+		Map<String, Object> summary = new LinkedHashMap<>();
+		List<Map<String, Object>> items = new ArrayList<>();
+		long gePrice = 0;
+		long haPrice = 0;
+		int occupiedSlots = 0;
+		ItemContainer container = client.getItemContainer(inventoryId);
+		Item[] containerItems = container == null ? new Item[0] : container.getItems();
+		for (int slot = 0; slot < containerItems.length; slot++)
+		{
+			Item item = containerItems[slot];
+			if (item == null || item.getId() <= 0 || item.getQuantity() <= 0)
+			{
+				continue;
+			}
+			occupiedSlots++;
+			ItemComposition composition = itemManager.getItemComposition(item.getId());
+			int itemGe = itemManager.getItemPrice(item.getId());
+			int itemHa = composition == null ? 0 : composition.getHaPrice();
+			long stackGe = (long) itemGe * item.getQuantity();
+			long stackHa = (long) itemHa * item.getQuantity();
+			gePrice += stackGe;
+			haPrice += stackHa;
+
+			Map<String, Object> itemStatus = new LinkedHashMap<>();
+			itemStatus.put("slot", slot);
+			itemStatus.put("id", item.getId());
+			itemStatus.put("name", composition == null ? "" : composition.getName());
+			itemStatus.put("quantity", item.getQuantity());
+			itemStatus.put("gePriceEach", itemGe);
+			itemStatus.put("haPriceEach", itemHa);
+			itemStatus.put("gePrice", stackGe);
+			itemStatus.put("haPrice", stackHa);
+			items.add(itemStatus);
+		}
+
+		summary.put("name", name);
+		summary.put("containerId", inventoryId.getId());
+		summary.put("slotCount", containerItems.length);
+		summary.put("occupiedSlots", occupiedSlots);
+		summary.put("gePrice", gePrice);
+		summary.put("haPrice", haPrice);
+		summary.put("items", items);
+		return summary;
+	}
+
+	private long longValue(Object value)
+	{
+		return value instanceof Number ? ((Number) value).longValue() : 0L;
+	}
+
 	private String activeSidePanelName(Map<String, Object> interfaces)
 	{
 		if (Boolean.TRUE.equals(interfaces.get("combatVisible")))
@@ -2826,10 +3028,16 @@ public class CvHelperPlugin extends Plugin
 		{
 			labels.addAll(Arrays.asList(
 				"Lumbridge Home Teleport",
+				"Home Teleport",
 				"Varrock Teleport",
 				"Lumbridge Teleport",
 				"Falador Teleport",
 				"Camelot Teleport",
+				"Ardougne Teleport",
+				"Watchtower Teleport",
+				"Trollheim Teleport",
+				"Teleport to Kourend",
+				"Ape Atoll Teleport",
 				"Wind Strike",
 				"Water Strike",
 				"Earth Strike",
@@ -2842,8 +3050,29 @@ public class CvHelperPlugin extends Plugin
 				"Water Blast",
 				"Earth Blast",
 				"Fire Blast",
+				"Wind Wave",
+				"Water Wave",
+				"Earth Wave",
+				"Fire Wave",
+				"Wind Surge",
+				"Water Surge",
+				"Earth Surge",
+				"Fire Surge",
+				"Confuse",
+				"Weaken",
+				"Curse",
+				"Vulnerability",
+				"Enfeeble",
+				"Stun",
+				"Bind",
+				"Snare",
+				"Entangle",
+				"Crumble Undead",
+				"Tele Block",
+				"Monster Examine",
 				"High Level Alchemy",
 				"Low Level Alchemy",
+				"Superheat Item",
 				"Telekinetic Grab"
 			));
 			addTargetLabels(labels, lastSpellTargets);

@@ -49,6 +49,7 @@ public interface CvHelperConfig extends Config
 	String ACTION_TARGET_1 = "actionTarget1";
 	String ACTION_CLICK_MOUSE_1 = "actionClickMouse1";
 	String ACTION_CLICK_AFTER_MODE_1 = "actionClickAfterMode1";
+	String ACTION_INVOCATION_MODE_1 = "actionInvocationMode1";
 	String ACTION_RETURN_PANEL_1 = "actionReturnPanel1";
 	String ACTION_RETURN_MOUSE_CENTER_1 = "actionReturnMouseCenter1";
 	String ACTION_ENABLED_2 = "actionEnabled2";
@@ -57,6 +58,7 @@ public interface CvHelperConfig extends Config
 	String ACTION_TARGET_2 = "actionTarget2";
 	String ACTION_CLICK_MOUSE_2 = "actionClickMouse2";
 	String ACTION_CLICK_AFTER_MODE_2 = "actionClickAfterMode2";
+	String ACTION_INVOCATION_MODE_2 = "actionInvocationMode2";
 	String ACTION_RETURN_PANEL_2 = "actionReturnPanel2";
 	String ACTION_RETURN_MOUSE_CENTER_2 = "actionReturnMouseCenter2";
 	String ACTION_ENABLED_3 = "actionEnabled3";
@@ -65,6 +67,7 @@ public interface CvHelperConfig extends Config
 	String ACTION_TARGET_3 = "actionTarget3";
 	String ACTION_CLICK_MOUSE_3 = "actionClickMouse3";
 	String ACTION_CLICK_AFTER_MODE_3 = "actionClickAfterMode3";
+	String ACTION_INVOCATION_MODE_3 = "actionInvocationMode3";
 	String ACTION_RETURN_PANEL_3 = "actionReturnPanel3";
 	String ACTION_RETURN_MOUSE_CENTER_3 = "actionReturnMouseCenter3";
 	String ACTION_ENABLED_4 = "actionEnabled4";
@@ -73,6 +76,7 @@ public interface CvHelperConfig extends Config
 	String ACTION_TARGET_4 = "actionTarget4";
 	String ACTION_CLICK_MOUSE_4 = "actionClickMouse4";
 	String ACTION_CLICK_AFTER_MODE_4 = "actionClickAfterMode4";
+	String ACTION_INVOCATION_MODE_4 = "actionInvocationMode4";
 	String ACTION_RETURN_PANEL_4 = "actionReturnPanel4";
 	String ACTION_RETURN_MOUSE_CENTER_4 = "actionReturnMouseCenter4";
 	String ACTION_PANEL_OPEN_DELAY_MS = "actionPanelOpenDelayMs";
@@ -400,6 +404,17 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = ACTION_INVOCATION_MODE_1,
+		name = "Action 1 invocation",
+		description = "How action slot 1 selects its target: AUTO prefers RuneLite widget actions for spells/prayers; CLICK uses Java Robot.",
+		section = actionSection
+	)
+	default CvHelperActionInvocationMode actionInvocationMode1()
+	{
+		return CvHelperActionInvocationMode.AUTO;
+	}
+
+	@ConfigItem(
 		keyName = ACTION_RETURN_PANEL_1,
 		name = "Action 1 return panel",
 		description = "After action slot 1 finishes, click back to the previously open side panel.",
@@ -485,6 +500,17 @@ public interface CvHelperConfig extends Config
 	default CvHelperClickAfterMode actionClickAfterMode2()
 	{
 		return CvHelperClickAfterMode.AUTO;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_INVOCATION_MODE_2,
+		name = "Action 2 invocation",
+		description = "How action slot 2 selects its target: AUTO prefers RuneLite widget actions for spells/prayers; CLICK uses Java Robot.",
+		section = actionSection
+	)
+	default CvHelperActionInvocationMode actionInvocationMode2()
+	{
+		return CvHelperActionInvocationMode.AUTO;
 	}
 
 	@ConfigItem(
@@ -576,6 +602,17 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = ACTION_INVOCATION_MODE_3,
+		name = "Action 3 invocation",
+		description = "How action slot 3 selects its target: AUTO prefers RuneLite widget actions for spells/prayers; CLICK uses Java Robot.",
+		section = actionSection
+	)
+	default CvHelperActionInvocationMode actionInvocationMode3()
+	{
+		return CvHelperActionInvocationMode.AUTO;
+	}
+
+	@ConfigItem(
 		keyName = ACTION_RETURN_PANEL_3,
 		name = "Action 3 return panel",
 		description = "After action slot 3 finishes, click back to the previously open side panel.",
@@ -661,6 +698,17 @@ public interface CvHelperConfig extends Config
 	default CvHelperClickAfterMode actionClickAfterMode4()
 	{
 		return CvHelperClickAfterMode.AUTO;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_INVOCATION_MODE_4,
+		name = "Action 4 invocation",
+		description = "How action slot 4 selects its target: AUTO prefers RuneLite widget actions for spells/prayers; CLICK uses Java Robot.",
+		section = actionSection
+	)
+	default CvHelperActionInvocationMode actionInvocationMode4()
+	{
+		return CvHelperActionInvocationMode.AUTO;
 	}
 
 	@ConfigItem(

@@ -93,35 +93,76 @@ function setConnection(message, ok) {
 function renderStatus(status) {
 	const player = status.player || {};
 	const spellbook = status.spellbook || player.spellbook || {};
-	const worldLocation = formatPoint(player.worldLocation);
-	const localLocation = formatPoint(player.localLocation);
-	const mouse = formatPoint(player.mouseCanvasPosition);
-	const selfBounds = formatRect(player.selfBounds || {});
 	const interfaces = player.interfaces || status.interfaces || {};
+	const vitals = player.vitals || {};
+	const hitpoints = vitals.hitpoints || (player.skills || {}).hitpoints || {};
+	const prayer = vitals.prayer || (player.skills || {}).prayer || {};
+	const prayers = player.prayers || {};
+	const wealth = player.wealth || {};
+	const inventory = wealth.inventory || {};
+	const equipment = wealth.equipment || {};
+	const selectedWidget = player.selectedWidget || {};
 	const captures = status.captures || player.captures || {};
 	const captureEntries = Object.values(captures);
 	const latestCapture = captureEntries[captureEntries.length - 1] || {};
 
-	const stats = [
-		["API port", status.port || "Unknown"],
-		["Game state", player.gameState || "Unknown"],
-		["Logged in", String(Boolean(player.loggedIn))],
-		["Player", player.localPlayer || "Unavailable"],
-		["World", player.world || "Unknown"],
-		["World location", worldLocation],
-		["Local location", localLocation],
-		["Mouse", mouse],
-		["Self bounds", selfBounds],
-		["Open panel", interfaces.activeSidePanel || "Unknown"],
-		["Spellbook", spellbook.name || "Unknown"],
-		["Run energy", formatRunEnergy(player.runEnergy)],
-		["Weight", player.weight ?? "Unknown"],
-		["Status", status.status || "Unknown"],
-		["Latest capture", latestCapture.savedPath || latestCapture.status || "None"],
+	const activePrayerNames = Array.isArray(vitals.activePrayers)
+		? vitals.activePrayers
+		: Object.entries(prayers).filter(([, state]) => state?.active).map(([name]) => name);
+
+	const groups = [
+		{
+			title: "Connection",
+			items: [
+				["API port", status.port || "Unknown"],
+				["Status", status.status || "Unknown"],
+				["Game state", player.gameState || "Unknown"],
+				["Logged in", String(Boolean(player.loggedIn))],
+				["Player", player.localPlayer || "Unavailable"],
+				["World", player.world || "Unknown"],
+			],
+		},
+		{
+			title: "Vitals",
+			items: [
+				["HP", formatBoosted(hitpoints)],
+				["Prayer", formatBoosted(prayer)],
+				["Prayer active", String(Boolean(vitals.prayerActive || activePrayerNames.length))],
+				["Active prayers", activePrayerNames.length ? activePrayerNames.join(", ") : "None"],
+				["Run energy", formatPercent(vitals.runEnergyPercent, player.runEnergy)],
+				["Spec energy", formatPercent(vitals.specialAttackPercent)],
+				["Spec enabled", selectedValue(vitals.specialAttackEnabled, "Unknown")],
+				["Weight", vitals.weight ?? player.weight ?? "Unknown"],
+			],
+		},
+		{
+			title: "Wealth",
+			items: [
+				["Current loot GE", formatGp(wealth.currentLootValueGe ?? inventory.gePrice)],
+				["Current loot HA", formatGp(wealth.currentLootValueHa ?? inventory.haPrice)],
+				["Equipment GE", formatGp(equipment.gePrice)],
+				["Total carried GE", formatGp(wealth.totalCarriedValueGe)],
+				["Risked GE approx", formatGp(wealth.riskedValueGeApprox)],
+				["Risk model", wealth.riskModel || "Unknown"],
+			],
+		},
+		{
+			title: "Interface",
+			items: [
+				["Open panel", interfaces.activeSidePanel || "Unknown"],
+				["Spellbook", spellbook.name || "Unknown"],
+				["Mouse", formatPoint(player.mouseCanvasPosition)],
+				["World location", formatPoint(player.worldLocation)],
+				["Local location", formatPoint(player.localLocation)],
+				["Self bounds", formatRect(player.selfBounds || {})],
+				["Selected widget", selectedWidget.selected ? `${selectedWidget.widgetId || "?"} ${selectedWidget.name || selectedWidget.text || ""}` : "None"],
+				["Latest capture", latestCapture.savedPath || latestCapture.status || "None"],
+			],
+		},
 	];
 
 	renderCaptureStatus(captures);
-	statusGrid.innerHTML = stats.map(([label, value]) => statCard(label, value)).join("");
+	statusGrid.innerHTML = groups.map(statusGroup).join("");
 }
 
 function renderCounts(status, targetPayloads, entitiesPayload) {
@@ -312,11 +353,51 @@ function statCard(label, value) {
 	`;
 }
 
+function statusGroup(group) {
+	return `
+		<article class="status-group">
+			<h3>${escapeHtml(group.title)}</h3>
+			<div class="stat-grid status-group-grid">
+				${group.items.map(([label, value]) => statCard(label, value)).join("")}
+			</div>
+		</article>
+	`;
+}
+
+function formatBoosted(skill) {
+	if (!skill || skill.boosted === undefined || skill.real === undefined) {
+		return "Unknown";
+	}
+	return `${skill.boosted}/${skill.real}`;
+}
+
+function formatPercent(value, rawFallback) {
+	if (typeof value === "number") {
+		const normalized = value > 100 ? value / 100 : value;
+		return `${Math.round(normalized)}%`;
+	}
+	if (typeof rawFallback === "number") {
+		return formatRunEnergy(rawFallback);
+	}
+	return "Unknown";
+}
+
 function formatRunEnergy(value) {
 	if (typeof value !== "number") {
 		return "Unknown";
 	}
 	return `${(value / 100).toFixed(0)}%`;
+}
+
+function formatGp(value) {
+	if (typeof value !== "number") {
+		return "Unknown";
+	}
+	return `${Math.round(value).toLocaleString()} gp`;
+}
+
+function selectedValue(value, fallback) {
+	return value === undefined || value === null ? fallback : String(value);
 }
 
 function formatRect(rect) {

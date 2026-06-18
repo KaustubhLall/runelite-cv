@@ -25,6 +25,7 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JSeparator;
 import javax.swing.JTextField;
+import javax.swing.Timer;
 import javax.swing.JToggleButton;
 import javax.swing.SwingConstants;
 import javax.swing.border.EmptyBorder;
@@ -319,6 +320,20 @@ class CvHelperPanel extends PluginPanel
 		clickAfterMode.setSelectedItem(plugin.getActionClickAfterMode(slot));
 		clickAfterMode.addActionListener(e -> plugin.setActionClickAfterMode(slot, (CvHelperClickAfterMode) clickAfterMode.getSelectedItem()));
 
+		JComboBox<CvHelperActionInvocationMode> invocationMode = new JComboBox<>(CvHelperActionInvocationMode.values());
+		invocationMode.setSelectedItem(plugin.getActionInvocationMode(slot));
+		invocationMode.addActionListener(e -> plugin.setActionInvocationMode(slot, (CvHelperActionInvocationMode) invocationMode.getSelectedItem()));
+
+		JButton refreshChoices = new JButton("Refresh choices");
+		refreshChoices.addActionListener(e ->
+		{
+			CvHelperActionSurface selected = (CvHelperActionSurface) surface.getSelectedItem();
+			plugin.refreshActionSurface(selected);
+			Timer timer = new Timer(250, ignored -> populateTargetChoices(target, selected, selectedTarget(target)));
+			timer.setRepeats(false);
+			timer.start();
+		});
+
 		JCheckBox returnPanel = new JCheckBox("Return to previous side panel", plugin.getActionReturnPanel(slot));
 		styleCheckbox(returnPanel);
 		returnPanel.addActionListener(e -> plugin.setActionReturnPanel(slot, returnPanel.isSelected()));
@@ -339,6 +354,9 @@ class CvHelperPanel extends PluginPanel
 			label("Target label contains"),
 			target,
 			saveTarget,
+			refreshChoices,
+			label("Invocation"),
+			invocationMode,
 			label("Click-after"),
 			clickAfterMode,
 			returnPanel,
