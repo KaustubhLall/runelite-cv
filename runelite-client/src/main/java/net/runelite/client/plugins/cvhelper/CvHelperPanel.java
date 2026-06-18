@@ -254,7 +254,7 @@ class CvHelperPanel extends PluginPanel
 		stretch(help);
 		body.add(help);
 
-		for (int slot = 1; slot <= 4; slot++)
+		for (int slot = 1; slot <= 8; slot++)
 		{
 			body.add(createActionSlot(slot));
 		}
@@ -286,6 +286,10 @@ class CvHelperPanel extends PluginPanel
 		panel.setBorder(BorderFactory.createTitledBorder("Action " + slot));
 
 		KeyCaptureButton hotkey = new KeyCaptureButton(plugin.getActionHotkey(slot), value -> plugin.setActionHotkey(slot, value));
+		JCheckBox enabled = new JCheckBox("Enabled", plugin.getActionEnabled(slot));
+		styleCheckbox(enabled);
+		enabled.addActionListener(e -> plugin.setActionEnabled(slot, enabled.isSelected()));
+
 		JComboBox<CvHelperActionSurface> surface = new JComboBox<>(CvHelperActionSurface.values());
 		surface.setSelectedItem(plugin.getActionSurface(slot));
 
@@ -319,6 +323,7 @@ class CvHelperPanel extends PluginPanel
 		run.addActionListener(e -> plugin.performConfiguredAction(slot));
 
 		for (JComponent component : new JComponent[]{
+			enabled,
 			label("Hotkey"),
 			hotkey,
 			label("Surface"),

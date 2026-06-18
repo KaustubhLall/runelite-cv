@@ -249,9 +249,9 @@ RuneLite has existing hotkey primitives (`Keybind`, `HotkeyButton`, `KeyManager`
 - `Capture screen hotkey`: queues a raw client-canvas capture.
 - `Refresh entities hotkey`: refreshes nearby player/NPC exports and forwards them to the webhook if configured.
 - `Nearest entity hotkey`: writes the nearest exported entity and preferred canvas `clickPoint` to in-game chat.
-- `Action 1-4 hotkeys`: each slot has a keybind, target surface dropdown, editable target-label dropdown, click-after mode, optional return-to-previous-panel toggle, optional return-mouse-to-center toggle, and a manual run button. The slot resolves the current exported target, converts its canvas point into a screen point, and clicks automatically.
+- `Action 1-8 hotkeys`: each slot has an enabled toggle, keybind, target surface dropdown, editable target-label dropdown, click-after mode, optional return-to-previous-panel toggle, optional return-mouse-to-center toggle, and a manual run button. The slot resolves the current exported target, converts its canvas point into a screen point, and clicks automatically.
 - Clicks are randomized inside a safe circle around the exported target point. The circle is derived from the target bounds and capped to a small radius so repeated hotkeys do not click the exact same pixel while still staying inside the target.
-- Click-after mode is `AUTO`, `ALWAYS`, or `NEVER`. `AUTO` does not click after prayers or self-resolving spells such as teleports, but does click after most other spell targets so the current mouse position can be used as the spell target.
+- Click-after mode is `AUTO`, `ALWAYS`, or `NEVER`. `AUTO` does not click after prayers or self-resolving spells such as teleports, but does click after most other spell targets so the current OS mouse position can be used as the spell target.
 - Return-to-previous-panel clicks the previously active side-panel tab after the action finishes, useful for spellbook/inventory workflows.
 - Return-mouse-to-center moves the mouse back to the center of the game canvas after all action clicks complete.
 
@@ -264,7 +264,7 @@ Action slot examples:
 
 The action slot implementation intentionally uses exported geometry as the source of truth, so the same target contract used by Python is exercised by the hotkey layer. If a surface depends on a visible tab, the tab must be visible or the target must be available from a cached snapshot before the action can resolve.
 
-The CV Helper right-side panel includes a collapsible `Action hotkeys` section with four full-width slots. Each slot exposes a hotkey capture button, surface dropdown, editable target dropdown, click-after mode dropdown, return options, and `Run action` button for manual testing.
+The CV Helper right-side panel includes a collapsible `Action hotkeys` section with eight full-width slots. Each slot exposes an enabled toggle, hotkey capture button, surface dropdown, editable target dropdown, click-after mode dropdown, return options, and `Run action` button for manual testing. Slots 1-4 are also represented in RuneLite's native config under the `Action hotkeys` section; slots 5-8 are managed from the CV Helper panel to avoid making the native config page unwieldy.
 
 ## Debugging In Game
 

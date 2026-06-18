@@ -8,6 +8,7 @@ import com.google.gson.Gson;
 import com.google.inject.Provides;
 import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.MouseInfo;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.Robot;
@@ -89,6 +90,7 @@ public class CvHelperPlugin extends Plugin
 {
 	private static final String TOOLTIP = "CV Helper";
 	private static final int DEFAULT_LOCAL_PORT = 11777;
+	private static final int ACTION_SLOT_COUNT = 8;
 	private static final DateTimeFormatter CAPTURE_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
 	private static final int[] PRAYER_COMPONENTS = {
 		InterfaceID.Prayerbook.PRAYER1,
@@ -172,6 +174,7 @@ public class CvHelperPlugin extends Plugin
 	private final Map<String, Map<String, Object>> lastCaptures = new LinkedHashMap<>();
 	private final Set<String> enabledPrayers = new HashSet<>();
 	private final Set<String> enabledSpellbooks = new HashSet<>();
+	private final List<HotkeyListener> actionHotkeyListeners = new ArrayList<>();
 
 	@Provides
 	CvHelperConfig provideConfig(ConfigManager configManager)
@@ -258,42 +261,6 @@ public class CvHelperPlugin extends Plugin
 		}
 	};
 
-	private final HotkeyListener actionHotkeyListener1 = new HotkeyListener(() -> config.actionHotkey1())
-	{
-		@Override
-		public void hotkeyPressed()
-		{
-			performConfiguredAction(1);
-		}
-	};
-
-	private final HotkeyListener actionHotkeyListener2 = new HotkeyListener(() -> config.actionHotkey2())
-	{
-		@Override
-		public void hotkeyPressed()
-		{
-			performConfiguredAction(2);
-		}
-	};
-
-	private final HotkeyListener actionHotkeyListener3 = new HotkeyListener(() -> config.actionHotkey3())
-	{
-		@Override
-		public void hotkeyPressed()
-		{
-			performConfiguredAction(3);
-		}
-	};
-
-	private final HotkeyListener actionHotkeyListener4 = new HotkeyListener(() -> config.actionHotkey4())
-	{
-		@Override
-		public void hotkeyPressed()
-		{
-			performConfiguredAction(4);
-		}
-	};
-
 	private void registerHotkeys()
 	{
 		keyManager.registerKeyListener(debugHotkeyListener);
@@ -301,10 +268,21 @@ public class CvHelperPlugin extends Plugin
 		keyManager.registerKeyListener(captureScreenHotkeyListener);
 		keyManager.registerKeyListener(refreshEntitiesHotkeyListener);
 		keyManager.registerKeyListener(nearestEntityHotkeyListener);
-		keyManager.registerKeyListener(actionHotkeyListener1);
-		keyManager.registerKeyListener(actionHotkeyListener2);
-		keyManager.registerKeyListener(actionHotkeyListener3);
-		keyManager.registerKeyListener(actionHotkeyListener4);
+		actionHotkeyListeners.clear();
+		for (int slot = 1; slot <= ACTION_SLOT_COUNT; slot++)
+		{
+			final int actionSlot = slot;
+			HotkeyListener listener = new HotkeyListener(() -> getActionHotkey(actionSlot))
+			{
+				@Override
+				public void hotkeyPressed()
+				{
+					performConfiguredAction(actionSlot);
+				}
+			};
+			actionHotkeyListeners.add(listener);
+			keyManager.registerKeyListener(listener);
+		}
 	}
 
 	private void unregisterHotkeys()
@@ -314,10 +292,11 @@ public class CvHelperPlugin extends Plugin
 		keyManager.unregisterKeyListener(captureScreenHotkeyListener);
 		keyManager.unregisterKeyListener(refreshEntitiesHotkeyListener);
 		keyManager.unregisterKeyListener(nearestEntityHotkeyListener);
-		keyManager.unregisterKeyListener(actionHotkeyListener1);
-		keyManager.unregisterKeyListener(actionHotkeyListener2);
-		keyManager.unregisterKeyListener(actionHotkeyListener3);
-		keyManager.unregisterKeyListener(actionHotkeyListener4);
+		for (HotkeyListener listener : actionHotkeyListeners)
+		{
+			keyManager.unregisterKeyListener(listener);
+		}
+		actionHotkeyListeners.clear();
 	}
 
 	CvHelperConfig getConfig()
@@ -623,6 +602,12 @@ public class CvHelperPlugin extends Plugin
 		updatePanelStatus("Action " + slot + " hotkey saved");
 	}
 
+	void setActionEnabled(int slot, boolean value)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, "actionEnabled" + slot, value);
+		updatePanelStatus("Action " + slot + (value ? " enabled" : " disabled"));
+	}
+
 	void setActionSurface(int slot, CvHelperActionSurface surface)
 	{
 		configManager.setConfiguration(CvHelperConfig.GROUP, "actionSurface" + slot, surface == null ? CvHelperActionSurface.DISABLED : surface);
@@ -672,7 +657,26 @@ public class CvHelperPlugin extends Plugin
 			case 4:
 				return config.actionHotkey4();
 			default:
-				return Keybind.NOT_SET;
+				Keybind keybind = configManager.getConfiguration(CvHelperConfig.GROUP, "actionHotkey" + slot, Keybind.class);
+				return keybind == null ? Keybind.NOT_SET : keybind;
+		}
+	}
+
+	boolean getActionEnabled(int slot)
+	{
+		switch (slot)
+		{
+			case 1:
+				return config.actionEnabled1();
+			case 2:
+				return config.actionEnabled2();
+			case 3:
+				return config.actionEnabled3();
+			case 4:
+				return config.actionEnabled4();
+			default:
+				Boolean enabled = configManager.getConfiguration(CvHelperConfig.GROUP, "actionEnabled" + slot, Boolean.class);
+				return enabled == null || enabled;
 		}
 	}
 
@@ -689,7 +693,8 @@ public class CvHelperPlugin extends Plugin
 			case 4:
 				return config.actionSurface4();
 			default:
-				return CvHelperActionSurface.DISABLED;
+				CvHelperActionSurface surface = configManager.getConfiguration(CvHelperConfig.GROUP, "actionSurface" + slot, CvHelperActionSurface.class);
+				return surface == null ? CvHelperActionSurface.DISABLED : surface;
 		}
 	}
 
@@ -706,7 +711,8 @@ public class CvHelperPlugin extends Plugin
 			case 4:
 				return config.actionTarget4();
 			default:
-				return "";
+				String target = configManager.getConfiguration(CvHelperConfig.GROUP, "actionTarget" + slot);
+				return target == null ? "" : target;
 		}
 	}
 
@@ -740,7 +746,8 @@ public class CvHelperPlugin extends Plugin
 			case 4:
 				return config.actionClickAfterMode4();
 			default:
-				return CvHelperClickAfterMode.AUTO;
+				CvHelperClickAfterMode mode = configManager.getConfiguration(CvHelperConfig.GROUP, "actionClickAfterMode" + slot, CvHelperClickAfterMode.class);
+				return mode == null ? CvHelperClickAfterMode.AUTO : mode;
 		}
 	}
 
@@ -757,7 +764,8 @@ public class CvHelperPlugin extends Plugin
 			case 4:
 				return config.actionReturnPanel4();
 			default:
-				return false;
+				Boolean returnPanel = configManager.getConfiguration(CvHelperConfig.GROUP, "actionReturnPanel" + slot, Boolean.class);
+				return returnPanel != null && returnPanel;
 		}
 	}
 
@@ -774,12 +782,18 @@ public class CvHelperPlugin extends Plugin
 			case 4:
 				return config.actionReturnMouseCenter4();
 			default:
-				return false;
+				Boolean returnMouseCenter = configManager.getConfiguration(CvHelperConfig.GROUP, "actionReturnMouseCenter" + slot, Boolean.class);
+				return returnMouseCenter != null && returnMouseCenter;
 		}
 	}
 
 	void performConfiguredAction(int slot)
 	{
+		if (!getActionEnabled(slot))
+		{
+			updatePanelStatus("Action " + slot + " is disabled");
+			return;
+		}
 		performConfiguredAction(slot, getActionSurface(slot), getActionTarget(slot), getActionClickAfterMode(slot), getActionReturnPanel(slot), getActionReturnMouseCenter(slot));
 	}
 
@@ -856,6 +870,7 @@ public class CvHelperPlugin extends Plugin
 			return;
 		}
 
+		Point currentMouseScreenPoint = currentMouseScreenPoint();
 		clientThread.invokeLater(() ->
 		{
 			String previousPanel = String.valueOf(interfaceStatus().get("activeSidePanel"));
@@ -876,7 +891,7 @@ public class CvHelperPlugin extends Plugin
 			Map<String, Object> randomizedClickPoint = randomizedClickPoint(target, clickPoint);
 			Point targetScreenPoint = canvasPointToScreen(randomizedClickPoint);
 			boolean clickMouseAfterTarget = shouldClickMouseAfter(surface, target, clickAfterMode);
-			Point mouseScreenPoint = clickMouseAfterTarget ? canvasPointToScreen(pointValue(client.getMouseCanvasPosition())) : null;
+			Point mouseScreenPoint = clickMouseAfterTarget ? currentMouseScreenPoint : null;
 			Point returnPanelPoint = returnPanel ? panelReturnPoint(previousPanel) : null;
 			Point centerPoint = returnMouseCenter ? canvasCenterScreenPoint() : null;
 			if (targetScreenPoint == null)
@@ -900,17 +915,17 @@ public class CvHelperPlugin extends Plugin
 				clickScreenPoint(robot, targetScreenPoint);
 				if (mouseScreenPoint != null)
 				{
-					robot.delay(90);
+					robot.delay(35);
 					clickScreenPoint(robot, mouseScreenPoint);
 				}
 				if (returnPanelPoint != null)
 				{
-					robot.delay(120);
+					robot.delay(45);
 					clickScreenPoint(robot, returnPanelPoint);
 				}
 				if (centerPoint != null)
 				{
-					robot.delay(60);
+					robot.delay(20);
 					robot.mouseMove(centerPoint.x, centerPoint.y);
 				}
 				clientThread.invokeLater(() -> client.addChatMessage(
@@ -990,8 +1005,13 @@ public class CvHelperPlugin extends Plugin
 	{
 		robot.mouseMove(point.x, point.y);
 		robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
-		robot.delay(35);
+		robot.delay(18);
 		robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+	}
+
+	private Point currentMouseScreenPoint()
+	{
+		return MouseInfo.getPointerInfo() == null ? null : MouseInfo.getPointerInfo().getLocation();
 	}
 
 	private Map<String, Object> randomizedClickPoint(Map<String, Object> target, Map<String, Object> clickPoint)

@@ -17,11 +17,13 @@ import net.runelite.client.config.Keybind;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
+import net.runelite.client.config.ConfigSection;
 
 @ConfigGroup(CvHelperConfig.GROUP)
 public interface CvHelperConfig extends Config
 {
 	String GROUP = "cvhelper";
+	String ACTION_SECTION = "actionSection";
 	String SHOW_HOVER_OVERLAY = "showHoverOverlay";
 	String SHOW_WIDGET_INFO = "showWidgetInfo";
 	String SHOW_PRAYER_TARGETS = "showPrayerTargets";
@@ -41,6 +43,7 @@ public interface CvHelperConfig extends Config
 	String CAPTURE_SCREEN_HOTKEY = "captureScreenHotkey";
 	String REFRESH_ENTITIES_HOTKEY = "refreshEntitiesHotkey";
 	String NEAREST_ENTITY_HOTKEY = "nearestEntityHotkey";
+	String ACTION_ENABLED_1 = "actionEnabled1";
 	String ACTION_HOTKEY_1 = "actionHotkey1";
 	String ACTION_SURFACE_1 = "actionSurface1";
 	String ACTION_TARGET_1 = "actionTarget1";
@@ -48,6 +51,7 @@ public interface CvHelperConfig extends Config
 	String ACTION_CLICK_AFTER_MODE_1 = "actionClickAfterMode1";
 	String ACTION_RETURN_PANEL_1 = "actionReturnPanel1";
 	String ACTION_RETURN_MOUSE_CENTER_1 = "actionReturnMouseCenter1";
+	String ACTION_ENABLED_2 = "actionEnabled2";
 	String ACTION_HOTKEY_2 = "actionHotkey2";
 	String ACTION_SURFACE_2 = "actionSurface2";
 	String ACTION_TARGET_2 = "actionTarget2";
@@ -55,6 +59,7 @@ public interface CvHelperConfig extends Config
 	String ACTION_CLICK_AFTER_MODE_2 = "actionClickAfterMode2";
 	String ACTION_RETURN_PANEL_2 = "actionReturnPanel2";
 	String ACTION_RETURN_MOUSE_CENTER_2 = "actionReturnMouseCenter2";
+	String ACTION_ENABLED_3 = "actionEnabled3";
 	String ACTION_HOTKEY_3 = "actionHotkey3";
 	String ACTION_SURFACE_3 = "actionSurface3";
 	String ACTION_TARGET_3 = "actionTarget3";
@@ -62,6 +67,7 @@ public interface CvHelperConfig extends Config
 	String ACTION_CLICK_AFTER_MODE_3 = "actionClickAfterMode3";
 	String ACTION_RETURN_PANEL_3 = "actionReturnPanel3";
 	String ACTION_RETURN_MOUSE_CENTER_3 = "actionReturnMouseCenter3";
+	String ACTION_ENABLED_4 = "actionEnabled4";
 	String ACTION_HOTKEY_4 = "actionHotkey4";
 	String ACTION_SURFACE_4 = "actionSurface4";
 	String ACTION_TARGET_4 = "actionTarget4";
@@ -69,6 +75,13 @@ public interface CvHelperConfig extends Config
 	String ACTION_CLICK_AFTER_MODE_4 = "actionClickAfterMode4";
 	String ACTION_RETURN_PANEL_4 = "actionReturnPanel4";
 	String ACTION_RETURN_MOUSE_CENTER_4 = "actionReturnMouseCenter4";
+
+	@ConfigSection(
+		name = "Action hotkeys",
+		description = "Configurable action-click hotkeys for prayer, spell, UI, and entity targets.",
+		position = 100
+	)
+	String actionSection = ACTION_SECTION;
 
 	@ConfigItem(
 		keyName = SHOW_HOVER_OVERLAY,
@@ -261,9 +274,21 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = ACTION_ENABLED_1,
+		name = "Action 1 enabled",
+		description = "Enable or disable action slot 1 without clearing its hotkey.",
+		section = actionSection
+	)
+	default boolean actionEnabled1()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = ACTION_HOTKEY_1,
 		name = "Action 1 hotkey",
-		description = "Hotkey for action slot 1."
+		description = "Hotkey for action slot 1.",
+		section = actionSection
 	)
 	default Keybind actionHotkey1()
 	{
@@ -273,7 +298,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_SURFACE_1,
 		name = "Action 1 surface",
-		description = "Which exported target surface action slot 1 should click."
+		description = "Which exported target surface action slot 1 should click.",
+		section = actionSection
 	)
 	default CvHelperActionSurface actionSurface1()
 	{
@@ -283,7 +309,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_TARGET_1,
 		name = "Action 1 target label",
-		description = "Case-insensitive target label text to match, such as Protect from Magic or High Level Alchemy."
+		description = "Case-insensitive target label text to match, such as Protect from Magic or High Level Alchemy.",
+		section = actionSection
 	)
 	default String actionTarget1()
 	{
@@ -293,7 +320,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_CLICK_MOUSE_1,
 		name = "Action 1 click mouse after",
-		description = "After clicking the target widget, click the current mouse canvas position. Useful for target spells."
+		description = "After clicking the target widget, click the current mouse canvas position. Useful for target spells.",
+		section = actionSection
 	)
 	default boolean actionClickMouse1()
 	{
@@ -303,7 +331,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_CLICK_AFTER_MODE_1,
 		name = "Action 1 click-after mode",
-		description = "Whether action slot 1 should click the current mouse target after selecting its target."
+		description = "Whether action slot 1 should click the current mouse target after selecting its target.",
+		section = actionSection
 	)
 	default CvHelperClickAfterMode actionClickAfterMode1()
 	{
@@ -313,7 +342,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_RETURN_PANEL_1,
 		name = "Action 1 return panel",
-		description = "After action slot 1 finishes, click back to the previously open side panel."
+		description = "After action slot 1 finishes, click back to the previously open side panel.",
+		section = actionSection
 	)
 	default boolean actionReturnPanel1()
 	{
@@ -323,7 +353,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_RETURN_MOUSE_CENTER_1,
 		name = "Action 1 center mouse",
-		description = "After action slot 1 finishes, move the mouse to the center of the game canvas."
+		description = "After action slot 1 finishes, move the mouse to the center of the game canvas.",
+		section = actionSection
 	)
 	default boolean actionReturnMouseCenter1()
 	{
@@ -331,9 +362,21 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = ACTION_ENABLED_2,
+		name = "Action 2 enabled",
+		description = "Enable or disable action slot 2 without clearing its hotkey.",
+		section = actionSection
+	)
+	default boolean actionEnabled2()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = ACTION_HOTKEY_2,
 		name = "Action 2 hotkey",
-		description = "Hotkey for action slot 2."
+		description = "Hotkey for action slot 2.",
+		section = actionSection
 	)
 	default Keybind actionHotkey2()
 	{
@@ -343,7 +386,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_SURFACE_2,
 		name = "Action 2 surface",
-		description = "Which exported target surface action slot 2 should click."
+		description = "Which exported target surface action slot 2 should click.",
+		section = actionSection
 	)
 	default CvHelperActionSurface actionSurface2()
 	{
@@ -353,7 +397,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_TARGET_2,
 		name = "Action 2 target label",
-		description = "Case-insensitive target label text to match."
+		description = "Case-insensitive target label text to match.",
+		section = actionSection
 	)
 	default String actionTarget2()
 	{
@@ -363,7 +408,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_CLICK_MOUSE_2,
 		name = "Action 2 click mouse after",
-		description = "After clicking the target widget, click the current mouse canvas position."
+		description = "After clicking the target widget, click the current mouse canvas position.",
+		section = actionSection
 	)
 	default boolean actionClickMouse2()
 	{
@@ -373,7 +419,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_CLICK_AFTER_MODE_2,
 		name = "Action 2 click-after mode",
-		description = "Whether action slot 2 should click the current mouse target after selecting its target."
+		description = "Whether action slot 2 should click the current mouse target after selecting its target.",
+		section = actionSection
 	)
 	default CvHelperClickAfterMode actionClickAfterMode2()
 	{
@@ -383,7 +430,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_RETURN_PANEL_2,
 		name = "Action 2 return panel",
-		description = "After action slot 2 finishes, click back to the previously open side panel."
+		description = "After action slot 2 finishes, click back to the previously open side panel.",
+		section = actionSection
 	)
 	default boolean actionReturnPanel2()
 	{
@@ -393,7 +441,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_RETURN_MOUSE_CENTER_2,
 		name = "Action 2 center mouse",
-		description = "After action slot 2 finishes, move the mouse to the center of the game canvas."
+		description = "After action slot 2 finishes, move the mouse to the center of the game canvas.",
+		section = actionSection
 	)
 	default boolean actionReturnMouseCenter2()
 	{
@@ -401,9 +450,21 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = ACTION_ENABLED_3,
+		name = "Action 3 enabled",
+		description = "Enable or disable action slot 3 without clearing its hotkey.",
+		section = actionSection
+	)
+	default boolean actionEnabled3()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = ACTION_HOTKEY_3,
 		name = "Action 3 hotkey",
-		description = "Hotkey for action slot 3."
+		description = "Hotkey for action slot 3.",
+		section = actionSection
 	)
 	default Keybind actionHotkey3()
 	{
@@ -413,7 +474,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_SURFACE_3,
 		name = "Action 3 surface",
-		description = "Which exported target surface action slot 3 should click."
+		description = "Which exported target surface action slot 3 should click.",
+		section = actionSection
 	)
 	default CvHelperActionSurface actionSurface3()
 	{
@@ -423,7 +485,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_TARGET_3,
 		name = "Action 3 target label",
-		description = "Case-insensitive target label text to match."
+		description = "Case-insensitive target label text to match.",
+		section = actionSection
 	)
 	default String actionTarget3()
 	{
@@ -433,7 +496,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_CLICK_MOUSE_3,
 		name = "Action 3 click mouse after",
-		description = "After clicking the target widget, click the current mouse canvas position."
+		description = "After clicking the target widget, click the current mouse canvas position.",
+		section = actionSection
 	)
 	default boolean actionClickMouse3()
 	{
@@ -443,7 +507,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_CLICK_AFTER_MODE_3,
 		name = "Action 3 click-after mode",
-		description = "Whether action slot 3 should click the current mouse target after selecting its target."
+		description = "Whether action slot 3 should click the current mouse target after selecting its target.",
+		section = actionSection
 	)
 	default CvHelperClickAfterMode actionClickAfterMode3()
 	{
@@ -453,7 +518,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_RETURN_PANEL_3,
 		name = "Action 3 return panel",
-		description = "After action slot 3 finishes, click back to the previously open side panel."
+		description = "After action slot 3 finishes, click back to the previously open side panel.",
+		section = actionSection
 	)
 	default boolean actionReturnPanel3()
 	{
@@ -463,7 +529,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_RETURN_MOUSE_CENTER_3,
 		name = "Action 3 center mouse",
-		description = "After action slot 3 finishes, move the mouse to the center of the game canvas."
+		description = "After action slot 3 finishes, move the mouse to the center of the game canvas.",
+		section = actionSection
 	)
 	default boolean actionReturnMouseCenter3()
 	{
@@ -471,9 +538,21 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = ACTION_ENABLED_4,
+		name = "Action 4 enabled",
+		description = "Enable or disable action slot 4 without clearing its hotkey.",
+		section = actionSection
+	)
+	default boolean actionEnabled4()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = ACTION_HOTKEY_4,
 		name = "Action 4 hotkey",
-		description = "Hotkey for action slot 4."
+		description = "Hotkey for action slot 4.",
+		section = actionSection
 	)
 	default Keybind actionHotkey4()
 	{
@@ -483,7 +562,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_SURFACE_4,
 		name = "Action 4 surface",
-		description = "Which exported target surface action slot 4 should click."
+		description = "Which exported target surface action slot 4 should click.",
+		section = actionSection
 	)
 	default CvHelperActionSurface actionSurface4()
 	{
@@ -493,7 +573,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_TARGET_4,
 		name = "Action 4 target label",
-		description = "Case-insensitive target label text to match."
+		description = "Case-insensitive target label text to match.",
+		section = actionSection
 	)
 	default String actionTarget4()
 	{
@@ -503,7 +584,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_CLICK_MOUSE_4,
 		name = "Action 4 click mouse after",
-		description = "After clicking the target widget, click the current mouse canvas position."
+		description = "After clicking the target widget, click the current mouse canvas position.",
+		section = actionSection
 	)
 	default boolean actionClickMouse4()
 	{
@@ -513,7 +595,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_CLICK_AFTER_MODE_4,
 		name = "Action 4 click-after mode",
-		description = "Whether action slot 4 should click the current mouse target after selecting its target."
+		description = "Whether action slot 4 should click the current mouse target after selecting its target.",
+		section = actionSection
 	)
 	default CvHelperClickAfterMode actionClickAfterMode4()
 	{
@@ -523,7 +606,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_RETURN_PANEL_4,
 		name = "Action 4 return panel",
-		description = "After action slot 4 finishes, click back to the previously open side panel."
+		description = "After action slot 4 finishes, click back to the previously open side panel.",
+		section = actionSection
 	)
 	default boolean actionReturnPanel4()
 	{
@@ -533,7 +617,8 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_RETURN_MOUSE_CENTER_4,
 		name = "Action 4 center mouse",
-		description = "After action slot 4 finishes, move the mouse to the center of the game canvas."
+		description = "After action slot 4 finishes, move the mouse to the center of the game canvas.",
+		section = actionSection
 	)
 	default boolean actionReturnMouseCenter4()
 	{
