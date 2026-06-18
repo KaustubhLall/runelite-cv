@@ -67,7 +67,8 @@ Expose lightweight RuneLite UI capture state to local development tools without 
 - `GET /targets/panels` returns side-panel tab/navigation controls for opening interfaces such as combat options, stats, quests, inventory, equipment, prayer, and magic.
 - `GET /targets/combat` returns visible combat option / attack-style widgets where available.
 - `GET /targets` returns a combined target snapshot for verifier/Python convenience.
-- `GET /entities` returns nearby players and NPCs around the local player with names, ids where available, world/local location, combat level, animation, distance from the local player, and canvas bounds where RuneLite exposes them. Game object traversal is a follow-up.
+- `GET /entities` returns nearby players and NPCs around the local player with names, ids where available, world/local location, combat level, animation, distance from the local player, canvas bounds where RuneLite exposes them, `center`, `canvasTileCenter`, and a preferred canvas-space `clickPoint`.
+- `GET /entities/nearest` returns the closest exported player/NPC with a usable canvas-space `clickPoint`, intended as a first controller-friendly target for Python click planning.
 - Target payloads should include freshness metadata such as `fresh`, `lastSeenAt`, or equivalent. Last-known panel positions may be served after panels close, and should be marked cached/stale.
 - The server should prefer a fixed/default local development port. If binding fails, it may fall back to an ephemeral port, but `/status` and the RuneLite panel must expose the active port.
 - Screenshot files are written as explicit `cv-helper-*.png` files under `C:\Users\kaust\.runelite\screenshots\<player>\manual\`, and `/status` exposes each latest capture `savedPath`.
@@ -76,7 +77,7 @@ Expose lightweight RuneLite UI capture state to local development tools without 
 - Current webhook events are `server-started`, `prayer-targets`, `spell-targets`, other `*-targets` surfaces, and `capture-saved`.
 - `OSR-3` owns the first Python receiver contract for consuming local endpoints and webhook payloads.
 - `OSR-4` owns the future tick-synchronized delivery contract: state changes enqueue snapshots immediately, then queued exports flush on RuneLite `GameTick` for coherent tick-aligned Python decisions.
-- `OSR-5` owns hotkey investigation. RuneLite hotkey capture is expected to use `Keybind`, `HotkeyButton`, `KeyManager`, and `HotkeyListener`; direct prayer/spell activation must remain gated behind an explicit boundary decision.
+- `OSR-5` owns hotkey action work. Current CV Helper hotkeys are configurable RuneLite `Keybind`s for debug status, bounds printing, raw screen capture, entity refresh, and nearest-entity click-point logging. Direct prayer/spell activation must remain gated behind an explicit boundary decision.
 - `OSR-6` owns the verifier client site. Browser consumers call CV Helper through `http://127.0.0.1:<port>`, so plugin JSON responses include permissive local-development CORS headers.
 
 ### Verification
@@ -94,6 +95,8 @@ Expose lightweight RuneLite UI capture state to local development tools without 
 - `Invoke-RestMethod -Uri http://127.0.0.1:<port>/targets/minimap`
 - `Invoke-RestMethod -Uri http://127.0.0.1:<port>/targets/inventory`
 - `Invoke-RestMethod -Uri http://127.0.0.1:<port>/targets/equipment`
+- `Invoke-RestMethod -Uri http://127.0.0.1:<port>/entities`
+- `Invoke-RestMethod -Uri http://127.0.0.1:<port>/entities/nearest`
 - Confirm status changes to `saved@...` and a `cv-helper ...png` appears in `C:\Users\kaust\.runelite\screenshots\`.
 - For live widget verification, ask the user to log in to the newest launched custom client before treating empty target counts as meaningful.
 - For inventory verification, an item hover/drag should show only slot-sized overlays. A large inventory-panel-sized duplicate is a contract violation.

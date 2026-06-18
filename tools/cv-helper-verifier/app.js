@@ -67,14 +67,16 @@ async function refreshAll() {
 		const [status, ...targetPayloads] = await Promise.all([
 			request("/status"),
 			request("/entities"),
+			request("/entities/nearest"),
 			...surfaces.map(surface => request(`/targets/${surface}`)),
 		]);
 		const entitiesPayload = targetPayloads.shift();
+		const nearestEntityPayload = targetPayloads.shift();
 
 		setConnection(`Connected to ${baseUrl()}`, true);
 		renderStatus(status);
 		renderCounts(status, targetPayloads, entitiesPayload);
-		renderEntities(entitiesPayload);
+		renderEntities(entitiesPayload, nearestEntityPayload);
 		renderSurfaces(targetPayloads);
 		renderWarnings(status, targetPayloads);
 	} catch (error) {
@@ -142,8 +144,9 @@ function renderSurfaces(targetPayloads) {
 	surfacesRoot.innerHTML = targetPayloads.map(renderSurface).join("");
 }
 
-function renderEntities(payload) {
+function renderEntities(payload, nearestPayload) {
 	const rows = payload?.entities || [];
+	const nearest = nearestPayload?.entity || null;
 	const body = rows
 		.slice()
 		.sort((a, b) => (a.distance ?? 9999) - (b.distance ?? 9999))
@@ -158,6 +161,14 @@ function renderEntities(payload) {
 				</div>
 				<small>${escapeHtml(payload?.gameState || "")}</small>
 			</header>
+			${nearest ? `
+				<div class="entity-nearest">
+					<strong>Nearest click target:</strong>
+					<span>${escapeHtml(nearest.type || "")} ${escapeHtml(nearest.name || "(unnamed)")}</span>
+					<span>distance ${escapeHtml(nearest.distance ?? "")}</span>
+					<span>click ${escapeHtml(formatPoint(nearest.clickPoint))}</span>
+				</div>
+			` : ""}
 			${rows.length ? `
 				<div class="table-wrap">
 					<table>
@@ -169,6 +180,7 @@ function renderEntities(payload) {
 								<th>Distance</th>
 								<th>World</th>
 								<th>Bounds</th>
+								<th>Click</th>
 							</tr>
 						</thead>
 						<tbody>${body}</tbody>
@@ -188,6 +200,7 @@ function renderEntityRow(entity) {
 			<td>${escapeHtml(entity.distance ?? "")}</td>
 			<td>${escapeHtml(formatPoint(entity.worldLocation))}</td>
 			<td>${formatRect(entity.canvasBounds || {})}</td>
+			<td>${escapeHtml(formatPoint(entity.clickPoint))}</td>
 		</tr>
 	`;
 }

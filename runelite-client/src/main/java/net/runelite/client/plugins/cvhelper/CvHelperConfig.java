@@ -13,6 +13,7 @@
  */
 package net.runelite.client.plugins.cvhelper;
 
+import net.runelite.client.config.Keybind;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
@@ -35,6 +36,11 @@ public interface CvHelperConfig extends Config
 	String ENABLE_LOCAL_EXPORT = "enableLocalExport";
 	String LOCAL_PORT = "localPort";
 	String WEBHOOK_URL = "webhookUrl";
+	String DEBUG_HOTKEY = "debugHotkey";
+	String PRINT_BOUNDS_HOTKEY = "printBoundsHotkey";
+	String CAPTURE_SCREEN_HOTKEY = "captureScreenHotkey";
+	String REFRESH_ENTITIES_HOTKEY = "refreshEntitiesHotkey";
+	String NEAREST_ENTITY_HOTKEY = "nearestEntityHotkey";
 
 	@ConfigItem(
 		keyName = SHOW_HOVER_OVERLAY,
@@ -174,5 +180,55 @@ public interface CvHelperConfig extends Config
 	default String webhookUrl()
 	{
 		return "";
+	}
+
+	@ConfigItem(
+		keyName = DEBUG_HOTKEY,
+		name = "Debug status hotkey",
+		description = "Print CV Helper status and target counts to in-game chat."
+	)
+	default Keybind debugHotkey()
+	{
+		return Keybind.NOT_SET;
+	}
+
+	@ConfigItem(
+		keyName = PRINT_BOUNDS_HOTKEY,
+		name = "Print bounds hotkey",
+		description = "Print current overlay/widget bounds to in-game chat."
+	)
+	default Keybind printBoundsHotkey()
+	{
+		return Keybind.NOT_SET;
+	}
+
+	@ConfigItem(
+		keyName = CAPTURE_SCREEN_HOTKEY,
+		name = "Capture screen hotkey",
+		description = "Queue a raw client-canvas capture through CV Helper."
+	)
+	default Keybind captureScreenHotkey()
+	{
+		return Keybind.NOT_SET;
+	}
+
+	@ConfigItem(
+		keyName = REFRESH_ENTITIES_HOTKEY,
+		name = "Refresh entities hotkey",
+		description = "Refresh nearby player/NPC exports and forward them to the configured webhook."
+	)
+	default Keybind refreshEntitiesHotkey()
+	{
+		return Keybind.NOT_SET;
+	}
+
+	@ConfigItem(
+		keyName = NEAREST_ENTITY_HOTKEY,
+		name = "Nearest entity hotkey",
+		description = "Print the nearest exported entity and its preferred canvas click point to in-game chat."
+	)
+	default Keybind nearestEntityHotkey()
+	{
+		return Keybind.NOT_SET;
 	}
 }

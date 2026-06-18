@@ -34,6 +34,8 @@ The Python process should not have to infer every UI coordinate from pixels. Whe
 - Implemented on 2026-06-17: `/player/status` and `/status` export mouse position, current player world/local coordinates, self/player screen bounds if available, current open interface/tab metadata, capture statuses, and target snapshot status.
 - Implemented on 2026-06-17: panel/navigation targets, compass/north target, combat option/attack-style targets, and nearby player/NPC entities are exported.
 - Implemented on 2026-06-17: target endpoints keep last-known UI target positions cached after panels close and mark whether exported targets are fresh or cached/stale. This lets the controller click a panel/tab target even after the panel has closed, as long as the layout has not changed.
+- Implemented on 2026-06-18: configurable CV Helper hotkeys are available for debug status, bounds printing, raw screen capture, nearby entity refresh, and nearest-entity click-point logging.
+- Implemented on 2026-06-18: entity exports include `center`, `canvasTileCenter`, and preferred canvas-space `clickPoint`; `/entities/nearest` returns the closest clickable player/NPC export.
 
 ## Core Responsibilities
 
@@ -172,7 +174,30 @@ Returns a combined snapshot of known target surfaces with fresh/cached metadata.
 
 ### `GET /entities`
 
-Returns nearby entities around the local player where RuneLite exposes them. Initial entity types include nearby players and NPCs with names, ids where available, world/local location, combat level, animation, distance from the local player, and screen/canvas bounds where RuneLite exposes them. Game objects remain a follow-up because they require scene tile traversal rather than actor lists.
+Returns nearby entities around the local player where RuneLite exposes them. Initial entity types include nearby players and NPCs with names, ids where available, world/local location, combat level, animation, distance from the local player, screen/canvas bounds where RuneLite exposes them, `center`, `canvasTileCenter`, and preferred canvas-space `clickPoint`. Game objects remain a follow-up because they require scene tile traversal rather than actor lists.
+
+### `GET /entities/nearest`
+
+Returns the closest exported player/NPC with a usable canvas-space `clickPoint`.
+
+```json
+{
+  "surface": "entities/nearest",
+  "generatedAt": "2026-06-18T12:00:00Z",
+  "gameState": "LOGGED_IN",
+  "count": 4,
+  "entity": {
+    "type": "npc",
+    "name": "Guard",
+    "distance": 3,
+    "worldLocation": {"x": 3222, "y": 3218, "plane": 0},
+    "canvasBounds": {"x": 420, "y": 215, "width": 38, "height": 72},
+    "center": {"x": 439, "y": 251},
+    "canvasTileCenter": {"x": 440, "y": 286},
+    "clickPoint": {"x": 439, "y": 251}
+  }
+}
+```
 
 ## Bidirectional Bridge Design
 
@@ -216,7 +241,15 @@ The plugin adds CORS headers to JSON responses so the browser can call `http://1
 
 Tracked by `OSR-5`.
 
-RuneLite has existing hotkey primitives (`Keybind`, `HotkeyButton`, `KeyManager`, and `HotkeyListener`), so configurable key capture for CV Helper is feasible. The proposed first slice is:
+RuneLite has existing hotkey primitives (`Keybind`, `HotkeyButton`, `KeyManager`, and `HotkeyListener`), so configurable key capture for CV Helper is feasible. The first implemented slice is:
+
+- `Debug status hotkey`: writes plugin status, mouse position, and target counts to in-game chat.
+- `Print bounds hotkey`: writes current/cached overlay bounds and major widget summaries to in-game chat.
+- `Capture screen hotkey`: queues a raw client-canvas capture.
+- `Refresh entities hotkey`: refreshes nearby player/NPC exports and forwards them to the webhook if configured.
+- `Nearest entity hotkey`: writes the nearest exported entity and preferred canvas `clickPoint` to in-game chat.
+
+Future action hotkeys remain:
 
 - Add/dropdown-style UI for mapping hotkeys to semantic actions such as `toggle-prayer:Protect from Magic` or `select-spell:High Level Alchemy`.
 - Start by logging/debug-printing the resolved action and current target geometry.

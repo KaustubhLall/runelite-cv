@@ -302,6 +302,22 @@ h2 {
 	max-height: 420px;
 }
 
+.entity-nearest {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 12px;
+	margin: 0 20px 16px;
+	padding: 10px 12px;
+	border: 1px solid var(--line);
+	border-radius: 16px;
+	background: var(--panel-2);
+	color: var(--muted);
+}
+
+.entity-nearest strong {
+	color: var(--ink);
+}
+
 table {
 	width: 100%;
 	border-collapse: collapse;

@@ -42,6 +42,7 @@ import net.runelite.api.Client;
 import net.runelite.api.EnumID;
 import net.runelite.api.GameState;
 import net.runelite.api.NPC;
+import net.runelite.api.Perspective;
 import net.runelite.api.Player;
 import net.runelite.api.Prayer;
 import net.runelite.api.Skill;
@@ -54,6 +55,7 @@ import net.runelite.api.widgets.Widget;
 import net.runelite.api.widgets.WidgetInfo;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.input.KeyManager;
 import net.runelite.client.RuneLite;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.DrawManager;
@@ -61,6 +63,7 @@ import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.overlay.OverlayManager;
+import net.runelite.client.util.HotkeyListener;
 import net.runelite.client.util.ImageUtil;
 import net.runelite.http.api.RuneLiteAPI;
 import okhttp3.Call;
@@ -145,6 +148,9 @@ public class CvHelperPlugin extends Plugin
 	@Inject
 	private ClientThread clientThread;
 
+	@Inject
+	private KeyManager keyManager;
+
 	private NavigationButton navButton;
 	private CvHelperPanel panel;
 	private HttpServer server;
@@ -183,6 +189,7 @@ public class CvHelperPlugin extends Plugin
 			.panel(panel)
 			.build();
 		clientToolbar.addNavigation(navButton);
+		registerHotkeys();
 		startServer();
 	}
 
@@ -190,6 +197,7 @@ public class CvHelperPlugin extends Plugin
 	protected void shutDown()
 	{
 		log.info("CV Helper stopping");
+		unregisterHotkeys();
 		stopServer();
 		overlayManager.remove(overlay);
 		if (navButton != null)
@@ -198,6 +206,69 @@ public class CvHelperPlugin extends Plugin
 		}
 		navButton = null;
 		panel = null;
+	}
+
+	private final HotkeyListener debugHotkeyListener = new HotkeyListener(() -> config.debugHotkey())
+	{
+		@Override
+		public void hotkeyPressed()
+		{
+			debugOverlayState();
+		}
+	};
+
+	private final HotkeyListener printBoundsHotkeyListener = new HotkeyListener(() -> config.printBoundsHotkey())
+	{
+		@Override
+		public void hotkeyPressed()
+		{
+			printOverlayCoordinates();
+		}
+	};
+
+	private final HotkeyListener captureScreenHotkeyListener = new HotkeyListener(() -> config.captureScreenHotkey())
+	{
+		@Override
+		public void hotkeyPressed()
+		{
+			captureScreen();
+		}
+	};
+
+	private final HotkeyListener refreshEntitiesHotkeyListener = new HotkeyListener(() -> config.refreshEntitiesHotkey())
+	{
+		@Override
+		public void hotkeyPressed()
+		{
+			refreshEntities();
+		}
+	};
+
+	private final HotkeyListener nearestEntityHotkeyListener = new HotkeyListener(() -> config.nearestEntityHotkey())
+	{
+		@Override
+		public void hotkeyPressed()
+		{
+			printNearestEntityTarget();
+		}
+	};
+
+	private void registerHotkeys()
+	{
+		keyManager.registerKeyListener(debugHotkeyListener);
+		keyManager.registerKeyListener(printBoundsHotkeyListener);
+		keyManager.registerKeyListener(captureScreenHotkeyListener);
+		keyManager.registerKeyListener(refreshEntitiesHotkeyListener);
+		keyManager.registerKeyListener(nearestEntityHotkeyListener);
+	}
+
+	private void unregisterHotkeys()
+	{
+		keyManager.unregisterKeyListener(debugHotkeyListener);
+		keyManager.unregisterKeyListener(printBoundsHotkeyListener);
+		keyManager.unregisterKeyListener(captureScreenHotkeyListener);
+		keyManager.unregisterKeyListener(refreshEntitiesHotkeyListener);
+		keyManager.unregisterKeyListener(nearestEntityHotkeyListener);
 	}
 
 	CvHelperConfig getConfig()
@@ -541,6 +612,28 @@ public class CvHelperPlugin extends Plugin
 		});
 	}
 
+	void printNearestEntityTarget()
+	{
+		clientThread.invokeLater(() ->
+		{
+			lastEntities = collectEntities();
+			Map<String, Object> nearest = nearestClickableEntity(lastEntities);
+			if (nearest == null)
+			{
+				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper nearest entity | none with canvas click point", "");
+				return;
+			}
+
+			StringBuilder sb = new StringBuilder("CV Helper nearest entity | ");
+			sb.append(nearest.get("type")).append("=").append(nearest.get("name"));
+			sb.append(" | distance=").append(nearest.get("distance"));
+			sb.append(" | clickPoint=").append(nearest.get("clickPoint"));
+			sb.append(" | world=").append(nearest.get("worldLocation"));
+			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", sb.toString(), "");
+			lastEvent.set("nearest-entity@" + nearest.get("name") + "@" + Instant.now());
+		});
+	}
+
 	void refreshPrayerTargets()
 	{
 		clientThread.invokeLater(() ->
@@ -751,6 +844,7 @@ public class CvHelperPlugin extends Plugin
 			server.createContext("/targets/combat", exchange -> handleTargetsRequest(exchange, "combat", this::collectCombatTargets));
 			server.createContext("/targets", this::handleAllTargetsRequest);
 			server.createContext("/entities", this::handleEntitiesRequest);
+			server.createContext("/entities/nearest", this::handleNearestEntityRequest);
 			server.createContext("/capture", exchange ->
 			{
 				captureScreenshot();
@@ -810,7 +904,7 @@ public class CvHelperPlugin extends Plugin
 			body.put("status", lastEvent.get());
 			body.put("port", localPort());
 			body.put("preferredPort", config.localPort() > 0 ? config.localPort() : DEFAULT_LOCAL_PORT);
-			body.put("endpoints", new String[]{"/status", "/capture", "/capture/screen", "/capture/minimap", "/capture/latest/client-frame", "/capture/latest/screen", "/capture/latest/minimap", "/player/status", "/targets/prayer", "/targets/spell", "/targets/minimap", "/targets/inventory", "/targets/equipment", "/targets/panels", "/targets/combat", "/targets", "/entities"});
+			body.put("endpoints", new String[]{"/status", "/capture", "/capture/screen", "/capture/minimap", "/capture/latest/client-frame", "/capture/latest/screen", "/capture/latest/minimap", "/player/status", "/targets/prayer", "/targets/spell", "/targets/minimap", "/targets/inventory", "/targets/equipment", "/targets/panels", "/targets/combat", "/targets", "/entities", "/entities/nearest"});
 			Map<String, Object> playerStatus = getPlayerStatusOnClientThread();
 			body.put("player", playerStatus);
 			body.put("spellbook", playerStatus.get("spellbook"));
@@ -912,6 +1006,19 @@ public class CvHelperPlugin extends Plugin
 		try
 		{
 			writeJson(exchange, 200, collectEntitiesOnClientThread());
+		}
+		catch (InterruptedException e)
+		{
+			Thread.currentThread().interrupt();
+			writeResponse(exchange, 503, "{\"error\":\"interrupted\"}");
+		}
+	}
+
+	private void handleNearestEntityRequest(HttpExchange exchange) throws IOException
+	{
+		try
+		{
+			writeJson(exchange, 200, collectNearestEntityOnClientThread());
 		}
 		catch (InterruptedException e)
 		{
@@ -1053,6 +1160,32 @@ public class CvHelperPlugin extends Plugin
 		{
 			Map<String, Object> timeout = new LinkedHashMap<>();
 			timeout.put("surface", "entities");
+			timeout.put("error", "client-thread-timeout");
+			return timeout;
+		}
+		return result.get();
+	}
+
+	private Map<String, Object> collectNearestEntityOnClientThread() throws InterruptedException
+	{
+		CountDownLatch latch = new CountDownLatch(1);
+		AtomicReference<Map<String, Object>> result = new AtomicReference<>();
+		clientThread.invokeLater(() ->
+		{
+			lastEntities = collectEntities();
+			Map<String, Object> snapshot = new LinkedHashMap<>();
+			snapshot.put("surface", "entities/nearest");
+			snapshot.put("generatedAt", Instant.now().toString());
+			snapshot.put("gameState", client.getGameState().name());
+			snapshot.put("entity", nearestClickableEntity(lastEntities));
+			snapshot.put("count", lastEntities.size());
+			result.set(snapshot);
+			latch.countDown();
+		});
+		if (!latch.await(1500, TimeUnit.MILLISECONDS))
+		{
+			Map<String, Object> timeout = new LinkedHashMap<>();
+			timeout.put("surface", "entities/nearest");
 			timeout.put("error", "client-thread-timeout");
 			return timeout;
 		}
@@ -1695,6 +1828,9 @@ public class CvHelperPlugin extends Plugin
 		{
 			return;
 		}
+		Map<String, Object> canvasBounds = actorBounds(actor);
+		Map<String, Object> boundsCenter = centerFromBounds(canvasBounds);
+		Map<String, Object> tileCenter = canvasTileCenter(actor);
 		Map<String, Object> entity = new LinkedHashMap<>();
 		entity.put("type", type);
 		entity.put("name", actor.getName());
@@ -1702,7 +1838,10 @@ public class CvHelperPlugin extends Plugin
 		entity.put("animation", actor.getAnimation());
 		entity.put("worldLocation", pointValue(actor.getWorldLocation()));
 		entity.put("localLocation", pointValue(actor.getLocalLocation()));
-		entity.put("canvasBounds", actorBounds(actor));
+		entity.put("canvasBounds", canvasBounds);
+		entity.put("center", boundsCenter);
+		entity.put("canvasTileCenter", tileCenter);
+		entity.put("clickPoint", boundsCenter != null ? boundsCenter : tileCenter);
 		if (origin != null && actor.getWorldLocation() != null)
 		{
 			entity.put("distance", origin.distanceTo(actor.getWorldLocation()));
@@ -1727,6 +1866,53 @@ public class CvHelperPlugin extends Plugin
 			return null;
 		}
 		return boundsMap(hull.getBounds());
+	}
+
+	private Map<String, Object> canvasTileCenter(Actor actor)
+	{
+		if (actor == null || actor.getLocalLocation() == null)
+		{
+			return null;
+		}
+		return pointValue(Perspective.localToCanvas(client, actor.getLocalLocation(), client.getPlane()));
+	}
+
+	private Map<String, Object> centerFromBounds(Map<String, Object> bounds)
+	{
+		if (bounds == null)
+		{
+			return null;
+		}
+		Number x = (Number) bounds.get("x");
+		Number y = (Number) bounds.get("y");
+		Number width = (Number) bounds.get("width");
+		Number height = (Number) bounds.get("height");
+		if (x == null || y == null || width == null || height == null)
+		{
+			return null;
+		}
+		return pointMap(x.intValue() + width.intValue() / 2, y.intValue() + height.intValue() / 2);
+	}
+
+	private Map<String, Object> nearestClickableEntity(List<Map<String, Object>> entities)
+	{
+		Map<String, Object> nearest = null;
+		int nearestDistance = Integer.MAX_VALUE;
+		for (Map<String, Object> entity : entities)
+		{
+			if (!(entity.get("clickPoint") instanceof Map))
+			{
+				continue;
+			}
+			Object distanceValue = entity.get("distance");
+			int distance = distanceValue instanceof Number ? ((Number) distanceValue).intValue() : Integer.MAX_VALUE;
+			if (nearest == null || distance < nearestDistance)
+			{
+				nearest = entity;
+				nearestDistance = distance;
+			}
+		}
+		return nearest;
 	}
 
 	Map<String, Object> getSpellbookStatus()
