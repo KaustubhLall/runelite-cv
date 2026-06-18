@@ -1422,7 +1422,7 @@ public class CvHelperPlugin extends Plugin
 
 	private PanelSwitchTarget panelReturnTarget(String previousPanel)
 	{
-		return panelSwitchTarget(previousPanel);
+		return panelSwitchTarget(previousPanel, true);
 	}
 
 	private PanelSwitchTarget requiredPanelTarget(CvHelperActionSurface surface, String activePanel)
@@ -1433,25 +1433,29 @@ public class CvHelperPlugin extends Plugin
 			return null;
 		}
 
-		return panelSwitchTarget(requiredPanel);
+		return panelSwitchTarget(requiredPanel, true);
 	}
 
-	private PanelSwitchTarget panelSwitchTarget(String panelName)
+	private PanelSwitchTarget panelSwitchTarget(String panelName, boolean preferClick)
 	{
 		if (panelName == null || panelName.isEmpty() || "unknown".equals(panelName))
 		{
 			return null;
 		}
 
-		Integer keyCode = panelKeyCode(panelName);
-		if (keyCode != null)
-		{
-			return new PanelSwitchTarget(panelName, keyCode, null);
-		}
-
 		Map<String, Object> panelTarget = findTargetByLabel(collectPanelTargets(), panelName, panelName.equals("spellbook") ? "magic" : panelName);
 		Map<String, Object> clickPoint = panelTarget == null ? null : firstPoint(panelTarget, "clickPoint", "center");
 		Point screenPoint = clickPoint == null ? null : canvasPointToScreen(clickPoint);
+		if (preferClick && screenPoint != null)
+		{
+			return new PanelSwitchTarget(panelName, null, screenPoint);
+		}
+
+		Integer keyCode = panelKeyCode(panelName);
+		if (keyCode != null)
+		{
+			return new PanelSwitchTarget(panelName, keyCode, screenPoint);
+		}
 		return screenPoint == null ? null : new PanelSwitchTarget(panelName, null, screenPoint);
 	}
 
@@ -1578,10 +1582,20 @@ public class CvHelperPlugin extends Plugin
 		String needle = normalize(targetLabel);
 		if (needle.isEmpty())
 		{
-			return targets.isEmpty() ? null : targets.get(0);
+			if (!targets.isEmpty())
+			{
+				return targets.get(0);
+			}
+			List<Map<String, Object>> cachedTargets = cachedActionSurfaceTargets(surface);
+			return cachedTargets.isEmpty() ? null : cachedTargets.get(0);
 		}
 
-		return findTargetByLabel(targets, needle);
+		Map<String, Object> target = findTargetByLabel(targets, needle);
+		if (target != null)
+		{
+			return target;
+		}
+		return findTargetByLabel(cachedActionSurfaceTargets(surface), needle);
 	}
 
 	private Map<String, Object> findTargetByLabel(List<Map<String, Object>> targets, String... needles)
@@ -1619,6 +1633,29 @@ public class CvHelperPlugin extends Plugin
 				return collectPanelTargets();
 			case COMBAT:
 				return collectCombatTargets();
+			default:
+				return new ArrayList<>();
+		}
+	}
+
+	private List<Map<String, Object>> cachedActionSurfaceTargets(CvHelperActionSurface surface)
+	{
+		switch (surface)
+		{
+			case PRAYER:
+				return lastPrayerTargets;
+			case SPELL:
+				return lastSpellTargets;
+			case MINIMAP:
+				return lastMinimapTargets;
+			case INVENTORY:
+				return lastInventoryTargets;
+			case EQUIPMENT:
+				return lastEquipmentTargets;
+			case PANELS:
+				return lastPanelTargets;
+			case COMBAT:
+				return lastCombatTargets;
 			default:
 				return new ArrayList<>();
 		}
