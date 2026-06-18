@@ -91,6 +91,9 @@ public class CvHelperPlugin extends Plugin
 	private static final String TOOLTIP = "CV Helper";
 	private static final int DEFAULT_LOCAL_PORT = 11777;
 	private static final int ACTION_SLOT_COUNT = 8;
+	private static final int ACTION_RESOLVE_RETRIES = 4;
+	private static final int ACTION_RESOLVE_DELAY_MS = 80;
+	private static final int ACTION_CLICK_AFTER_DELAY_MS = 200;
 	private static final DateTimeFormatter CAPTURE_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
 	private static final int[] PRAYER_COMPONENTS = {
 		InterfaceID.Prayerbook.PRAYER1,
@@ -886,11 +889,21 @@ public class CvHelperPlugin extends Plugin
 
 	private void performConfiguredActionResolved(int slot, CvHelperActionSurface surface, String targetLabel, CvHelperClickAfterMode clickAfterMode, boolean returnPanel, boolean returnMouseCenter, String previousPanel, Point originalMouseScreenPoint)
 	{
+		performConfiguredActionResolved(slot, surface, targetLabel, clickAfterMode, returnPanel, returnMouseCenter, previousPanel, originalMouseScreenPoint, ACTION_RESOLVE_RETRIES);
+	}
+
+	private void performConfiguredActionResolved(int slot, CvHelperActionSurface surface, String targetLabel, CvHelperClickAfterMode clickAfterMode, boolean returnPanel, boolean returnMouseCenter, String previousPanel, Point originalMouseScreenPoint, int retriesRemaining)
+	{
 		clientThread.invokeLater(() ->
 		{
 			Map<String, Object> target = resolveActionTarget(surface, targetLabel);
 			if (target == null)
 			{
+				if (retriesRemaining > 0)
+				{
+					scheduleActionResolve(slot, surface, targetLabel, clickAfterMode, returnPanel, returnMouseCenter, previousPanel, originalMouseScreenPoint, retriesRemaining - 1);
+					return;
+				}
 				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper action " + slot + " | no target matched " + surface + " / " + targetLabel, "");
 				return;
 			}
@@ -917,6 +930,25 @@ public class CvHelperPlugin extends Plugin
 			runRobotClick(slot, surface, target, randomizedClickPoint, targetScreenPoint, mouseScreenPoint, returnPanelPoint, restoreMousePoint);
 			lastEvent.set("action-hotkey-" + slot + "@" + surface + "@" + Instant.now());
 		});
+	}
+
+	private void scheduleActionResolve(int slot, CvHelperActionSurface surface, String targetLabel, CvHelperClickAfterMode clickAfterMode, boolean returnPanel, boolean returnMouseCenter, String previousPanel, Point originalMouseScreenPoint, int retriesRemaining)
+	{
+		Thread retryThread = new Thread(() ->
+		{
+			try
+			{
+				Thread.sleep(ACTION_RESOLVE_DELAY_MS);
+			}
+			catch (InterruptedException e)
+			{
+				Thread.currentThread().interrupt();
+				return;
+			}
+			performConfiguredActionResolved(slot, surface, targetLabel, clickAfterMode, returnPanel, returnMouseCenter, previousPanel, originalMouseScreenPoint, retriesRemaining);
+		}, "cv-helper-action-resolve-retry");
+		retryThread.setDaemon(true);
+		retryThread.start();
 	}
 
 	private void runPanelOpenThenAction(int slot, CvHelperActionSurface surface, String targetLabel, CvHelperClickAfterMode clickAfterMode, boolean returnPanel, boolean returnMouseCenter, String previousPanel, Point originalMouseScreenPoint, Point panelPoint)
@@ -950,7 +982,7 @@ public class CvHelperPlugin extends Plugin
 				clickScreenPoint(robot, targetScreenPoint);
 				if (mouseScreenPoint != null)
 				{
-					robot.delay(35);
+					robot.delay(ACTION_CLICK_AFTER_DELAY_MS);
 					clickScreenPoint(robot, mouseScreenPoint);
 				}
 				if (returnPanelPoint != null)
@@ -966,7 +998,7 @@ public class CvHelperPlugin extends Plugin
 				clientThread.invokeLater(() -> client.addChatMessage(
 					ChatMessageType.GAMEMESSAGE,
 					"",
-					"CV Helper action " + slot + " | clicked " + surface + " " + targetLabelForMessage(target) + " at " + randomizedClickPoint,
+					"CV Helper action " + slot + " | clicked " + surface + " " + targetLabelForMessage(target) + " at " + randomizedClickPoint + (mouseScreenPoint == null ? " | no mouse target click" : " | then mouse@" + mouseScreenPoint.x + "," + mouseScreenPoint.y),
 					""
 				));
 			}
@@ -996,7 +1028,29 @@ public class CvHelperPlugin extends Plugin
 		}
 
 		String label = normalize(targetLabelForMessage(target) + " " + target.get("name") + " " + target.get("text"));
+		if (isCombatSpell(label))
+		{
+			return true;
+		}
 		return !isSelfResolvingSpell(label);
+	}
+
+	private boolean isCombatSpell(String normalizedLabel)
+	{
+		return normalizedLabel.contains("strike")
+			|| normalizedLabel.contains("bolt")
+			|| normalizedLabel.contains("blast")
+			|| normalizedLabel.contains("wave")
+			|| normalizedLabel.contains("surge")
+			|| normalizedLabel.contains("rush")
+			|| normalizedLabel.contains("burst")
+			|| normalizedLabel.contains("blitz")
+			|| normalizedLabel.contains("barrage")
+			|| normalizedLabel.contains("crumbleundead")
+			|| normalizedLabel.contains("teleblock")
+			|| normalizedLabel.contains("bind")
+			|| normalizedLabel.contains("snare")
+			|| normalizedLabel.contains("entangle");
 	}
 
 	private boolean isSelfResolvingSpell(String normalizedLabel)
@@ -2538,6 +2592,18 @@ public class CvHelperPlugin extends Plugin
 				"Lumbridge Teleport",
 				"Falador Teleport",
 				"Camelot Teleport",
+				"Wind Strike",
+				"Water Strike",
+				"Earth Strike",
+				"Fire Strike",
+				"Wind Bolt",
+				"Water Bolt",
+				"Earth Bolt",
+				"Fire Bolt",
+				"Wind Blast",
+				"Water Blast",
+				"Earth Blast",
+				"Fire Blast",
 				"High Level Alchemy",
 				"Low Level Alchemy",
 				"Telekinetic Grab"

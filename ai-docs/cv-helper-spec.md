@@ -254,13 +254,14 @@ RuneLite has existing hotkey primitives (`Keybind`, `HotkeyButton`, `KeyManager`
 - Click-after mode is `AUTO`, `ALWAYS`, or `NEVER`. `AUTO` does not click after prayers or self-resolving spells such as teleports, but does click after most other spell targets so the current OS mouse position can be used as the spell target.
 - Spell, prayer, inventory, equipment, and combat actions first open the required side panel if it is not currently active, wait briefly, then resolve and click the target.
 - Click-after uses the exact OS mouse position captured at hotkey press time. It is not randomized; this is what makes "hover target, press spell hotkey" click the hovered target.
+- Combat spells such as Wind Strike/Bolt/Blast/Surge force click-after in `AUTO`, retry target resolution after opening the spellbook, and wait briefly after selecting the spell before clicking the captured mouse target.
 - Return-to-previous-panel clicks the previously active side-panel tab after the action finishes, useful for spellbook/inventory workflows.
 - Restore-mouse moves the mouse back to the original screen position captured at hotkey press time after all action clicks complete.
 
 Action slot examples:
 
 - Prayer toggle: `Surface = PRAYER`, `Target label = Protect from Magic`, `Click mouse after = false`.
-- Targeted spell: `Surface = SPELL`, `Target label = High Level Alchemy`, `Click-after = AUTO` or `ALWAYS`. Pressing the hotkey clicks the spell widget, waits briefly, then clicks the current mouse canvas position.
+- Targeted spell: `Surface = SPELL`, `Target label = Wind Strike`, `Click-after = AUTO` or `ALWAYS`. Pressing the hotkey clicks the spell widget, waits briefly, then clicks the current mouse position captured before the robot moved.
 - Teleport spell: `Surface = SPELL`, `Target label = Varrock Teleport`, `Click-after = AUTO`. Pressing the hotkey clicks only the teleport because `AUTO` treats teleport-like spells as self-resolving.
 - Nearest actor click: `Surface = NEAREST_ENTITY`, no target label required.
 
