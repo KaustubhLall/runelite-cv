@@ -334,12 +334,12 @@ class CvHelperPanel extends PluginPanel
 			timer.start();
 		});
 
-		JCheckBox returnPanel = new JCheckBox("Return tab", plugin.getActionReturnPanel(slot));
-		returnPanel.setToolTipText("After a safe action, switch back to the previously open side tab. Skipped for selected spells until the target is clicked.");
+		JCheckBox returnPanel = new JCheckBox("Return previous tab", plugin.getActionReturnPanel(slot));
+		returnPanel.setToolTipText("Switch back to the previously open side tab. Function keys are used when possible so selected spells are not consumed.");
 		styleCheckbox(returnPanel);
 		returnPanel.addActionListener(e -> plugin.setActionReturnPanel(slot, returnPanel.isSelected()));
 
-		JCheckBox returnMouseCenter = new JCheckBox("Restore mouse", plugin.getActionReturnMouseCenter(slot));
+		JCheckBox returnMouseCenter = new JCheckBox("Restore mouse position", plugin.getActionReturnMouseCenter(slot));
 		returnMouseCenter.setToolTipText("Move the OS mouse back to the position captured when the action started.");
 		styleCheckbox(returnMouseCenter);
 		returnMouseCenter.addActionListener(e -> plugin.setActionReturnMouseCenter(slot, returnMouseCenter.isSelected()));

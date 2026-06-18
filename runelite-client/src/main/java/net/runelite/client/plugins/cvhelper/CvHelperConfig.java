@@ -307,12 +307,12 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_SELECTED_WIDGET_TIMEOUT_MS,
 		name = "Spell selected timeout ms",
-		description = "Maximum time to wait for RuneLite to report a selected spell/widget before target-clicking.",
+		description = "Maximum time to wait for RuneLite to report a selected spell/widget before falling back to a physical spell click.",
 		section = actionSection
 	)
 	default int actionSelectedWidgetTimeoutMs()
 	{
-		return 900;
+		return 250;
 	}
 
 	@ConfigItem(
@@ -385,7 +385,8 @@ public interface CvHelperConfig extends Config
 		keyName = ACTION_CLICK_MOUSE_1,
 		name = "Action 1 click mouse after",
 		description = "After clicking the target widget, click the current mouse canvas position. Useful for target spells.",
-		section = actionSection
+		section = actionSection,
+		hidden = true
 	)
 	default boolean actionClickMouse1()
 	{
@@ -406,7 +407,7 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_INVOCATION_MODE_1,
 		name = "Action 1 invocation",
-		description = "How action slot 1 selects its target: AUTO prefers RuneLite widget actions for spells/prayers; CLICK uses Java Robot.",
+		description = "How action slot 1 selects its target: AUTO uses widget actions for prayers/teleports and physical selection for targeted spells; CLICK forces Java Robot.",
 		section = actionSection
 	)
 	default CvHelperActionInvocationMode actionInvocationMode1()
@@ -416,8 +417,8 @@ public interface CvHelperConfig extends Config
 
 	@ConfigItem(
 		keyName = ACTION_RETURN_PANEL_1,
-		name = "Action 1 return panel",
-		description = "After action slot 1 finishes, click back to the previously open side panel.",
+		name = "Action 1 return previous tab",
+		description = "After action slot 1 finishes, switch back to the previously open side panel. Function keys are used when possible.",
 		section = actionSection
 	)
 	default boolean actionReturnPanel1()
@@ -427,7 +428,7 @@ public interface CvHelperConfig extends Config
 
 	@ConfigItem(
 		keyName = ACTION_RETURN_MOUSE_CENTER_1,
-		name = "Action 1 restore mouse",
+		name = "Action 1 restore mouse position",
 		description = "After action slot 1 finishes, restore the mouse to its original screen position.",
 		section = actionSection
 	)
@@ -484,7 +485,8 @@ public interface CvHelperConfig extends Config
 		keyName = ACTION_CLICK_MOUSE_2,
 		name = "Action 2 click mouse after",
 		description = "After clicking the target widget, click the current mouse canvas position.",
-		section = actionSection
+		section = actionSection,
+		hidden = true
 	)
 	default boolean actionClickMouse2()
 	{
@@ -505,7 +507,7 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_INVOCATION_MODE_2,
 		name = "Action 2 invocation",
-		description = "How action slot 2 selects its target: AUTO prefers RuneLite widget actions for spells/prayers; CLICK uses Java Robot.",
+		description = "How action slot 2 selects its target: AUTO uses widget actions for prayers/teleports and physical selection for targeted spells; CLICK forces Java Robot.",
 		section = actionSection
 	)
 	default CvHelperActionInvocationMode actionInvocationMode2()
@@ -515,8 +517,8 @@ public interface CvHelperConfig extends Config
 
 	@ConfigItem(
 		keyName = ACTION_RETURN_PANEL_2,
-		name = "Action 2 return panel",
-		description = "After action slot 2 finishes, click back to the previously open side panel.",
+		name = "Action 2 return previous tab",
+		description = "After action slot 2 finishes, switch back to the previously open side panel. Function keys are used when possible.",
 		section = actionSection
 	)
 	default boolean actionReturnPanel2()
@@ -526,7 +528,7 @@ public interface CvHelperConfig extends Config
 
 	@ConfigItem(
 		keyName = ACTION_RETURN_MOUSE_CENTER_2,
-		name = "Action 2 restore mouse",
+		name = "Action 2 restore mouse position",
 		description = "After action slot 2 finishes, restore the mouse to its original screen position.",
 		section = actionSection
 	)
@@ -583,7 +585,8 @@ public interface CvHelperConfig extends Config
 		keyName = ACTION_CLICK_MOUSE_3,
 		name = "Action 3 click mouse after",
 		description = "After clicking the target widget, click the current mouse canvas position.",
-		section = actionSection
+		section = actionSection,
+		hidden = true
 	)
 	default boolean actionClickMouse3()
 	{
@@ -604,7 +607,7 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_INVOCATION_MODE_3,
 		name = "Action 3 invocation",
-		description = "How action slot 3 selects its target: AUTO prefers RuneLite widget actions for spells/prayers; CLICK uses Java Robot.",
+		description = "How action slot 3 selects its target: AUTO uses widget actions for prayers/teleports and physical selection for targeted spells; CLICK forces Java Robot.",
 		section = actionSection
 	)
 	default CvHelperActionInvocationMode actionInvocationMode3()
@@ -614,8 +617,8 @@ public interface CvHelperConfig extends Config
 
 	@ConfigItem(
 		keyName = ACTION_RETURN_PANEL_3,
-		name = "Action 3 return panel",
-		description = "After action slot 3 finishes, click back to the previously open side panel.",
+		name = "Action 3 return previous tab",
+		description = "After action slot 3 finishes, switch back to the previously open side panel. Function keys are used when possible.",
 		section = actionSection
 	)
 	default boolean actionReturnPanel3()
@@ -625,7 +628,7 @@ public interface CvHelperConfig extends Config
 
 	@ConfigItem(
 		keyName = ACTION_RETURN_MOUSE_CENTER_3,
-		name = "Action 3 restore mouse",
+		name = "Action 3 restore mouse position",
 		description = "After action slot 3 finishes, restore the mouse to its original screen position.",
 		section = actionSection
 	)
@@ -682,7 +685,8 @@ public interface CvHelperConfig extends Config
 		keyName = ACTION_CLICK_MOUSE_4,
 		name = "Action 4 click mouse after",
 		description = "After clicking the target widget, click the current mouse canvas position.",
-		section = actionSection
+		section = actionSection,
+		hidden = true
 	)
 	default boolean actionClickMouse4()
 	{
@@ -703,7 +707,7 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = ACTION_INVOCATION_MODE_4,
 		name = "Action 4 invocation",
-		description = "How action slot 4 selects its target: AUTO prefers RuneLite widget actions for spells/prayers; CLICK uses Java Robot.",
+		description = "How action slot 4 selects its target: AUTO uses widget actions for prayers/teleports and physical selection for targeted spells; CLICK forces Java Robot.",
 		section = actionSection
 	)
 	default CvHelperActionInvocationMode actionInvocationMode4()
@@ -713,8 +717,8 @@ public interface CvHelperConfig extends Config
 
 	@ConfigItem(
 		keyName = ACTION_RETURN_PANEL_4,
-		name = "Action 4 return panel",
-		description = "After action slot 4 finishes, click back to the previously open side panel.",
+		name = "Action 4 return previous tab",
+		description = "After action slot 4 finishes, switch back to the previously open side panel. Function keys are used when possible.",
 		section = actionSection
 	)
 	default boolean actionReturnPanel4()
@@ -724,7 +728,7 @@ public interface CvHelperConfig extends Config
 
 	@ConfigItem(
 		keyName = ACTION_RETURN_MOUSE_CENTER_4,
-		name = "Action 4 restore mouse",
+		name = "Action 4 restore mouse position",
 		description = "After action slot 4 finishes, restore the mouse to its original screen position.",
 		section = actionSection
 	)

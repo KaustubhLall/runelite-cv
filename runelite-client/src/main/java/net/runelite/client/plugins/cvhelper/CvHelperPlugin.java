@@ -16,6 +16,7 @@ import java.awt.Rectangle;
 import java.awt.Robot;
 import java.awt.Shape;
 import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
@@ -191,6 +192,25 @@ public class CvHelperPlugin extends Plugin
 	private final Set<String> enabledPrayers = new HashSet<>();
 	private final Set<String> enabledSpellbooks = new HashSet<>();
 	private final List<HotkeyListener> actionHotkeyListeners = new ArrayList<>();
+
+	private static final class PanelSwitchTarget
+	{
+		private final String panel;
+		private final Integer keyCode;
+		private final Point clickPoint;
+
+		private PanelSwitchTarget(String panel, Integer keyCode, Point clickPoint)
+		{
+			this.panel = panel;
+			this.keyCode = keyCode;
+			this.clickPoint = clickPoint;
+		}
+
+		private boolean usesHotkey()
+		{
+			return keyCode != null;
+		}
+	}
 
 	@Provides
 	CvHelperConfig provideConfig(ConfigManager configManager)
@@ -1001,10 +1021,10 @@ public class CvHelperPlugin extends Plugin
 		clientThread.invokeLater(() ->
 		{
 			String previousPanel = String.valueOf(interfaceStatus().get("activeSidePanel"));
-			Point requiredPanelPoint = requiredPanelPoint(surface, previousPanel);
-			if (requiredPanelPoint != null)
+			PanelSwitchTarget requiredPanelTarget = requiredPanelTarget(surface, previousPanel);
+			if (requiredPanelTarget != null)
 			{
-				runPanelOpenThenAction(slot, surface, targetLabel, clickAfterMode, effectiveInvocationMode, returnPanel, returnMouseCenter, previousPanel, currentMouseScreenPoint, requiredPanelPoint);
+				runPanelOpenThenAction(slot, surface, targetLabel, clickAfterMode, effectiveInvocationMode, returnPanel, returnMouseCenter, previousPanel, currentMouseScreenPoint, requiredPanelTarget);
 				return;
 			}
 			performConfiguredActionResolved(slot, surface, targetLabel, clickAfterMode, effectiveInvocationMode, returnPanel, returnMouseCenter, previousPanel, currentMouseScreenPoint);
@@ -1041,17 +1061,18 @@ public class CvHelperPlugin extends Plugin
 
 			Map<String, Object> randomizedClickPoint = randomizedClickPoint(target, clickPoint);
 			Point targetScreenPoint = canvasPointToScreen(randomizedClickPoint);
+			boolean targetedSpell = isTargetedSpell(surface, target);
 			boolean clickMouseAfterTarget = shouldClickMouseAfter(surface, target, clickAfterMode);
 			Point mouseScreenPoint = clickMouseAfterTarget ? originalMouseScreenPoint : null;
-			Point returnPanelPoint = returnPanel ? panelReturnPoint(previousPanel) : null;
+			PanelSwitchTarget returnPanelTarget = returnPanel ? panelReturnTarget(previousPanel) : null;
 			Point restoreMousePoint = returnMouseCenter ? originalMouseScreenPoint : null;
 			boolean shouldTryWidgetAction = invocationMode == CvHelperActionInvocationMode.WIDGET
-				|| (invocationMode == CvHelperActionInvocationMode.AUTO && isWidgetActionSurface(surface));
+				|| (invocationMode == CvHelperActionInvocationMode.AUTO && isWidgetActionSurface(surface) && !targetedSpell);
 			if (shouldTryWidgetAction)
 			{
-				if (invokeWidgetAction(surface, target, mouseScreenPoint != null))
+				if (invokeWidgetAction(surface, target, targetedSpell))
 				{
-					runRobotAfterWidgetAction(slot, surface, target, mouseScreenPoint, returnPanelPoint, restoreMousePoint, surface == CvHelperActionSurface.SPELL && mouseScreenPoint != null);
+					runRobotAfterWidgetAction(slot, surface, target, targetScreenPoint, mouseScreenPoint, returnPanelTarget, restoreMousePoint, targetedSpell);
 					lastEvent.set("action-hotkey-" + slot + "@" + surface + "@widget@" + Instant.now());
 					return;
 				}
@@ -1067,7 +1088,7 @@ public class CvHelperPlugin extends Plugin
 				return;
 			}
 
-			runRobotClick(slot, surface, target, randomizedClickPoint, targetScreenPoint, mouseScreenPoint, returnPanelPoint, restoreMousePoint, surface == CvHelperActionSurface.SPELL && mouseScreenPoint == null);
+			runRobotClick(slot, surface, target, randomizedClickPoint, targetScreenPoint, mouseScreenPoint, returnPanelTarget, restoreMousePoint, targetedSpell);
 			lastEvent.set("action-hotkey-" + slot + "@" + surface + "@" + Instant.now());
 		});
 	}
@@ -1091,14 +1112,14 @@ public class CvHelperPlugin extends Plugin
 		retryThread.start();
 	}
 
-	private void runPanelOpenThenAction(int slot, CvHelperActionSurface surface, String targetLabel, CvHelperClickAfterMode clickAfterMode, CvHelperActionInvocationMode invocationMode, boolean returnPanel, boolean returnMouseCenter, String previousPanel, Point originalMouseScreenPoint, Point panelPoint)
+	private void runPanelOpenThenAction(int slot, CvHelperActionSurface surface, String targetLabel, CvHelperClickAfterMode clickAfterMode, CvHelperActionInvocationMode invocationMode, boolean returnPanel, boolean returnMouseCenter, String previousPanel, Point originalMouseScreenPoint, PanelSwitchTarget panelTarget)
 	{
 		Thread openThread = new Thread(() ->
 		{
 			try
 			{
 				Robot robot = new Robot();
-				clickScreenPoint(robot, panelPoint);
+				activatePanel(robot, panelTarget);
 				robot.delay(timing(config.actionPanelOpenDelayMs(), 0, 1500));
 				performConfiguredActionResolved(slot, surface, targetLabel, clickAfterMode, invocationMode, returnPanel, returnMouseCenter, previousPanel, originalMouseScreenPoint);
 			}
@@ -1112,7 +1133,7 @@ public class CvHelperPlugin extends Plugin
 		openThread.start();
 	}
 
-	private void runRobotClick(int slot, CvHelperActionSurface surface, Map<String, Object> target, Map<String, Object> randomizedClickPoint, Point targetScreenPoint, Point mouseScreenPoint, Point returnPanelPoint, Point centerPoint, boolean skipReturnPanelForSelectedSpell)
+	private void runRobotClick(int slot, CvHelperActionSurface surface, Map<String, Object> target, Map<String, Object> randomizedClickPoint, Point targetScreenPoint, Point mouseScreenPoint, PanelSwitchTarget returnPanelTarget, Point centerPoint, boolean targetedSpell)
 	{
 		Thread clickThread = new Thread(() ->
 		{
@@ -1121,26 +1142,17 @@ public class CvHelperPlugin extends Plugin
 				Robot robot = new Robot();
 				clickScreenPoint(robot, targetScreenPoint);
 				boolean clickedMouseTarget = false;
+				boolean returnedPanel = maybeReturnPanelWithHotkey(robot, returnPanelTarget);
 				if (mouseScreenPoint != null)
 				{
-					if (surface == CvHelperActionSurface.SPELL && !waitForSelectedWidget())
-					{
-						clientThread.invokeLater(() -> client.addChatMessage(
-							ChatMessageType.GAMEMESSAGE,
-							"",
-							"CV Helper action " + slot + " | clicked spell " + targetLabelForMessage(target) + " but no selected spell before timeout; skipped mouse target click | " + selectedWidgetDebug(),
-							""
-						));
-						return;
-					}
 					robot.delay(timing(config.actionWidgetTargetDelayMs(), 0, 3000));
 					clickScreenPoint(robot, mouseScreenPoint);
 					clickedMouseTarget = true;
 				}
-				if (returnPanelPoint != null && (!skipReturnPanelForSelectedSpell || clickedMouseTarget))
+				if (returnPanelTarget != null && !returnedPanel && (!targetedSpell || clickedMouseTarget))
 				{
 					robot.delay(timing(config.actionReturnPanelDelayMs(), 0, 3000));
-					clickScreenPoint(robot, returnPanelPoint);
+					activatePanel(robot, returnPanelTarget);
 				}
 				if (centerPoint != null)
 				{
@@ -1164,7 +1176,7 @@ public class CvHelperPlugin extends Plugin
 		clickThread.start();
 	}
 
-	private void runRobotAfterWidgetAction(int slot, CvHelperActionSurface surface, Map<String, Object> target, Point mouseScreenPoint, Point returnPanelPoint, Point restoreMousePoint, boolean waitForSelectedWidget)
+	private void runRobotAfterWidgetAction(int slot, CvHelperActionSurface surface, Map<String, Object> target, Point physicalFallbackPoint, Point mouseScreenPoint, PanelSwitchTarget returnPanelTarget, Point restoreMousePoint, boolean targetedSpell)
 	{
 		Thread clickThread = new Thread(() ->
 		{
@@ -1172,9 +1184,11 @@ public class CvHelperPlugin extends Plugin
 			{
 				Robot robot = new Robot();
 				boolean clickedMouseTarget = false;
-				if (mouseScreenPoint != null)
+				boolean returnedPanel = false;
+				boolean usedPhysicalFallback = false;
+				if (targetedSpell && !waitForSelectedWidget())
 				{
-					if (waitForSelectedWidget && !waitForSelectedWidget())
+					if (physicalFallbackPoint == null)
 					{
 						clientThread.invokeLater(() -> client.addChatMessage(
 							ChatMessageType.GAMEMESSAGE,
@@ -1184,24 +1198,37 @@ public class CvHelperPlugin extends Plugin
 						));
 						return;
 					}
+					clickScreenPoint(robot, physicalFallbackPoint);
+					usedPhysicalFallback = true;
+				}
+				if (mouseScreenPoint != null)
+				{
+					returnedPanel = maybeReturnPanelWithHotkey(robot, returnPanelTarget);
 					robot.delay(timing(config.actionWidgetTargetDelayMs(), 0, 3000));
 					clickScreenPoint(robot, mouseScreenPoint);
 					clickedMouseTarget = true;
 				}
-				if (returnPanelPoint != null && (!waitForSelectedWidget || clickedMouseTarget))
+				else
+				{
+					returnedPanel = maybeReturnPanelWithHotkey(robot, returnPanelTarget);
+				}
+				if (returnPanelTarget != null && !returnedPanel && (!targetedSpell || clickedMouseTarget))
 				{
 					robot.delay(timing(config.actionReturnPanelDelayMs(), 0, 3000));
-					clickScreenPoint(robot, returnPanelPoint);
+					activatePanel(robot, returnPanelTarget);
 				}
 				if (restoreMousePoint != null)
 				{
 					robot.delay(timing(config.actionMouseRestoreDelayMs(), 0, 3000));
 					robot.mouseMove(restoreMousePoint.x, restoreMousePoint.y);
 				}
+				String resultMessage = "CV Helper action " + slot + " | invoked " + surface + " " + targetLabelForMessage(target) + " via widget"
+					+ (usedPhysicalFallback ? " | physical fallback selected" : "")
+					+ (mouseScreenPoint == null ? " | no mouse target click" : " | then mouse@" + mouseScreenPoint.x + "," + mouseScreenPoint.y);
 				clientThread.invokeLater(() -> client.addChatMessage(
 					ChatMessageType.GAMEMESSAGE,
 					"",
-					"CV Helper action " + slot + " | invoked " + surface + " " + targetLabelForMessage(target) + " via widget" + (mouseScreenPoint == null ? " | no mouse target click" : " | then mouse@" + mouseScreenPoint.x + "," + mouseScreenPoint.y),
+					resultMessage,
 					""
 				));
 			}
@@ -1346,6 +1373,16 @@ public class CvHelperPlugin extends Plugin
 		return !isSelfResolvingSpell(label);
 	}
 
+	private boolean isTargetedSpell(CvHelperActionSurface surface, Map<String, Object> target)
+	{
+		if (surface != CvHelperActionSurface.SPELL)
+		{
+			return false;
+		}
+		String label = normalize(targetLabelForMessage(target) + " " + target.get("name") + " " + target.get("text"));
+		return !isSelfResolvingSpell(label);
+	}
+
 	private boolean isCombatSpell(String normalizedLabel)
 	{
 		return normalizedLabel.contains("strike")
@@ -1383,19 +1420,12 @@ public class CvHelperPlugin extends Plugin
 			|| normalizedLabel.contains("vengeance");
 	}
 
-	private Point panelReturnPoint(String previousPanel)
+	private PanelSwitchTarget panelReturnTarget(String previousPanel)
 	{
-		if (previousPanel == null || previousPanel.isEmpty() || "unknown".equals(previousPanel))
-		{
-			return null;
-		}
-
-		Map<String, Object> panelTarget = findTargetByLabel(collectPanelTargets(), previousPanel, previousPanel.equals("spellbook") ? "magic" : previousPanel);
-		Map<String, Object> clickPoint = panelTarget == null ? null : firstPoint(panelTarget, "clickPoint", "center");
-		return clickPoint == null ? null : canvasPointToScreen(clickPoint);
+		return panelSwitchTarget(previousPanel);
 	}
 
-	private Point requiredPanelPoint(CvHelperActionSurface surface, String activePanel)
+	private PanelSwitchTarget requiredPanelTarget(CvHelperActionSurface surface, String activePanel)
 	{
 		String requiredPanel = requiredPanelName(surface);
 		if (requiredPanel == null || requiredPanel.equals(activePanel))
@@ -1403,9 +1433,45 @@ public class CvHelperPlugin extends Plugin
 			return null;
 		}
 
-		Map<String, Object> panelTarget = findTargetByLabel(collectPanelTargets(), requiredPanel, requiredPanel.equals("spellbook") ? "magic" : requiredPanel);
+		return panelSwitchTarget(requiredPanel);
+	}
+
+	private PanelSwitchTarget panelSwitchTarget(String panelName)
+	{
+		if (panelName == null || panelName.isEmpty() || "unknown".equals(panelName))
+		{
+			return null;
+		}
+
+		Integer keyCode = panelKeyCode(panelName);
+		if (keyCode != null)
+		{
+			return new PanelSwitchTarget(panelName, keyCode, null);
+		}
+
+		Map<String, Object> panelTarget = findTargetByLabel(collectPanelTargets(), panelName, panelName.equals("spellbook") ? "magic" : panelName);
 		Map<String, Object> clickPoint = panelTarget == null ? null : firstPoint(panelTarget, "clickPoint", "center");
-		return clickPoint == null ? null : canvasPointToScreen(clickPoint);
+		Point screenPoint = clickPoint == null ? null : canvasPointToScreen(clickPoint);
+		return screenPoint == null ? null : new PanelSwitchTarget(panelName, null, screenPoint);
+	}
+
+	private Integer panelKeyCode(String panelName)
+	{
+		switch (panelName)
+		{
+			case "combat":
+				return KeyEvent.VK_F1;
+			case "inventory":
+				return KeyEvent.VK_F4;
+			case "equipment":
+				return KeyEvent.VK_F5;
+			case "prayer":
+				return KeyEvent.VK_F6;
+			case "spellbook":
+				return KeyEvent.VK_F7;
+			default:
+				return null;
+		}
 	}
 
 	private String requiredPanelName(CvHelperActionSurface surface)
@@ -1433,6 +1499,36 @@ public class CvHelperPlugin extends Plugin
 		robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
 		robot.delay(18);
 		robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+	}
+
+	private boolean maybeReturnPanelWithHotkey(Robot robot, PanelSwitchTarget panelTarget)
+	{
+		if (panelTarget == null || !panelTarget.usesHotkey())
+		{
+			return false;
+		}
+		robot.delay(timing(config.actionReturnPanelDelayMs(), 0, 3000));
+		activatePanel(robot, panelTarget);
+		return true;
+	}
+
+	private void activatePanel(Robot robot, PanelSwitchTarget panelTarget)
+	{
+		if (panelTarget == null)
+		{
+			return;
+		}
+		if (panelTarget.keyCode != null)
+		{
+			robot.keyPress(panelTarget.keyCode);
+			robot.delay(18);
+			robot.keyRelease(panelTarget.keyCode);
+			return;
+		}
+		if (panelTarget.clickPoint != null)
+		{
+			clickScreenPoint(robot, panelTarget.clickPoint);
+		}
 	}
 
 	private Point currentMouseScreenPoint()
