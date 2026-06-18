@@ -7,7 +7,9 @@ package net.runelite.client.plugins.cvhelper;
 import com.google.gson.Gson;
 import com.google.inject.Provides;
 import java.awt.Color;
+import java.awt.Dimension;
 import java.awt.Graphics2D;
+import java.awt.KeyboardFocusManager;
 import java.awt.MouseInfo;
 import java.awt.Point;
 import java.awt.Rectangle;
@@ -54,7 +56,9 @@ import net.runelite.api.Skill;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.gameval.VarClientID;
 import net.runelite.api.gameval.VarbitID;
+import net.runelite.api.vars.InputType;
 import net.runelite.api.widgets.ComponentID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.api.widgets.WidgetInfo;
@@ -222,6 +226,16 @@ public class CvHelperPlugin extends Plugin
 	private final HotkeyListener debugHotkeyListener = new HotkeyListener(() -> config.debugHotkey())
 	{
 		@Override
+		public void keyPressed(java.awt.event.KeyEvent e)
+		{
+			if (shouldSuppressHotkey())
+			{
+				return;
+			}
+			super.keyPressed(e);
+		}
+
+		@Override
 		public void hotkeyPressed()
 		{
 			debugOverlayState();
@@ -230,6 +244,16 @@ public class CvHelperPlugin extends Plugin
 
 	private final HotkeyListener printBoundsHotkeyListener = new HotkeyListener(() -> config.printBoundsHotkey())
 	{
+		@Override
+		public void keyPressed(java.awt.event.KeyEvent e)
+		{
+			if (shouldSuppressHotkey())
+			{
+				return;
+			}
+			super.keyPressed(e);
+		}
+
 		@Override
 		public void hotkeyPressed()
 		{
@@ -240,6 +264,16 @@ public class CvHelperPlugin extends Plugin
 	private final HotkeyListener captureScreenHotkeyListener = new HotkeyListener(() -> config.captureScreenHotkey())
 	{
 		@Override
+		public void keyPressed(java.awt.event.KeyEvent e)
+		{
+			if (shouldSuppressHotkey())
+			{
+				return;
+			}
+			super.keyPressed(e);
+		}
+
+		@Override
 		public void hotkeyPressed()
 		{
 			captureScreen();
@@ -249,6 +283,16 @@ public class CvHelperPlugin extends Plugin
 	private final HotkeyListener refreshEntitiesHotkeyListener = new HotkeyListener(() -> config.refreshEntitiesHotkey())
 	{
 		@Override
+		public void keyPressed(java.awt.event.KeyEvent e)
+		{
+			if (shouldSuppressHotkey())
+			{
+				return;
+			}
+			super.keyPressed(e);
+		}
+
+		@Override
 		public void hotkeyPressed()
 		{
 			refreshEntities();
@@ -257,6 +301,16 @@ public class CvHelperPlugin extends Plugin
 
 	private final HotkeyListener nearestEntityHotkeyListener = new HotkeyListener(() -> config.nearestEntityHotkey())
 	{
+		@Override
+		public void keyPressed(java.awt.event.KeyEvent e)
+		{
+			if (shouldSuppressHotkey())
+			{
+				return;
+			}
+			super.keyPressed(e);
+		}
+
 		@Override
 		public void hotkeyPressed()
 		{
@@ -277,6 +331,16 @@ public class CvHelperPlugin extends Plugin
 			final int actionSlot = slot;
 			HotkeyListener listener = new HotkeyListener(() -> getActionHotkey(actionSlot))
 			{
+				@Override
+				public void keyPressed(java.awt.event.KeyEvent e)
+				{
+					if (shouldSuppressHotkey())
+					{
+						return;
+					}
+					super.keyPressed(e);
+				}
+
 				@Override
 				public void hotkeyPressed()
 				{
@@ -300,6 +364,29 @@ public class CvHelperPlugin extends Plugin
 			keyManager.unregisterKeyListener(listener);
 		}
 		actionHotkeyListeners.clear();
+	}
+
+	private boolean shouldSuppressHotkey()
+	{
+		if (client == null)
+		{
+			return false;
+		}
+
+		java.awt.Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+		if (focusOwner instanceof javax.swing.text.JTextComponent)
+		{
+			return true;
+		}
+
+		if (client.getVarcIntValue(VarClientID.MESLAYERMODE) != InputType.NONE.getType())
+		{
+			return true;
+		}
+
+		String chatInput = client.getVarcStrValue(VarClientID.CHATINPUT);
+		String mesLayerInput = client.getVarcStrValue(VarClientID.MESLAYERINPUT);
+		return (chatInput != null && !chatInput.isEmpty()) || (mesLayerInput != null && !mesLayerInput.isEmpty());
 	}
 
 	CvHelperConfig getConfig()
@@ -1244,7 +1331,14 @@ public class CvHelperPlugin extends Plugin
 		}
 
 		Point canvasLocation = client.getCanvas().getLocationOnScreen();
-		return new Point(canvasLocation.x + x.intValue(), canvasLocation.y + y.intValue());
+		Dimension realDimensions = client.getRealDimensions();
+		Dimension displayedDimensions = client.isStretchedEnabled() ? client.getStretchedDimensions() : realDimensions;
+		double scaleX = realDimensions == null || realDimensions.width <= 0 || displayedDimensions == null ? 1.0 : displayedDimensions.getWidth() / realDimensions.getWidth();
+		double scaleY = realDimensions == null || realDimensions.height <= 0 || displayedDimensions == null ? 1.0 : displayedDimensions.getHeight() / realDimensions.getHeight();
+		return new Point(
+			canvasLocation.x + (int) Math.round(x.doubleValue() * scaleX),
+			canvasLocation.y + (int) Math.round(y.doubleValue() * scaleY)
+		);
 	}
 
 	private String targetLabelForMessage(Map<String, Object> target)

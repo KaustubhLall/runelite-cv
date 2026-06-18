@@ -255,6 +255,8 @@ RuneLite has existing hotkey primitives (`Keybind`, `HotkeyButton`, `KeyManager`
 - Spell, prayer, inventory, equipment, and combat actions first open the required side panel if it is not currently active, wait briefly, then resolve and click the target.
 - Click-after uses the exact OS mouse position captured at hotkey press time. It is not randomized; this is what makes "hover target, press spell hotkey" click the hovered target.
 - Combat spells such as Wind Strike/Bolt/Blast/Surge force click-after in `AUTO`, retry target resolution after opening the spellbook, and wait briefly after selecting the spell before clicking the captured mouse target.
+- Hotkeys are suppressed while RuneLite chat/message-layer input is active or while a CV Helper side-panel text field has focus, so typing in chat/config does not fire action slots.
+- Robot clicks convert RuneLite real-canvas widget coordinates into displayed screen coordinates using stretched-mode dimensions when needed. This keeps action clicks aligned after resizing/fullscreening the client.
 - Return-to-previous-panel clicks the previously active side-panel tab after the action finishes, useful for spellbook/inventory workflows.
 - Restore-mouse moves the mouse back to the original screen position captured at hotkey press time after all action clicks complete.
 
@@ -280,6 +282,7 @@ The CV Helper right-side panel includes a collapsible `Action hotkeys` section w
 - Enable `Target labels` to draw the exported target label beside prayer/spell boxes.
 - If target endpoints return `count: 0`, make sure the relevant in-game tab or quick-prayer selection interface is visible.
 - If spellbook reports `Unknown(-1/-1)`, the client is probably not fully logged in yet.
+- If action clicks land high/left after resizing/fullscreening, verify the rebuilt client includes the stretched-mode coordinate conversion and then refresh the relevant target surface.
 - Before runtime verification, ask the user to log in to the newest launched client. Avoid interpreting logged-out export state as a plugin bug.
 
 ## Engineering Constraints
