@@ -45,18 +45,30 @@ public interface CvHelperConfig extends Config
 	String ACTION_SURFACE_1 = "actionSurface1";
 	String ACTION_TARGET_1 = "actionTarget1";
 	String ACTION_CLICK_MOUSE_1 = "actionClickMouse1";
+	String ACTION_CLICK_AFTER_MODE_1 = "actionClickAfterMode1";
+	String ACTION_RETURN_PANEL_1 = "actionReturnPanel1";
+	String ACTION_RETURN_MOUSE_CENTER_1 = "actionReturnMouseCenter1";
 	String ACTION_HOTKEY_2 = "actionHotkey2";
 	String ACTION_SURFACE_2 = "actionSurface2";
 	String ACTION_TARGET_2 = "actionTarget2";
 	String ACTION_CLICK_MOUSE_2 = "actionClickMouse2";
+	String ACTION_CLICK_AFTER_MODE_2 = "actionClickAfterMode2";
+	String ACTION_RETURN_PANEL_2 = "actionReturnPanel2";
+	String ACTION_RETURN_MOUSE_CENTER_2 = "actionReturnMouseCenter2";
 	String ACTION_HOTKEY_3 = "actionHotkey3";
 	String ACTION_SURFACE_3 = "actionSurface3";
 	String ACTION_TARGET_3 = "actionTarget3";
 	String ACTION_CLICK_MOUSE_3 = "actionClickMouse3";
+	String ACTION_CLICK_AFTER_MODE_3 = "actionClickAfterMode3";
+	String ACTION_RETURN_PANEL_3 = "actionReturnPanel3";
+	String ACTION_RETURN_MOUSE_CENTER_3 = "actionReturnMouseCenter3";
 	String ACTION_HOTKEY_4 = "actionHotkey4";
 	String ACTION_SURFACE_4 = "actionSurface4";
 	String ACTION_TARGET_4 = "actionTarget4";
 	String ACTION_CLICK_MOUSE_4 = "actionClickMouse4";
+	String ACTION_CLICK_AFTER_MODE_4 = "actionClickAfterMode4";
+	String ACTION_RETURN_PANEL_4 = "actionReturnPanel4";
+	String ACTION_RETURN_MOUSE_CENTER_4 = "actionReturnMouseCenter4";
 
 	@ConfigItem(
 		keyName = SHOW_HOVER_OVERLAY,
@@ -289,6 +301,36 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = ACTION_CLICK_AFTER_MODE_1,
+		name = "Action 1 click-after mode",
+		description = "Whether action slot 1 should click the current mouse target after selecting its target."
+	)
+	default CvHelperClickAfterMode actionClickAfterMode1()
+	{
+		return CvHelperClickAfterMode.AUTO;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_RETURN_PANEL_1,
+		name = "Action 1 return panel",
+		description = "After action slot 1 finishes, click back to the previously open side panel."
+	)
+	default boolean actionReturnPanel1()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_RETURN_MOUSE_CENTER_1,
+		name = "Action 1 center mouse",
+		description = "After action slot 1 finishes, move the mouse to the center of the game canvas."
+	)
+	default boolean actionReturnMouseCenter1()
+	{
+		return false;
+	}
+
+	@ConfigItem(
 		keyName = ACTION_HOTKEY_2,
 		name = "Action 2 hotkey",
 		description = "Hotkey for action slot 2."
@@ -324,6 +366,36 @@ public interface CvHelperConfig extends Config
 		description = "After clicking the target widget, click the current mouse canvas position."
 	)
 	default boolean actionClickMouse2()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_CLICK_AFTER_MODE_2,
+		name = "Action 2 click-after mode",
+		description = "Whether action slot 2 should click the current mouse target after selecting its target."
+	)
+	default CvHelperClickAfterMode actionClickAfterMode2()
+	{
+		return CvHelperClickAfterMode.AUTO;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_RETURN_PANEL_2,
+		name = "Action 2 return panel",
+		description = "After action slot 2 finishes, click back to the previously open side panel."
+	)
+	default boolean actionReturnPanel2()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_RETURN_MOUSE_CENTER_2,
+		name = "Action 2 center mouse",
+		description = "After action slot 2 finishes, move the mouse to the center of the game canvas."
+	)
+	default boolean actionReturnMouseCenter2()
 	{
 		return false;
 	}
@@ -369,6 +441,36 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = ACTION_CLICK_AFTER_MODE_3,
+		name = "Action 3 click-after mode",
+		description = "Whether action slot 3 should click the current mouse target after selecting its target."
+	)
+	default CvHelperClickAfterMode actionClickAfterMode3()
+	{
+		return CvHelperClickAfterMode.AUTO;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_RETURN_PANEL_3,
+		name = "Action 3 return panel",
+		description = "After action slot 3 finishes, click back to the previously open side panel."
+	)
+	default boolean actionReturnPanel3()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_RETURN_MOUSE_CENTER_3,
+		name = "Action 3 center mouse",
+		description = "After action slot 3 finishes, move the mouse to the center of the game canvas."
+	)
+	default boolean actionReturnMouseCenter3()
+	{
+		return false;
+	}
+
+	@ConfigItem(
 		keyName = ACTION_HOTKEY_4,
 		name = "Action 4 hotkey",
 		description = "Hotkey for action slot 4."
@@ -404,6 +506,36 @@ public interface CvHelperConfig extends Config
 		description = "After clicking the target widget, click the current mouse canvas position."
 	)
 	default boolean actionClickMouse4()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_CLICK_AFTER_MODE_4,
+		name = "Action 4 click-after mode",
+		description = "Whether action slot 4 should click the current mouse target after selecting its target."
+	)
+	default CvHelperClickAfterMode actionClickAfterMode4()
+	{
+		return CvHelperClickAfterMode.AUTO;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_RETURN_PANEL_4,
+		name = "Action 4 return panel",
+		description = "After action slot 4 finishes, click back to the previously open side panel."
+	)
+	default boolean actionReturnPanel4()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_RETURN_MOUSE_CENTER_4,
+		name = "Action 4 center mouse",
+		description = "After action slot 4 finishes, move the mouse to the center of the game canvas."
+	)
+	default boolean actionReturnMouseCenter4()
 	{
 		return false;
 	}

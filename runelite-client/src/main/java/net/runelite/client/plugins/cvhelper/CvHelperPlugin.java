@@ -263,7 +263,7 @@ public class CvHelperPlugin extends Plugin
 		@Override
 		public void hotkeyPressed()
 		{
-			performConfiguredAction(1, config.actionSurface1(), config.actionTarget1(), config.actionClickMouse1());
+			performConfiguredAction(1);
 		}
 	};
 
@@ -272,7 +272,7 @@ public class CvHelperPlugin extends Plugin
 		@Override
 		public void hotkeyPressed()
 		{
-			performConfiguredAction(2, config.actionSurface2(), config.actionTarget2(), config.actionClickMouse2());
+			performConfiguredAction(2);
 		}
 	};
 
@@ -281,7 +281,7 @@ public class CvHelperPlugin extends Plugin
 		@Override
 		public void hotkeyPressed()
 		{
-			performConfiguredAction(3, config.actionSurface3(), config.actionTarget3(), config.actionClickMouse3());
+			performConfiguredAction(3);
 		}
 	};
 
@@ -290,7 +290,7 @@ public class CvHelperPlugin extends Plugin
 		@Override
 		public void hotkeyPressed()
 		{
-			performConfiguredAction(4, config.actionSurface4(), config.actionTarget4(), config.actionClickMouse4());
+			performConfiguredAction(4);
 		}
 	};
 
@@ -641,6 +641,24 @@ public class CvHelperPlugin extends Plugin
 		updatePanelStatus("Action " + slot + " mouse-after setting saved");
 	}
 
+	void setActionClickAfterMode(int slot, CvHelperClickAfterMode mode)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, "actionClickAfterMode" + slot, mode == null ? CvHelperClickAfterMode.AUTO : mode);
+		updatePanelStatus("Action " + slot + " click-after mode saved");
+	}
+
+	void setActionReturnPanel(int slot, boolean value)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, "actionReturnPanel" + slot, value);
+		updatePanelStatus("Action " + slot + " return-panel setting saved");
+	}
+
+	void setActionReturnMouseCenter(int slot, boolean value)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, "actionReturnMouseCenter" + slot, value);
+		updatePanelStatus("Action " + slot + " center-mouse setting saved");
+	}
+
 	Keybind getActionHotkey(int slot)
 	{
 		switch (slot)
@@ -709,9 +727,60 @@ public class CvHelperPlugin extends Plugin
 		}
 	}
 
+	CvHelperClickAfterMode getActionClickAfterMode(int slot)
+	{
+		switch (slot)
+		{
+			case 1:
+				return config.actionClickAfterMode1();
+			case 2:
+				return config.actionClickAfterMode2();
+			case 3:
+				return config.actionClickAfterMode3();
+			case 4:
+				return config.actionClickAfterMode4();
+			default:
+				return CvHelperClickAfterMode.AUTO;
+		}
+	}
+
+	boolean getActionReturnPanel(int slot)
+	{
+		switch (slot)
+		{
+			case 1:
+				return config.actionReturnPanel1();
+			case 2:
+				return config.actionReturnPanel2();
+			case 3:
+				return config.actionReturnPanel3();
+			case 4:
+				return config.actionReturnPanel4();
+			default:
+				return false;
+		}
+	}
+
+	boolean getActionReturnMouseCenter(int slot)
+	{
+		switch (slot)
+		{
+			case 1:
+				return config.actionReturnMouseCenter1();
+			case 2:
+				return config.actionReturnMouseCenter2();
+			case 3:
+				return config.actionReturnMouseCenter3();
+			case 4:
+				return config.actionReturnMouseCenter4();
+			default:
+				return false;
+		}
+	}
+
 	void performConfiguredAction(int slot)
 	{
-		performConfiguredAction(slot, getActionSurface(slot), getActionTarget(slot), getActionClickMouse(slot));
+		performConfiguredAction(slot, getActionSurface(slot), getActionTarget(slot), getActionClickAfterMode(slot), getActionReturnPanel(slot), getActionReturnMouseCenter(slot));
 	}
 
 	void debugOverlayState()
@@ -780,7 +849,7 @@ public class CvHelperPlugin extends Plugin
 		});
 	}
 
-	void performConfiguredAction(int slot, CvHelperActionSurface surface, String targetLabel, boolean clickMouseAfterTarget)
+	void performConfiguredAction(int slot, CvHelperActionSurface surface, String targetLabel, CvHelperClickAfterMode clickAfterMode, boolean returnPanel, boolean returnMouseCenter)
 	{
 		if (surface == null || surface == CvHelperActionSurface.DISABLED)
 		{
@@ -789,6 +858,7 @@ public class CvHelperPlugin extends Plugin
 
 		clientThread.invokeLater(() ->
 		{
+			String previousPanel = String.valueOf(interfaceStatus().get("activeSidePanel"));
 			Map<String, Object> target = resolveActionTarget(surface, targetLabel);
 			if (target == null)
 			{
@@ -805,19 +875,22 @@ public class CvHelperPlugin extends Plugin
 
 			Map<String, Object> randomizedClickPoint = randomizedClickPoint(target, clickPoint);
 			Point targetScreenPoint = canvasPointToScreen(randomizedClickPoint);
+			boolean clickMouseAfterTarget = shouldClickMouseAfter(surface, target, clickAfterMode);
 			Point mouseScreenPoint = clickMouseAfterTarget ? canvasPointToScreen(pointValue(client.getMouseCanvasPosition())) : null;
+			Point returnPanelPoint = returnPanel ? panelReturnPoint(previousPanel) : null;
+			Point centerPoint = returnMouseCenter ? canvasCenterScreenPoint() : null;
 			if (targetScreenPoint == null)
 			{
 				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper action " + slot + " | target is off-canvas", "");
 				return;
 			}
 
-			runRobotClick(slot, surface, target, randomizedClickPoint, targetScreenPoint, mouseScreenPoint);
+			runRobotClick(slot, surface, target, randomizedClickPoint, targetScreenPoint, mouseScreenPoint, returnPanelPoint, centerPoint);
 			lastEvent.set("action-hotkey-" + slot + "@" + surface + "@" + Instant.now());
 		});
 	}
 
-	private void runRobotClick(int slot, CvHelperActionSurface surface, Map<String, Object> target, Map<String, Object> randomizedClickPoint, Point targetScreenPoint, Point mouseScreenPoint)
+	private void runRobotClick(int slot, CvHelperActionSurface surface, Map<String, Object> target, Map<String, Object> randomizedClickPoint, Point targetScreenPoint, Point mouseScreenPoint, Point returnPanelPoint, Point centerPoint)
 	{
 		Thread clickThread = new Thread(() ->
 		{
@@ -829,6 +902,16 @@ public class CvHelperPlugin extends Plugin
 				{
 					robot.delay(90);
 					clickScreenPoint(robot, mouseScreenPoint);
+				}
+				if (returnPanelPoint != null)
+				{
+					robot.delay(120);
+					clickScreenPoint(robot, returnPanelPoint);
+				}
+				if (centerPoint != null)
+				{
+					robot.delay(60);
+					robot.mouseMove(centerPoint.x, centerPoint.y);
 				}
 				clientThread.invokeLater(() -> client.addChatMessage(
 					ChatMessageType.GAMEMESSAGE,
@@ -845,6 +928,62 @@ public class CvHelperPlugin extends Plugin
 		}, "cv-helper-action-click");
 		clickThread.setDaemon(true);
 		clickThread.start();
+	}
+
+	private boolean shouldClickMouseAfter(CvHelperActionSurface surface, Map<String, Object> target, CvHelperClickAfterMode mode)
+	{
+		if (mode == CvHelperClickAfterMode.ALWAYS)
+		{
+			return true;
+		}
+		if (mode == CvHelperClickAfterMode.NEVER)
+		{
+			return false;
+		}
+		if (surface != CvHelperActionSurface.SPELL)
+		{
+			return false;
+		}
+
+		String label = normalize(targetLabelForMessage(target) + " " + target.get("name") + " " + target.get("text"));
+		return !isSelfResolvingSpell(label);
+	}
+
+	private boolean isSelfResolvingSpell(String normalizedLabel)
+	{
+		return normalizedLabel.contains("teleport")
+			|| normalizedLabel.contains("home")
+			|| normalizedLabel.contains("varrock")
+			|| normalizedLabel.contains("lumbridge")
+			|| normalizedLabel.contains("falador")
+			|| normalizedLabel.contains("camelot")
+			|| normalizedLabel.contains("ardougne")
+			|| normalizedLabel.contains("watchtower")
+			|| normalizedLabel.contains("trollheim")
+			|| normalizedLabel.contains("kourend")
+			|| normalizedLabel.contains("barrows")
+			|| normalizedLabel.contains("apeatoll")
+			|| normalizedLabel.contains("ourania")
+			|| normalizedLabel.contains("resurrect")
+			|| normalizedLabel.contains("vengeance");
+	}
+
+	private Point panelReturnPoint(String previousPanel)
+	{
+		if (previousPanel == null || previousPanel.isEmpty() || "unknown".equals(previousPanel))
+		{
+			return null;
+		}
+
+		Map<String, Object> panelTarget = findTargetByLabel(collectPanelTargets(), previousPanel, previousPanel.equals("spellbook") ? "magic" : previousPanel);
+		Map<String, Object> clickPoint = panelTarget == null ? null : firstPoint(panelTarget, "clickPoint", "center");
+		return clickPoint == null ? null : canvasPointToScreen(randomizedClickPoint(panelTarget, clickPoint));
+	}
+
+	private Point canvasCenterScreenPoint()
+	{
+		Rectangle bounds = client.getCanvas().getBounds();
+		return canvasPointToScreen(pointMap(bounds.width / 2, bounds.height / 2));
 	}
 
 	private void clickScreenPoint(Robot robot, Point point)
@@ -900,12 +1039,21 @@ public class CvHelperPlugin extends Plugin
 			return targets.isEmpty() ? null : targets.get(0);
 		}
 
+		return findTargetByLabel(targets, needle);
+	}
+
+	private Map<String, Object> findTargetByLabel(List<Map<String, Object>> targets, String... needles)
+	{
 		for (Map<String, Object> target : targets)
 		{
 			String haystack = normalize(targetLabelForMessage(target) + " " + target.get("name") + " " + target.get("text") + " " + Arrays.toString((String[]) target.get("actions")));
-			if (haystack.contains(needle))
+			for (String needle : needles)
 			{
-				return target;
+				String normalizedNeedle = normalize(needle);
+				if (!normalizedNeedle.isEmpty() && haystack.contains(normalizedNeedle))
+				{
+					return target;
+				}
 			}
 		}
 		return null;
@@ -2289,6 +2437,91 @@ public class CvHelperPlugin extends Plugin
 			"Lunar",
 			"Arceuus"
 		);
+	}
+
+	List<String> getSuggestedActionTargets(CvHelperActionSurface surface)
+	{
+		Set<String> labels = new java.util.TreeSet<>();
+		if (surface == CvHelperActionSurface.PRAYER)
+		{
+			for (String prayer : getPrayerNames())
+			{
+				labels.add(friendlyName(prayer));
+			}
+		}
+		else if (surface == CvHelperActionSurface.SPELL)
+		{
+			labels.addAll(Arrays.asList(
+				"Lumbridge Home Teleport",
+				"Varrock Teleport",
+				"Lumbridge Teleport",
+				"Falador Teleport",
+				"Camelot Teleport",
+				"High Level Alchemy",
+				"Low Level Alchemy",
+				"Telekinetic Grab"
+			));
+			addTargetLabels(labels, lastSpellTargets);
+		}
+		else if (surface == CvHelperActionSurface.NEAREST_ENTITY)
+		{
+			labels.add("Nearest clickable entity");
+		}
+		else
+		{
+			addTargetLabels(labels, lastTargetsForSurface(surface));
+		}
+		return new ArrayList<>(labels);
+	}
+
+	private List<Map<String, Object>> lastTargetsForSurface(CvHelperActionSurface surface)
+	{
+		switch (surface)
+		{
+			case MINIMAP:
+				return lastMinimapTargets;
+			case INVENTORY:
+				return lastInventoryTargets;
+			case EQUIPMENT:
+				return lastEquipmentTargets;
+			case PANELS:
+				return lastPanelTargets;
+			case COMBAT:
+				return lastCombatTargets;
+			default:
+				return new ArrayList<>();
+		}
+	}
+
+	private void addTargetLabels(Set<String> labels, List<Map<String, Object>> targets)
+	{
+		for (Map<String, Object> target : targets)
+		{
+			String label = targetLabelForMessage(target);
+			if (label != null && !label.trim().isEmpty() && !"(unnamed)".equals(label))
+			{
+				labels.add(label);
+			}
+		}
+	}
+
+	private String friendlyName(String value)
+	{
+		String[] words = value.toLowerCase().split("_");
+		StringBuilder out = new StringBuilder();
+		for (String word : words)
+		{
+			if (word.isEmpty())
+			{
+				continue;
+			}
+			if (out.length() > 0)
+			{
+				out.append(' ');
+			}
+			out.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1));
+		}
+		return out.toString();
 	}
 
 	private void setEnabled(Set<String> set, String key, boolean value)

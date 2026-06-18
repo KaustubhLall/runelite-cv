@@ -249,18 +249,22 @@ RuneLite has existing hotkey primitives (`Keybind`, `HotkeyButton`, `KeyManager`
 - `Capture screen hotkey`: queues a raw client-canvas capture.
 - `Refresh entities hotkey`: refreshes nearby player/NPC exports and forwards them to the webhook if configured.
 - `Nearest entity hotkey`: writes the nearest exported entity and preferred canvas `clickPoint` to in-game chat.
-- `Action 1-4 hotkeys`: each slot has a keybind, target surface dropdown, target-label substring, and optional "click mouse after target" toggle. The slot resolves the current exported target, converts its canvas point into a screen point, and clicks automatically.
+- `Action 1-4 hotkeys`: each slot has a keybind, target surface dropdown, editable target-label dropdown, click-after mode, optional return-to-previous-panel toggle, optional return-mouse-to-center toggle, and a manual run button. The slot resolves the current exported target, converts its canvas point into a screen point, and clicks automatically.
 - Clicks are randomized inside a safe circle around the exported target point. The circle is derived from the target bounds and capped to a small radius so repeated hotkeys do not click the exact same pixel while still staying inside the target.
+- Click-after mode is `AUTO`, `ALWAYS`, or `NEVER`. `AUTO` does not click after prayers or self-resolving spells such as teleports, but does click after most other spell targets so the current mouse position can be used as the spell target.
+- Return-to-previous-panel clicks the previously active side-panel tab after the action finishes, useful for spellbook/inventory workflows.
+- Return-mouse-to-center moves the mouse back to the center of the game canvas after all action clicks complete.
 
 Action slot examples:
 
 - Prayer toggle: `Surface = PRAYER`, `Target label = Protect from Magic`, `Click mouse after = false`.
-- Targeted spell: `Surface = SPELL`, `Target label = High Level Alchemy`, `Click mouse after = true`. Pressing the hotkey clicks the spell widget, waits briefly, then clicks the current mouse canvas position.
+- Targeted spell: `Surface = SPELL`, `Target label = High Level Alchemy`, `Click-after = AUTO` or `ALWAYS`. Pressing the hotkey clicks the spell widget, waits briefly, then clicks the current mouse canvas position.
+- Teleport spell: `Surface = SPELL`, `Target label = Varrock Teleport`, `Click-after = AUTO`. Pressing the hotkey clicks only the teleport because `AUTO` treats teleport-like spells as self-resolving.
 - Nearest actor click: `Surface = NEAREST_ENTITY`, no target label required.
 
 The action slot implementation intentionally uses exported geometry as the source of truth, so the same target contract used by Python is exercised by the hotkey layer. If a surface depends on a visible tab, the tab must be visible or the target must be available from a cached snapshot before the action can resolve.
 
-The CV Helper right-side panel includes a collapsible `Action hotkeys` section with four slots. Each slot exposes a hotkey capture button, surface dropdown, target-label text field, mouse-after checkbox, and `Run action` button for manual testing.
+The CV Helper right-side panel includes a collapsible `Action hotkeys` section with four full-width slots. Each slot exposes a hotkey capture button, surface dropdown, editable target dropdown, click-after mode dropdown, return options, and `Run action` button for manual testing.
 
 ## Debugging In Game
 

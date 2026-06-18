@@ -6,6 +6,8 @@ package net.runelite.client.plugins.cvhelper;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Component;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.GridLayout;
 import java.awt.event.KeyAdapter;
@@ -249,6 +251,7 @@ class CvHelperPanel extends PluginPanel
 		JLabel help = new JLabel("<html>Configure a hotkey, choose a target surface, type part of the target label, then press the hotkey or Run. For spells, enable mouse-after to click the current mouse target after selecting the spell.</html>");
 		help.setForeground(Color.LIGHT_GRAY);
 		help.setBorder(new EmptyBorder(0, 0, 6, 0));
+		stretch(help);
 		body.add(help);
 
 		for (int slot = 1; slot <= 4; slot++)
@@ -285,31 +288,79 @@ class CvHelperPanel extends PluginPanel
 		KeyCaptureButton hotkey = new KeyCaptureButton(plugin.getActionHotkey(slot), value -> plugin.setActionHotkey(slot, value));
 		JComboBox<CvHelperActionSurface> surface = new JComboBox<>(CvHelperActionSurface.values());
 		surface.setSelectedItem(plugin.getActionSurface(slot));
-		surface.addActionListener(e -> plugin.setActionSurface(slot, (CvHelperActionSurface) surface.getSelectedItem()));
 
-		JTextField target = new JTextField(plugin.getActionTarget(slot));
+		JComboBox<String> target = new JComboBox<>();
+		target.setEditable(true);
 		target.setToolTipText("Examples: Protect from Magic, High Level Alchemy, inventory slot 1");
+		populateTargetChoices(target, plugin.getActionSurface(slot), plugin.getActionTarget(slot));
 		JButton saveTarget = new JButton("Save target");
-		saveTarget.addActionListener(e -> plugin.setActionTarget(slot, target.getText()));
+		saveTarget.addActionListener(e -> plugin.setActionTarget(slot, selectedTarget(target)));
 
-		JCheckBox clickMouse = new JCheckBox("Click current mouse after target", plugin.getActionClickMouse(slot));
-		styleCheckbox(clickMouse);
-		clickMouse.addActionListener(e -> plugin.setActionClickMouse(slot, clickMouse.isSelected()));
+		surface.addActionListener(e ->
+		{
+			CvHelperActionSurface selected = (CvHelperActionSurface) surface.getSelectedItem();
+			plugin.setActionSurface(slot, selected);
+			populateTargetChoices(target, selected, selectedTarget(target));
+		});
+
+		JComboBox<CvHelperClickAfterMode> clickAfterMode = new JComboBox<>(CvHelperClickAfterMode.values());
+		clickAfterMode.setSelectedItem(plugin.getActionClickAfterMode(slot));
+		clickAfterMode.addActionListener(e -> plugin.setActionClickAfterMode(slot, (CvHelperClickAfterMode) clickAfterMode.getSelectedItem()));
+
+		JCheckBox returnPanel = new JCheckBox("Return to previous side panel", plugin.getActionReturnPanel(slot));
+		styleCheckbox(returnPanel);
+		returnPanel.addActionListener(e -> plugin.setActionReturnPanel(slot, returnPanel.isSelected()));
+
+		JCheckBox returnMouseCenter = new JCheckBox("Move mouse back to canvas center", plugin.getActionReturnMouseCenter(slot));
+		styleCheckbox(returnMouseCenter);
+		returnMouseCenter.addActionListener(e -> plugin.setActionReturnMouseCenter(slot, returnMouseCenter.isSelected()));
 
 		JButton run = new JButton("Run action " + slot);
 		run.addActionListener(e -> plugin.performConfiguredAction(slot));
 
-		panel.add(label("Hotkey"));
-		panel.add(hotkey);
-		panel.add(label("Surface"));
-		panel.add(surface);
-		panel.add(label("Target label contains"));
-		panel.add(target);
-		panel.add(saveTarget);
-		panel.add(clickMouse);
-		panel.add(run);
+		for (JComponent component : new JComponent[]{
+			label("Hotkey"),
+			hotkey,
+			label("Surface"),
+			surface,
+			label("Target label contains"),
+			target,
+			saveTarget,
+			label("Click-after"),
+			clickAfterMode,
+			returnPanel,
+			returnMouseCenter,
+			run
+		})
+		{
+			stretch(component);
+			panel.add(component);
+		}
 		setCompact(panel);
 		return panel;
+	}
+
+	private void populateTargetChoices(JComboBox<String> target, CvHelperActionSurface surface, String selected)
+	{
+		target.removeAllItems();
+		if (selected != null && !selected.trim().isEmpty())
+		{
+			target.addItem(selected);
+		}
+		for (String label : plugin.getSuggestedActionTargets(surface))
+		{
+			if (selected == null || !label.equals(selected))
+			{
+				target.addItem(label);
+			}
+		}
+		target.setSelectedItem(selected == null ? "" : selected);
+	}
+
+	private String selectedTarget(JComboBox<String> target)
+	{
+		Object selected = target.getEditor().getItem();
+		return selected == null ? "" : String.valueOf(selected).trim();
 	}
 
 	private JLabel label(String text)
@@ -330,6 +381,13 @@ class CvHelperPanel extends PluginPanel
 	private void setCompact(JComponent component)
 	{
 		component.setAlignmentX(LEFT_ALIGNMENT);
+	}
+
+	private void stretch(JComponent component)
+	{
+		component.setAlignmentX(Component.LEFT_ALIGNMENT);
+		Dimension preferred = component.getPreferredSize();
+		component.setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(24, preferred.height)));
 	}
 
 	void updateStatus(String message)
