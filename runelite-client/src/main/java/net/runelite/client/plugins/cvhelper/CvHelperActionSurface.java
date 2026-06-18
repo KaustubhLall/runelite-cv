@@ -4,7 +4,7 @@
  */
 package net.runelite.client.plugins.cvhelper;
 
-enum CvHelperActionSurface
+public enum CvHelperActionSurface
 {
 	DISABLED,
 	PRAYER,
