@@ -48,6 +48,7 @@ import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.EnumID;
 import net.runelite.api.GameState;
+import net.runelite.api.MenuAction;
 import net.runelite.api.NPC;
 import net.runelite.api.Perspective;
 import net.runelite.api.Player;
@@ -1008,6 +1009,12 @@ public class CvHelperPlugin extends Plugin
 			Point mouseScreenPoint = clickMouseAfterTarget ? originalMouseScreenPoint : null;
 			Point returnPanelPoint = returnPanel ? panelReturnPoint(previousPanel) : null;
 			Point restoreMousePoint = returnMouseCenter ? originalMouseScreenPoint : null;
+			if (surface == CvHelperActionSurface.SPELL && invokeWidgetAction(target))
+			{
+				runRobotAfterWidgetAction(slot, surface, target, mouseScreenPoint, returnPanelPoint, restoreMousePoint);
+				lastEvent.set("action-hotkey-" + slot + "@" + surface + "@" + Instant.now());
+				return;
+			}
 			if (targetScreenPoint == null)
 			{
 				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper action " + slot + " | target is off-canvas", "");
@@ -1097,6 +1104,66 @@ public class CvHelperPlugin extends Plugin
 		}, "cv-helper-action-click");
 		clickThread.setDaemon(true);
 		clickThread.start();
+	}
+
+	private void runRobotAfterWidgetAction(int slot, CvHelperActionSurface surface, Map<String, Object> target, Point mouseScreenPoint, Point returnPanelPoint, Point restoreMousePoint)
+	{
+		Thread clickThread = new Thread(() ->
+		{
+			try
+			{
+				Robot robot = new Robot();
+				if (mouseScreenPoint != null)
+				{
+					robot.delay(ACTION_CLICK_AFTER_DELAY_MS);
+					clickScreenPoint(robot, mouseScreenPoint);
+				}
+				if (returnPanelPoint != null)
+				{
+					robot.delay(45);
+					clickScreenPoint(robot, returnPanelPoint);
+				}
+				if (restoreMousePoint != null)
+				{
+					robot.delay(20);
+					robot.mouseMove(restoreMousePoint.x, restoreMousePoint.y);
+				}
+				clientThread.invokeLater(() -> client.addChatMessage(
+					ChatMessageType.GAMEMESSAGE,
+					"",
+					"CV Helper action " + slot + " | invoked " + surface + " " + targetLabelForMessage(target) + " via widget" + (mouseScreenPoint == null ? " | no mouse target click" : " | then mouse@" + mouseScreenPoint.x + "," + mouseScreenPoint.y),
+					""
+				));
+			}
+			catch (RuntimeException | java.awt.AWTException e)
+			{
+				log.warn("CV Helper action widget follow-up failed", e);
+				clientThread.invokeLater(() -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper action " + slot + " widget follow-up failed: " + e.getMessage(), ""));
+			}
+		}, "cv-helper-action-widget-follow-up");
+		clickThread.setDaemon(true);
+		clickThread.start();
+	}
+
+	private boolean invokeWidgetAction(Map<String, Object> target)
+	{
+		Object widgetIdValue = target.get("widgetId");
+		if (!(widgetIdValue instanceof Number))
+		{
+			return false;
+		}
+
+		int widgetId = ((Number) widgetIdValue).intValue();
+		if (widgetId <= 0)
+		{
+			return false;
+		}
+
+		Object itemIdValue = target.get("itemId");
+		int itemId = itemIdValue instanceof Number ? ((Number) itemIdValue).intValue() : -1;
+		String label = targetLabelForMessage(target);
+		client.menuAction(-1, widgetId, MenuAction.CC_OP, 1, itemId, "Cast", label);
+		return true;
 	}
 
 	private boolean shouldClickMouseAfter(CvHelperActionSurface surface, Map<String, Object> target, CvHelperClickAfterMode mode)
