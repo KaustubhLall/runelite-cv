@@ -24,6 +24,7 @@ This folder is the operating manual for AI-assisted work on this project. Keep i
 - When the user repeats a preference or workflow instruction, record it in Linear and in the relevant doc so it becomes the default for future sessions.
 - When a task changes behavior across process boundaries, update `contracts.md`.
 - When a task changes how or why the project works, update `decisions.md`.
+- End every implementation response with three explicit parts: what changed, what the user should test, and next steps/why the agent could not autonomously continue. If live RuneLite login or in-game verification is needed, say that plainly instead of stopping without a checklist.
 
 ## Cheat Sheet
 
@@ -49,6 +50,7 @@ This folder is the operating manual for AI-assisted work on this project. Keep i
 - Tests or manual verification are recorded.
 - PR is created, prepared, or explicitly deferred with a reason.
 - `memory/active.md` and `memory/branches.md` reflect the next action.
+- Final response includes: what changed, what the user should test, and next steps/why autonomous continuation stopped.
 
 ## Context Budget Rule
 
@@ -60,3 +62,4 @@ Keep this file and `memory/active.md` short enough to read at the start of every
 - Mixing planning output into implementation updates.
 - Letting branch-specific context leak into another branch.
 - Forgetting to update contracts when an interface changes.
+- Ending a live RuneLite implementation turn without a test checklist and a clear reason if user login/manual verification is required.

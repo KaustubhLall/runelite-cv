@@ -12,6 +12,7 @@ const refreshNow = document.querySelector("#refresh-now");
 const autoRefresh = document.querySelector("#auto-refresh");
 const captureStatus = document.querySelector("#capture-status");
 const captureGrid = document.querySelector("#capture-grid");
+const clickLogin = document.querySelector("#click-login");
 
 let port = portInput.value.trim();
 let timer = null;
@@ -32,6 +33,13 @@ form.addEventListener("submit", event => {
 });
 
 refreshNow.addEventListener("click", refreshAll);
+
+clickLogin.addEventListener("click", async () => {
+	const result = await request("/login/click", { method: "POST" });
+	captureStatus.textContent = `${result.action || "login-click"} queued. Refreshing status...`;
+	await delay(900);
+	await refreshAll();
+});
 
 document.querySelectorAll("[data-capture]").forEach(button => {
 	button.addEventListener("click", async () => {

@@ -112,6 +112,8 @@ Expected capture acknowledgement:
 
 RuneLite writes CV Helper screenshots under `C:\Users\kaust\.runelite\screenshots\`, for example `cv-helper 2026-06-16_19-38-02.png`. If capture is triggered while the client is on the login screen, RuneLite may block the file write; the plugin reports that as `capture-blocked:login-screen`.
 
+`/status` responding while `gameState` is `LOGIN_SCREEN` means CV Helper is running but live widget polling cannot be verified yet. Ask the user to log in, or use the guarded `POST http://127.0.0.1:11777/login/click` helper if the click-to-play widget is visible. Do not treat empty prayer/spell/panel targets at the login screen as plugin failure.
+
 For prayer target verification, open the prayer tab in RuneLite before calling `/targets/prayer`. The endpoint reports canvas `bounds` and `center` points for visible prayer-related widgets.
 
 For runtime verification that depends on live game widgets, ask the user to log in to the newest launched custom client before interpreting endpoint output. Logged-out state commonly reports unavailable spellbook metadata and empty target surfaces.

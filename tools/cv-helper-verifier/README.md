@@ -23,6 +23,7 @@ Enter the active CV Helper port from RuneLite logs, for example `56112`.
 - `POST /capture`
 - `POST /capture/screen`
 - `POST /capture/minimap`
+- `POST /login/click`
 
 The dashboard highlights likely export problems such as oversized inventory/equipment boxes and unnamed equipment slots.
 
@@ -30,4 +31,5 @@ The dashboard highlights likely export problems such as oversized inventory/equi
 
 - The RuneLite plugin must include CORS headers for browser fetches to work.
 - If a target surface shows zero results, first verify the corresponding RuneLite tab/interface is visible.
+- If `/status` shows `LOGIN_SCREEN`, the plugin can be healthy while live widget targets remain empty. Use `Click login` or log in manually before judging target polling.
 - Java plugin changes require a fresh RuneLite launch; they do not hot-load into an already-open client.

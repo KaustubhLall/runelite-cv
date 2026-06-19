@@ -71,6 +71,9 @@ class CvHelperPanel extends PluginPanel
 		JButton refreshButton = new JButton("Refresh status");
 		refreshButton.addActionListener(e -> refreshStatus());
 
+		JButton loginButton = new JButton("Click login");
+		loginButton.addActionListener(e -> plugin.clickLoginScreen());
+
 		JButton prayerButton = new JButton("Prayer targets");
 		prayerButton.addActionListener(e -> plugin.refreshPrayerTargets());
 
@@ -84,6 +87,7 @@ class CvHelperPanel extends PluginPanel
 		buttons.add(screenButton);
 		buttons.add(minimapButton);
 		buttons.add(refreshButton);
+		buttons.add(loginButton);
 		buttons.add(prayerButton);
 		buttons.add(debugButton);
 		buttons.add(printBoundsButton);

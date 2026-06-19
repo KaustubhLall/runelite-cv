@@ -32,6 +32,7 @@ Before ending a session:
 4. Update docs touched by the task.
 5. Create or prepare the associated PR, unless explicitly deferred.
 6. Record any unfinished work in a way the next session can resume directly.
+7. Final response must state: what changed, what the user should test, and next steps/why the agent could not continue autonomously. For live RuneLite work, distinguish "server/client launched but user must log in" from "plugin failed."
 
 ## Branch Switching
 

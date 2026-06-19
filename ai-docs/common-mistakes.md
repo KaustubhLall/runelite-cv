@@ -9,6 +9,9 @@ Track mistakes that keep recurring so the harness can teach the better default.
 - Do not use `SessionManager - No session file exists` as proof that Jagex game credentials are missing. That is the RuneLite account sync session, not the Jagex Launcher credential file.
 - After the user confirms game login in the custom client, do not loop back to Jagex credentials for Plugin Hub/config sync failures. Treat those as RuneLite service-version/API compatibility or RuneLite account-sync problems.
 - Do not leave a local-development plugin disabled by default when the user needs a right-sidebar panel for verification. Enable `CV Helper` by default during this phase so the navigation button appears automatically.
+- Do not treat `LOGIN_SCREEN` `/status` responses as failed polling. CV Helper can be healthy while live widget targets remain empty until the user logs in. Ask for login or use `/login/click` if the visible click-to-play widget can be clicked.
+- Do not end a live RuneLite work turn without telling the user what changed, exactly what to test, and why autonomous continuation stopped.
+- Do not use side-panel keybinds as the first choice for opening action panels when an exported tab click is available before action selection. Key remaps can send the macro to the wrong tab. Use tab geometry for safe opens/returns and reserve keybinds for selected-action states where mouse-clicking a tab would cancel the action.
 
 ## Update Rule
 

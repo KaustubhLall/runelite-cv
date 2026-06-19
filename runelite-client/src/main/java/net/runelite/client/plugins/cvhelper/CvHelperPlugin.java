@@ -196,6 +196,7 @@ public class CvHelperPlugin extends Plugin
 	private final Set<String> preDispatcherPressedKeys = new HashSet<>();
 	private final AtomicBoolean actionInProgress = new AtomicBoolean(false);
 	private final KeyEventDispatcher cvHotkeyDispatcher = this::dispatchCvHotkey;
+	private volatile String lastStableSidePanel = "inventory";
 
 	private static final class PanelSwitchTarget
 	{
@@ -1114,7 +1115,7 @@ public class CvHelperPlugin extends Plugin
 		Point currentMouseScreenPoint = currentMouseScreenPoint();
 		clientThread.invokeLater(() ->
 		{
-			String previousPanel = String.valueOf(interfaceStatus().get("activeSidePanel"));
+			String previousPanel = actionStartSidePanel();
 			PanelSwitchTarget requiredPanelTarget = requiredPanelTarget(surface, previousPanel);
 			if (requiredPanelTarget != null)
 			{
@@ -1213,7 +1214,7 @@ public class CvHelperPlugin extends Plugin
 			try
 			{
 				Robot robot = new Robot();
-				activatePanel(robot, panelTarget);
+				activatePanel(robot, panelTarget, true);
 				robot.delay(timing(config.actionPanelOpenDelayMs(), 0, 1500));
 				performConfiguredActionResolved(slot, surface, targetLabel, clickAfterMode, invocationMode, returnPanel, returnMouseCenter, previousPanel, originalMouseScreenPoint);
 			}
@@ -1242,12 +1243,8 @@ public class CvHelperPlugin extends Plugin
 					clickScreenPoint(robot, mouseScreenPoint);
 					clickedMouseTarget = true;
 				}
-				boolean returnedPanel = maybeReturnPanelWithHotkey(robot, returnPanelTarget);
-				if (returnPanelTarget != null && !returnedPanel && (!targetedSpell || clickedMouseTarget))
-				{
-					robot.delay(timing(config.actionReturnPanelDelayMs(), 0, 3000));
-					activatePanel(robot, returnPanelTarget);
-				}
+				boolean safeToClickReturnPanel = !targetedSpell || clickedMouseTarget;
+				maybeReturnPanel(robot, returnPanelTarget, safeToClickReturnPanel);
 				if (centerPoint != null)
 				{
 					robot.delay(timing(config.actionMouseRestoreDelayMs(), 0, 3000));
@@ -1273,7 +1270,6 @@ public class CvHelperPlugin extends Plugin
 			{
 				Robot robot = new Robot();
 				boolean clickedMouseTarget = false;
-				boolean returnedPanel = false;
 				boolean usedPhysicalFallback = false;
 				if (targetedSpell && !waitForSelectedWidget())
 				{
@@ -1291,12 +1287,8 @@ public class CvHelperPlugin extends Plugin
 					clickScreenPoint(robot, mouseScreenPoint);
 					clickedMouseTarget = true;
 				}
-				returnedPanel = maybeReturnPanelWithHotkey(robot, returnPanelTarget);
-				if (returnPanelTarget != null && !returnedPanel && (!targetedSpell || clickedMouseTarget))
-				{
-					robot.delay(timing(config.actionReturnPanelDelayMs(), 0, 3000));
-					activatePanel(robot, returnPanelTarget);
-				}
+				boolean safeToClickReturnPanel = !targetedSpell || clickedMouseTarget;
+				maybeReturnPanel(robot, returnPanelTarget, safeToClickReturnPanel);
 				if (restoreMousePoint != null)
 				{
 					robot.delay(timing(config.actionMouseRestoreDelayMs(), 0, 3000));
@@ -1495,9 +1487,29 @@ public class CvHelperPlugin extends Plugin
 			|| normalizedLabel.contains("vengeance");
 	}
 
+	private String actionStartSidePanel()
+	{
+		String activePanel = String.valueOf(interfaceStatus().get("activeSidePanel"));
+		if (isKnownSidePanel(activePanel))
+		{
+			return activePanel;
+		}
+		return isKnownSidePanel(lastStableSidePanel) ? lastStableSidePanel : "inventory";
+	}
+
+	private boolean isKnownSidePanel(String panelName)
+	{
+		return "combat".equals(panelName)
+			|| "inventory".equals(panelName)
+			|| "equipment".equals(panelName)
+			|| "prayer".equals(panelName)
+			|| "spellbook".equals(panelName);
+	}
+
 	private PanelSwitchTarget panelReturnTarget(String previousPanel)
 	{
-		return panelSwitchTarget(previousPanel, false);
+		String panelName = isKnownSidePanel(previousPanel) ? previousPanel : "inventory";
+		return panelSwitchTarget(panelName, true);
 	}
 
 	private PanelSwitchTarget requiredPanelTarget(CvHelperActionSurface surface, String activePanel)
@@ -1522,13 +1534,13 @@ public class CvHelperPlugin extends Plugin
 		Map<String, Object> panelTarget = findTargetByLabel(collectPanelTargets(), panelName, panelName.equals("spellbook") ? "magic" : panelName);
 		Map<String, Object> clickPoint = panelTarget == null ? null : firstPoint(panelTarget, "clickPoint", "center");
 		Point screenPoint = clickPoint == null ? null : canvasPointToScreen(clickPoint);
-		if (keybind != null && !Keybind.NOT_SET.equals(keybind))
+		if (preferClick && screenPoint != null)
 		{
 			return new PanelSwitchTarget(panelName, keybind, screenPoint);
 		}
-		if (preferClick && screenPoint != null)
+		if (keybind != null && !Keybind.NOT_SET.equals(keybind))
 		{
-			return new PanelSwitchTarget(panelName, null, screenPoint);
+			return new PanelSwitchTarget(panelName, keybind, screenPoint);
 		}
 		return screenPoint == null ? null : new PanelSwitchTarget(panelName, null, screenPoint);
 	}
@@ -1587,32 +1599,42 @@ public class CvHelperPlugin extends Plugin
 		clientThread.invokeLater(() -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, ""));
 	}
 
-	private boolean maybeReturnPanelWithHotkey(Robot robot, PanelSwitchTarget panelTarget)
+	private boolean maybeReturnPanel(Robot robot, PanelSwitchTarget panelTarget, boolean allowMouseClick)
 	{
-		if (panelTarget == null || !panelTarget.usesHotkey())
+		if (panelTarget == null)
+		{
+			return false;
+		}
+		if (!allowMouseClick && !panelTarget.usesHotkey())
 		{
 			return false;
 		}
 		robot.delay(timing(config.actionReturnPanelDelayMs(), 0, 3000));
-		activatePanel(robot, panelTarget);
-		return true;
+		return activatePanel(robot, panelTarget, allowMouseClick);
 	}
 
-	private void activatePanel(Robot robot, PanelSwitchTarget panelTarget)
+	private boolean activatePanel(Robot robot, PanelSwitchTarget panelTarget, boolean preferClick)
 	{
 		if (panelTarget == null)
 		{
-			return;
+			return false;
+		}
+		if (preferClick && panelTarget.clickPoint != null)
+		{
+			clickScreenPoint(robot, panelTarget.clickPoint);
+			return true;
 		}
 		if (panelTarget.usesHotkey())
 		{
 			pressKeybind(robot, panelTarget.keybind);
-			return;
+			return true;
 		}
 		if (panelTarget.clickPoint != null)
 		{
 			clickScreenPoint(robot, panelTarget.clickPoint);
+			return true;
 		}
+		return false;
 	}
 
 	private void pressKeybind(Robot robot, Keybind keybind)
@@ -2013,6 +2035,55 @@ public class CvHelperPlugin extends Plugin
 		});
 	}
 
+	void clickLoginScreen()
+	{
+		clientThread.invokeLater(() ->
+		{
+			if (client.getGameState() != GameState.LOGIN_SCREEN && client.getGameState() != GameState.LOGIN_SCREEN_AUTHENTICATOR)
+			{
+				updatePanelStatus("Login click skipped: game state is " + client.getGameState());
+				lastEvent.set("login-click-skipped:" + client.getGameState() + "@" + Instant.now());
+				return;
+			}
+
+			Widget loginWidget = client.getWidget(WidgetInfo.LOGIN_CLICK_TO_PLAY_SCREEN);
+			if (loginWidget == null || loginWidget.isHidden() || loginWidget.getBounds() == null)
+			{
+				updatePanelStatus("Login click skipped: click-to-play widget not visible");
+				lastEvent.set("login-click-skipped:no-widget@" + Instant.now());
+				return;
+			}
+
+			Rectangle bounds = loginWidget.getBounds();
+			Point screenPoint = canvasPointToScreen(pointMap(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
+			if (screenPoint == null)
+			{
+				updatePanelStatus("Login click skipped: widget is off-canvas");
+				lastEvent.set("login-click-skipped:off-canvas@" + Instant.now());
+				return;
+			}
+
+			Thread loginClickThread = new Thread(() ->
+			{
+				try
+				{
+					Robot robot = new Robot();
+					clickScreenPoint(robot, screenPoint);
+					updatePanelStatus("Clicked login screen");
+					lastEvent.set("login-click@" + Instant.now());
+				}
+				catch (RuntimeException | java.awt.AWTException e)
+				{
+					log.warn("CV Helper login click failed", e);
+					updatePanelStatus("Login click failed: " + e.getMessage());
+					lastEvent.set("login-click-failed:" + e.getMessage() + "@" + Instant.now());
+				}
+			}, "cv-helper-login-click");
+			loginClickThread.setDaemon(true);
+			loginClickThread.start();
+		});
+	}
+
 	private void captureImage(String captureType, boolean addFrame, Rectangle crop)
 	{
 		clientThread.invokeLater(() ->
@@ -2122,6 +2193,11 @@ public class CvHelperPlugin extends Plugin
 			server.createContext("/targets", this::handleAllTargetsRequest);
 			server.createContext("/entities", this::handleEntitiesRequest);
 			server.createContext("/entities/nearest", this::handleNearestEntityRequest);
+			server.createContext("/login/click", exchange ->
+			{
+				clickLoginScreen();
+				writeResponse(exchange, 202, "{\"ok\":true,\"queued\":true,\"action\":\"login-click\"}");
+			});
 			server.createContext("/capture", exchange ->
 			{
 				captureScreenshot();
@@ -2181,7 +2257,7 @@ public class CvHelperPlugin extends Plugin
 			body.put("status", lastEvent.get());
 			body.put("port", localPort());
 			body.put("preferredPort", config.localPort() > 0 ? config.localPort() : DEFAULT_LOCAL_PORT);
-			body.put("endpoints", new String[]{"/status", "/capture", "/capture/screen", "/capture/minimap", "/capture/latest/client-frame", "/capture/latest/screen", "/capture/latest/minimap", "/player/status", "/targets/prayer", "/targets/spell", "/targets/minimap", "/targets/inventory", "/targets/equipment", "/targets/panels", "/targets/combat", "/targets", "/entities", "/entities/nearest"});
+			body.put("endpoints", new String[]{"/status", "/login/click", "/capture", "/capture/screen", "/capture/minimap", "/capture/latest/client-frame", "/capture/latest/screen", "/capture/latest/minimap", "/player/status", "/targets/prayer", "/targets/spell", "/targets/minimap", "/targets/inventory", "/targets/equipment", "/targets/panels", "/targets/combat", "/targets", "/entities", "/entities/nearest"});
 			Map<String, Object> playerStatus = getPlayerStatusOnClientThread();
 			body.put("player", playerStatus);
 			body.put("spellbook", playerStatus.get("spellbook"));
@@ -3041,7 +3117,13 @@ public class CvHelperPlugin extends Plugin
 		interfaces.put("prayerVisible", widgetVisible(ComponentID.PRAYER_PARENT) || widgetVisible(ComponentID.QUICK_PRAYER_PRAYERS));
 		interfaces.put("spellbookVisible", widgetVisible(ComponentID.SPELLBOOK_PARENT));
 		interfaces.put("minimapVisible", widgetVisible(ComponentID.MINIMAP_CONTAINER));
-		interfaces.put("activeSidePanel", activeSidePanelName(interfaces));
+		String activeSidePanel = activeSidePanelName(interfaces);
+		if (isKnownSidePanel(activeSidePanel))
+		{
+			lastStableSidePanel = activeSidePanel;
+		}
+		interfaces.put("activeSidePanel", activeSidePanel);
+		interfaces.put("lastStableSidePanel", lastStableSidePanel);
 		return interfaces;
 	}
 
