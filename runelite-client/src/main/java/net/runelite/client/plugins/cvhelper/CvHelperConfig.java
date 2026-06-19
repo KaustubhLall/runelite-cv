@@ -86,6 +86,11 @@ public interface CvHelperConfig extends Config
 	String ACTION_SELECTED_WIDGET_TIMEOUT_MS = "actionSelectedWidgetTimeoutMs";
 	String ACTION_RETURN_PANEL_DELAY_MS = "actionReturnPanelDelayMs";
 	String ACTION_MOUSE_RESTORE_DELAY_MS = "actionMouseRestoreDelayMs";
+	String ACTION_RETURN_COMBAT_HOTKEY = "actionReturnCombatHotkey";
+	String ACTION_RETURN_INVENTORY_HOTKEY = "actionReturnInventoryHotkey";
+	String ACTION_RETURN_EQUIPMENT_HOTKEY = "actionReturnEquipmentHotkey";
+	String ACTION_RETURN_PRAYER_HOTKEY = "actionReturnPrayerHotkey";
+	String ACTION_RETURN_SPELLBOOK_HOTKEY = "actionReturnSpellbookHotkey";
 
 	@ConfigSection(
 		name = "Action hotkeys",
@@ -359,6 +364,61 @@ public interface CvHelperConfig extends Config
 	default int actionMouseRestoreDelayMs()
 	{
 		return 40;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_RETURN_COMBAT_HOTKEY,
+		name = "Panel key: combat",
+		description = "Keyboard key CV Helper presses to open or return to the combat tab without clicking UI.",
+		section = actionSection
+	)
+	default Keybind actionReturnCombatHotkey()
+	{
+		return new Keybind(java.awt.event.KeyEvent.VK_F1, 0);
+	}
+
+	@ConfigItem(
+		keyName = ACTION_RETURN_INVENTORY_HOTKEY,
+		name = "Panel key: inventory",
+		description = "Keyboard key CV Helper presses to open or return to inventory without clicking UI. Set this to your remapped inventory key if needed.",
+		section = actionSection
+	)
+	default Keybind actionReturnInventoryHotkey()
+	{
+		return new Keybind(java.awt.event.KeyEvent.VK_F4, 0);
+	}
+
+	@ConfigItem(
+		keyName = ACTION_RETURN_EQUIPMENT_HOTKEY,
+		name = "Panel key: equipment",
+		description = "Keyboard key CV Helper presses to open or return to equipment without clicking UI.",
+		section = actionSection
+	)
+	default Keybind actionReturnEquipmentHotkey()
+	{
+		return new Keybind(java.awt.event.KeyEvent.VK_F5, 0);
+	}
+
+	@ConfigItem(
+		keyName = ACTION_RETURN_PRAYER_HOTKEY,
+		name = "Panel key: prayer",
+		description = "Keyboard key CV Helper presses to open or return to prayer without clicking UI.",
+		section = actionSection
+	)
+	default Keybind actionReturnPrayerHotkey()
+	{
+		return new Keybind(java.awt.event.KeyEvent.VK_F6, 0);
+	}
+
+	@ConfigItem(
+		keyName = ACTION_RETURN_SPELLBOOK_HOTKEY,
+		name = "Panel key: magic",
+		description = "Keyboard key CV Helper presses to open or return to the magic tab without clicking UI.",
+		section = actionSection
+	)
+	default Keybind actionReturnSpellbookHotkey()
+	{
+		return new Keybind(java.awt.event.KeyEvent.VK_F7, 0);
 	}
 
 	@ConfigItem(

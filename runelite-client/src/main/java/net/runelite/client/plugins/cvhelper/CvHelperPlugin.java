@@ -200,23 +200,19 @@ public class CvHelperPlugin extends Plugin
 	private static final class PanelSwitchTarget
 	{
 		private final String panel;
-		private final Integer keyCode;
+		private final Keybind keybind;
 		private final Point clickPoint;
-		private final Integer widgetId;
-		private final boolean preferWidgetAction;
 
-		private PanelSwitchTarget(String panel, Integer keyCode, Point clickPoint, Integer widgetId, boolean preferWidgetAction)
+		private PanelSwitchTarget(String panel, Keybind keybind, Point clickPoint)
 		{
 			this.panel = panel;
-			this.keyCode = keyCode;
+			this.keybind = keybind;
 			this.clickPoint = clickPoint;
-			this.widgetId = widgetId;
-			this.preferWidgetAction = preferWidgetAction;
 		}
 
 		private boolean usesHotkey()
 		{
-			return keyCode != null;
+			return keybind != null && !Keybind.NOT_SET.equals(keybind);
 		}
 	}
 
@@ -1240,13 +1236,13 @@ public class CvHelperPlugin extends Plugin
 				Robot robot = new Robot();
 				clickScreenPoint(robot, targetScreenPoint);
 				boolean clickedMouseTarget = false;
-				boolean returnedPanel = maybeReturnPanelWithHotkey(robot, returnPanelTarget);
 				if (mouseScreenPoint != null)
 				{
 					robot.delay(timing(config.actionWidgetTargetDelayMs(), 0, 3000));
 					clickScreenPoint(robot, mouseScreenPoint);
 					clickedMouseTarget = true;
 				}
+				boolean returnedPanel = maybeReturnPanelWithHotkey(robot, returnPanelTarget);
 				if (returnPanelTarget != null && !returnedPanel && (!targetedSpell || clickedMouseTarget))
 				{
 					robot.delay(timing(config.actionReturnPanelDelayMs(), 0, 3000));
@@ -1291,15 +1287,11 @@ public class CvHelperPlugin extends Plugin
 				}
 				if (mouseScreenPoint != null)
 				{
-					returnedPanel = maybeReturnPanelWithHotkey(robot, returnPanelTarget);
 					robot.delay(timing(config.actionWidgetTargetDelayMs(), 0, 3000));
 					clickScreenPoint(robot, mouseScreenPoint);
 					clickedMouseTarget = true;
 				}
-				else
-				{
-					returnedPanel = maybeReturnPanelWithHotkey(robot, returnPanelTarget);
-				}
+				returnedPanel = maybeReturnPanelWithHotkey(robot, returnPanelTarget);
 				if (returnPanelTarget != null && !returnedPanel && (!targetedSpell || clickedMouseTarget))
 				{
 					robot.delay(timing(config.actionReturnPanelDelayMs(), 0, 3000));
@@ -1526,47 +1518,35 @@ public class CvHelperPlugin extends Plugin
 			return null;
 		}
 
+		Keybind keybind = panelKeybind(panelName);
 		Map<String, Object> panelTarget = findTargetByLabel(collectPanelTargets(), panelName, panelName.equals("spellbook") ? "magic" : panelName);
 		Map<String, Object> clickPoint = panelTarget == null ? null : firstPoint(panelTarget, "clickPoint", "center");
 		Point screenPoint = clickPoint == null ? null : canvasPointToScreen(clickPoint);
-		Integer widgetId = widgetId(panelTarget);
+		if (keybind != null && !Keybind.NOT_SET.equals(keybind))
+		{
+			return new PanelSwitchTarget(panelName, keybind, screenPoint);
+		}
 		if (preferClick && screenPoint != null)
 		{
-			return new PanelSwitchTarget(panelName, null, screenPoint, widgetId, false);
+			return new PanelSwitchTarget(panelName, null, screenPoint);
 		}
-
-		Integer keyCode = panelKeyCode(panelName);
-		if (widgetId != null || keyCode != null)
-		{
-			return new PanelSwitchTarget(panelName, keyCode, screenPoint, widgetId, widgetId != null);
-		}
-		return screenPoint == null ? null : new PanelSwitchTarget(panelName, null, screenPoint, null, false);
+		return screenPoint == null ? null : new PanelSwitchTarget(panelName, null, screenPoint);
 	}
 
-	private Integer widgetId(Map<String, Object> target)
-	{
-		if (target == null || !(target.get("widgetId") instanceof Number))
-		{
-			return null;
-		}
-		int widgetId = ((Number) target.get("widgetId")).intValue();
-		return widgetId <= 0 ? null : widgetId;
-	}
-
-	private Integer panelKeyCode(String panelName)
+	private Keybind panelKeybind(String panelName)
 	{
 		switch (panelName)
 		{
 			case "combat":
-				return KeyEvent.VK_F1;
+				return config.actionReturnCombatHotkey();
 			case "inventory":
-				return KeyEvent.VK_F4;
+				return config.actionReturnInventoryHotkey();
 			case "equipment":
-				return KeyEvent.VK_F5;
+				return config.actionReturnEquipmentHotkey();
 			case "prayer":
-				return KeyEvent.VK_F6;
+				return config.actionReturnPrayerHotkey();
 			case "spellbook":
-				return KeyEvent.VK_F7;
+				return config.actionReturnSpellbookHotkey();
 			default:
 				return null;
 		}
@@ -1624,15 +1604,9 @@ public class CvHelperPlugin extends Plugin
 		{
 			return;
 		}
-		if (panelTarget.preferWidgetAction && panelTarget.widgetId != null && invokePanelWidget(panelTarget))
+		if (panelTarget.usesHotkey())
 		{
-			return;
-		}
-		if (panelTarget.keyCode != null)
-		{
-			robot.keyPress(panelTarget.keyCode);
-			robot.delay(18);
-			robot.keyRelease(panelTarget.keyCode);
+			pressKeybind(robot, panelTarget.keybind);
 			return;
 		}
 		if (panelTarget.clickPoint != null)
@@ -1641,29 +1615,43 @@ public class CvHelperPlugin extends Plugin
 		}
 	}
 
-	private boolean invokePanelWidget(PanelSwitchTarget panelTarget)
+	private void pressKeybind(Robot robot, Keybind keybind)
 	{
-		CountDownLatch latch = new CountDownLatch(1);
-		AtomicReference<Boolean> invoked = new AtomicReference<>(false);
-		clientThread.invokeLater(() ->
+		if (keybind == null || Keybind.NOT_SET.equals(keybind))
 		{
-			if (panelTarget.widgetId != null)
-			{
-				client.menuAction(-1, panelTarget.widgetId, MenuAction.CC_OP, 1, -1, "Select", panelTarget.panel);
-				invoked.set(true);
-			}
-			latch.countDown();
-		});
-		try
-		{
-			latch.await(250, TimeUnit.MILLISECONDS);
+			return;
 		}
-		catch (InterruptedException e)
+		int modifiers = keybind.getModifiers();
+		pressModifier(robot, modifiers, InputEvent.CTRL_DOWN_MASK, KeyEvent.VK_CONTROL);
+		pressModifier(robot, modifiers, InputEvent.ALT_DOWN_MASK, KeyEvent.VK_ALT);
+		pressModifier(robot, modifiers, InputEvent.SHIFT_DOWN_MASK, KeyEvent.VK_SHIFT);
+		pressModifier(robot, modifiers, InputEvent.META_DOWN_MASK, KeyEvent.VK_META);
+		if (keybind.getKeyCode() != KeyEvent.VK_UNDEFINED)
 		{
-			Thread.currentThread().interrupt();
-			return false;
+			robot.keyPress(keybind.getKeyCode());
+			robot.delay(18);
+			robot.keyRelease(keybind.getKeyCode());
 		}
-		return Boolean.TRUE.equals(invoked.get());
+		releaseModifier(robot, modifiers, InputEvent.META_DOWN_MASK, KeyEvent.VK_META);
+		releaseModifier(robot, modifiers, InputEvent.SHIFT_DOWN_MASK, KeyEvent.VK_SHIFT);
+		releaseModifier(robot, modifiers, InputEvent.ALT_DOWN_MASK, KeyEvent.VK_ALT);
+		releaseModifier(robot, modifiers, InputEvent.CTRL_DOWN_MASK, KeyEvent.VK_CONTROL);
+	}
+
+	private void pressModifier(Robot robot, int modifiers, int mask, int keyCode)
+	{
+		if ((modifiers & mask) != 0)
+		{
+			robot.keyPress(keyCode);
+		}
+	}
+
+	private void releaseModifier(Robot robot, int modifiers, int mask, int keyCode)
+	{
+		if ((modifiers & mask) != 0)
+		{
+			robot.keyRelease(keyCode);
+		}
 	}
 
 	private Point currentMouseScreenPoint()
@@ -2100,6 +2088,9 @@ public class CvHelperPlugin extends Plugin
 	{
 		if (!config.enableLocalExport())
 		{
+			lastEvent.set("server-disabled");
+			log.info("CV Helper local export disabled by config");
+			updatePanelServerStatus();
 			return;
 		}
 		if (server != null)
