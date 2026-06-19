@@ -9,6 +9,7 @@ import com.google.inject.Provides;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
+import java.awt.KeyEventDispatcher;
 import java.awt.KeyboardFocusManager;
 import java.awt.MouseInfo;
 import java.awt.Point;
@@ -105,6 +106,7 @@ public class CvHelperPlugin extends Plugin
 	private static final int ACTION_SLOT_COUNT = 8;
 	private static final int ACTION_RESOLVE_RETRIES = 4;
 	private static final int ACTION_RESOLVE_DELAY_MS = 80;
+	private static final int ACTION_MOUSE_SETTLE_DELAY_MS = 35;
 	private static final DateTimeFormatter CAPTURE_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
 	private static final int[] PRAYER_COMPONENTS = {
 		InterfaceID.Prayerbook.PRAYER1,
@@ -192,6 +194,8 @@ public class CvHelperPlugin extends Plugin
 	private final Set<String> enabledPrayers = new HashSet<>();
 	private final Set<String> enabledSpellbooks = new HashSet<>();
 	private final List<HotkeyListener> actionHotkeyListeners = new ArrayList<>();
+	private final Set<String> preDispatcherPressedKeys = new HashSet<>();
+	private final KeyEventDispatcher cvHotkeyDispatcher = this::dispatchCvHotkey;
 
 	private static final class PanelSwitchTarget
 	{
@@ -234,6 +238,7 @@ public class CvHelperPlugin extends Plugin
 			.build();
 		clientToolbar.addNavigation(navButton);
 		registerHotkeys();
+		KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(cvHotkeyDispatcher);
 		startServer();
 	}
 
@@ -241,6 +246,8 @@ public class CvHelperPlugin extends Plugin
 	protected void shutDown()
 	{
 		log.info("CV Helper stopping");
+		KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(cvHotkeyDispatcher);
+		preDispatcherPressedKeys.clear();
 		unregisterHotkeys();
 		stopServer();
 		overlayManager.remove(overlay);
@@ -393,6 +400,87 @@ public class CvHelperPlugin extends Plugin
 			keyManager.unregisterKeyListener(listener);
 		}
 		actionHotkeyListeners.clear();
+	}
+
+	private boolean dispatchCvHotkey(KeyEvent event)
+	{
+		if (event == null)
+		{
+			return false;
+		}
+		if (event.getID() == KeyEvent.KEY_RELEASED)
+		{
+			preDispatcherPressedKeys.remove(preDispatchKey(event));
+			return false;
+		}
+		if (event.getID() != KeyEvent.KEY_PRESSED || shouldSuppressHotkey())
+		{
+			return false;
+		}
+
+		String key = preDispatchKey(event);
+		if (preDispatcherPressedKeys.contains(key))
+		{
+			event.consume();
+			return true;
+		}
+
+		if (config.debugHotkey().matches(event))
+		{
+			preDispatcherPressedKeys.add(key);
+			debugOverlayState();
+			event.consume();
+			return true;
+		}
+		if (config.printBoundsHotkey().matches(event))
+		{
+			preDispatcherPressedKeys.add(key);
+			printOverlayCoordinates();
+			event.consume();
+			return true;
+		}
+		if (config.captureScreenHotkey().matches(event))
+		{
+			preDispatcherPressedKeys.add(key);
+			captureScreen();
+			event.consume();
+			return true;
+		}
+		if (config.refreshEntitiesHotkey().matches(event))
+		{
+			preDispatcherPressedKeys.add(key);
+			refreshEntities();
+			event.consume();
+			return true;
+		}
+		if (config.nearestEntityHotkey().matches(event))
+		{
+			preDispatcherPressedKeys.add(key);
+			printNearestEntityTarget();
+			event.consume();
+			return true;
+		}
+
+		for (int slot = 1; slot <= ACTION_SLOT_COUNT; slot++)
+		{
+			if (getActionHotkey(slot).matches(event))
+			{
+				preDispatcherPressedKeys.add(key);
+				performConfiguredAction(slot);
+				event.consume();
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private String preDispatchKey(KeyEvent event)
+	{
+		int modifierMask = InputEvent.SHIFT_DOWN_MASK
+			| InputEvent.CTRL_DOWN_MASK
+			| InputEvent.ALT_DOWN_MASK
+			| InputEvent.META_DOWN_MASK;
+		return event.getExtendedKeyCode() + ":" + (event.getModifiersEx() & modifierMask);
 	}
 
 	private boolean shouldSuppressHotkey()
@@ -1422,7 +1510,7 @@ public class CvHelperPlugin extends Plugin
 
 	private PanelSwitchTarget panelReturnTarget(String previousPanel)
 	{
-		return panelSwitchTarget(previousPanel, true);
+		return panelSwitchTarget(previousPanel, false);
 	}
 
 	private PanelSwitchTarget requiredPanelTarget(CvHelperActionSurface surface, String activePanel)
@@ -1500,6 +1588,7 @@ public class CvHelperPlugin extends Plugin
 	private void clickScreenPoint(Robot robot, Point point)
 	{
 		robot.mouseMove(point.x, point.y);
+		robot.delay(ACTION_MOUSE_SETTLE_DELAY_MS);
 		robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
 		robot.delay(18);
 		robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
@@ -1575,7 +1664,8 @@ public class CvHelperPlugin extends Plugin
 		if (surface == CvHelperActionSurface.NEAREST_ENTITY)
 		{
 			lastEntities = collectEntities();
-			return nearestClickableEntity(lastEntities);
+			String needle = normalize(targetLabel);
+			return needle.isEmpty() || "nearestclickableentity".equals(needle) ? nearestClickableEntity(lastEntities) : findEntityByNameOrId(lastEntities, targetLabel);
 		}
 
 		List<Map<String, Object>> targets = collectActionSurfaceTargets(surface);
@@ -1596,6 +1686,48 @@ public class CvHelperPlugin extends Plugin
 			return target;
 		}
 		return findTargetByLabel(cachedActionSurfaceTargets(surface), needle);
+	}
+
+	private Map<String, Object> findEntityByNameOrId(List<Map<String, Object>> entities, String targetLabel)
+	{
+		String needle = normalize(targetLabel);
+		if (needle.isEmpty())
+		{
+			return nearestClickableEntity(entities);
+		}
+
+		String idNeedle = needle.startsWith("id") ? normalize(needle.substring(2)) : needle;
+		Map<String, Object> best = null;
+		int bestDistance = Integer.MAX_VALUE;
+		for (Map<String, Object> entity : entities)
+		{
+			if (!(entity.get("clickPoint") instanceof Map))
+			{
+				continue;
+			}
+
+			boolean idMatches = false;
+			Object idValue = entity.get("id");
+			if (idValue instanceof Number)
+			{
+				String id = String.valueOf(((Number) idValue).intValue());
+				idMatches = id.equals(idNeedle) || id.equals(needle);
+			}
+
+			String haystack = normalize(entity.get("name") + " " + entity.get("type") + " " + entity.get("id"));
+			if (!idMatches && !haystack.contains(needle))
+			{
+				continue;
+			}
+
+			int distance = entity.get("distance") instanceof Number ? ((Number) entity.get("distance")).intValue() : Integer.MAX_VALUE;
+			if (best == null || distance < bestDistance)
+			{
+				best = entity;
+				bestDistance = distance;
+			}
+		}
+		return best;
 	}
 
 	private Map<String, Object> findTargetByLabel(List<Map<String, Object>> targets, String... needles)
@@ -3242,12 +3374,36 @@ public class CvHelperPlugin extends Plugin
 		else if (surface == CvHelperActionSurface.NEAREST_ENTITY)
 		{
 			labels.add("Nearest clickable entity");
+			for (Map<String, Object> entity : lastEntities)
+			{
+				String entityLabel = entityActionLabel(entity);
+				if (!entityLabel.isEmpty())
+				{
+					labels.add(entityLabel);
+				}
+			}
 		}
 		else
 		{
 			addTargetLabels(labels, lastTargetsForSurface(surface));
 		}
 		return new ArrayList<>(labels);
+	}
+
+	private String entityActionLabel(Map<String, Object> entity)
+	{
+		if (entity == null)
+		{
+			return "";
+		}
+		String name = entity.get("name") == null ? "" : String.valueOf(entity.get("name")).trim();
+		String type = entity.get("type") == null ? "" : String.valueOf(entity.get("type")).trim();
+		Object id = entity.get("id");
+		if (id instanceof Number)
+		{
+			return name + " id:" + ((Number) id).intValue();
+		}
+		return (name + " " + type).trim();
 	}
 
 	private List<Map<String, Object>> lastTargetsForSurface(CvHelperActionSurface surface)
