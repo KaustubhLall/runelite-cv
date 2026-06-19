@@ -266,6 +266,9 @@ RuneLite has existing hotkey primitives (`Keybind`, `HotkeyButton`, `KeyManager`
 - Required panel opens prefer exported side-panel tab click-points instead of hard-coded F-keys, because custom RuneLite key/plugin mappings can make F-key assumptions wrong. Target lookup uses fresh surface targets first, then last-known targets from the same exported surface if live collection races panel opening.
 - Action hotkeys are captured through a CV Helper pre-dispatcher before the normal RuneLite plugin key chain, so profile/plugin key conflicts are less likely to block CV actions. Chat and text-field suppression still applies.
 - Entity actions accept `Nearest clickable entity`, partial entity names, or `id:<npc id>` labels and pick the nearest clickable matching entity.
+- Action sequences are single-flight; repeated hotkeys while an action is executing are ignored.
+- All action delays are configurable, including panel open, target-resolve retry, mouse settle, widget-to-target, selected-widget timeout, return tab, and mouse restore.
+- Target dropdowns filter as the user types, and action target matching uses the same normalized semantic labels that are exported to the verifier.
 - Hotkeys are suppressed while RuneLite chat/message-layer input is active or while a CV Helper side-panel text field has focus, so typing in chat/config does not fire action slots.
 - Robot clicks convert RuneLite real-canvas widget coordinates into displayed screen coordinates using stretched-mode dimensions when needed. This keeps action clicks aligned after resizing/fullscreening the client.
 - Return-to-previous-panel clicks the previously active side-panel tab after the action finishes, useful for spellbook/inventory workflows.

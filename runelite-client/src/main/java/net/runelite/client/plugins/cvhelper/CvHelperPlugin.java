@@ -38,6 +38,7 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.imageio.ImageIO;
 import javax.swing.SwingUtilities;
@@ -105,8 +106,6 @@ public class CvHelperPlugin extends Plugin
 	private static final int DEFAULT_LOCAL_PORT = 11777;
 	private static final int ACTION_SLOT_COUNT = 8;
 	private static final int ACTION_RESOLVE_RETRIES = 4;
-	private static final int ACTION_RESOLVE_DELAY_MS = 80;
-	private static final int ACTION_MOUSE_SETTLE_DELAY_MS = 35;
 	private static final DateTimeFormatter CAPTURE_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
 	private static final int[] PRAYER_COMPONENTS = {
 		InterfaceID.Prayerbook.PRAYER1,
@@ -195,6 +194,7 @@ public class CvHelperPlugin extends Plugin
 	private final Set<String> enabledSpellbooks = new HashSet<>();
 	private final List<HotkeyListener> actionHotkeyListeners = new ArrayList<>();
 	private final Set<String> preDispatcherPressedKeys = new HashSet<>();
+	private final AtomicBoolean actionInProgress = new AtomicBoolean(false);
 	private final KeyEventDispatcher cvHotkeyDispatcher = this::dispatchCvHotkey;
 
 	private static final class PanelSwitchTarget
@@ -202,12 +202,16 @@ public class CvHelperPlugin extends Plugin
 		private final String panel;
 		private final Integer keyCode;
 		private final Point clickPoint;
+		private final Integer widgetId;
+		private final boolean preferWidgetAction;
 
-		private PanelSwitchTarget(String panel, Integer keyCode, Point clickPoint)
+		private PanelSwitchTarget(String panel, Integer keyCode, Point clickPoint, Integer widgetId, boolean preferWidgetAction)
 		{
 			this.panel = panel;
 			this.keyCode = keyCode;
 			this.clickPoint = clickPoint;
+			this.widgetId = widgetId;
+			this.preferWidgetAction = preferWidgetAction;
 		}
 
 		private boolean usesHotkey()
@@ -1028,6 +1032,11 @@ public class CvHelperPlugin extends Plugin
 			updatePanelStatus("Action " + slot + " is disabled");
 			return;
 		}
+		if (!actionInProgress.compareAndSet(false, true))
+		{
+			updatePanelStatus("Action already running; ignored action " + slot);
+			return;
+		}
 		performConfiguredAction(slot, getActionSurface(slot), getActionTarget(slot), getActionClickAfterMode(slot), getActionInvocationMode(slot), getActionReturnPanel(slot), getActionReturnMouseCenter(slot));
 	}
 
@@ -1101,6 +1110,7 @@ public class CvHelperPlugin extends Plugin
 	{
 		if (surface == null || surface == CvHelperActionSurface.DISABLED)
 		{
+			finishAction(slot, "Action " + slot + " has no surface");
 			return;
 		}
 		CvHelperActionInvocationMode effectiveInvocationMode = invocationMode == null ? CvHelperActionInvocationMode.AUTO : invocationMode;
@@ -1136,14 +1146,14 @@ public class CvHelperPlugin extends Plugin
 					scheduleActionResolve(slot, surface, targetLabel, clickAfterMode, invocationMode, returnPanel, returnMouseCenter, previousPanel, originalMouseScreenPoint, retriesRemaining - 1);
 					return;
 				}
-				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper action " + slot + " | no target matched " + surface + " / " + targetLabel, "");
+				finishAction(slot, "CV Helper action " + slot + " | no target matched " + surface + " / " + targetLabel);
 				return;
 			}
 
 			Map<String, Object> clickPoint = firstPoint(target, "clickPoint", "center", "canvasTileCenter");
 			if (clickPoint == null)
 			{
-				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper action " + slot + " | matched target has no canvas click point", "");
+				finishAction(slot, "CV Helper action " + slot + " | matched target has no canvas click point");
 				return;
 			}
 
@@ -1166,13 +1176,13 @@ public class CvHelperPlugin extends Plugin
 				}
 				if (invocationMode == CvHelperActionInvocationMode.WIDGET)
 				{
-					client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper action " + slot + " | target has no widget action for " + surface + " / " + targetLabel, "");
+					finishAction(slot, "CV Helper action " + slot + " | target has no widget action for " + surface + " / " + targetLabel);
 					return;
 				}
 			}
 			if (targetScreenPoint == null)
 			{
-				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper action " + slot + " | target is off-canvas", "");
+				finishAction(slot, "CV Helper action " + slot + " | target is off-canvas");
 				return;
 			}
 
@@ -1187,7 +1197,7 @@ public class CvHelperPlugin extends Plugin
 		{
 			try
 			{
-				Thread.sleep(ACTION_RESOLVE_DELAY_MS);
+				Thread.sleep(timing(config.actionResolveDelayMs(), 0, 3000));
 			}
 			catch (InterruptedException e)
 			{
@@ -1214,7 +1224,7 @@ public class CvHelperPlugin extends Plugin
 			catch (RuntimeException | java.awt.AWTException e)
 			{
 				log.warn("CV Helper action panel-open failed", e);
-				clientThread.invokeLater(() -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper action " + slot + " panel open failed: " + e.getMessage(), ""));
+				finishAction(slot, "CV Helper action " + slot + " panel open failed: " + e.getMessage());
 			}
 		}, "cv-helper-action-open-panel");
 		openThread.setDaemon(true);
@@ -1247,17 +1257,12 @@ public class CvHelperPlugin extends Plugin
 					robot.delay(timing(config.actionMouseRestoreDelayMs(), 0, 3000));
 					robot.mouseMove(centerPoint.x, centerPoint.y);
 				}
-				clientThread.invokeLater(() -> client.addChatMessage(
-					ChatMessageType.GAMEMESSAGE,
-					"",
-					"CV Helper action " + slot + " | clicked " + surface + " " + targetLabelForMessage(target) + " at " + randomizedClickPoint + (mouseScreenPoint == null ? " | no mouse target click" : " | then mouse@" + mouseScreenPoint.x + "," + mouseScreenPoint.y),
-					""
-				));
+				finishAction(slot, "CV Helper action " + slot + " | clicked " + surface + " " + targetLabelForMessage(target) + " at " + randomizedClickPoint + (mouseScreenPoint == null ? " | no mouse target click" : " | then mouse@" + mouseScreenPoint.x + "," + mouseScreenPoint.y));
 			}
 			catch (RuntimeException | java.awt.AWTException e)
 			{
 				log.warn("CV Helper action hotkey failed", e);
-				clientThread.invokeLater(() -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper action " + slot + " failed: " + e.getMessage(), ""));
+				finishAction(slot, "CV Helper action " + slot + " failed: " + e.getMessage());
 			}
 		}, "cv-helper-action-click");
 		clickThread.setDaemon(true);
@@ -1278,12 +1283,7 @@ public class CvHelperPlugin extends Plugin
 				{
 					if (physicalFallbackPoint == null)
 					{
-						clientThread.invokeLater(() -> client.addChatMessage(
-							ChatMessageType.GAMEMESSAGE,
-							"",
-							"CV Helper action " + slot + " | invoked " + surface + " " + targetLabelForMessage(target) + " via widget | spell was not selected before timeout, skipped mouse target click | " + selectedWidgetDebug(),
-							""
-						));
+						finishAction(slot, "CV Helper action " + slot + " | invoked " + surface + " " + targetLabelForMessage(target) + " via widget | spell was not selected before timeout, skipped mouse target click | " + selectedWidgetDebug());
 						return;
 					}
 					clickScreenPoint(robot, physicalFallbackPoint);
@@ -1313,17 +1313,12 @@ public class CvHelperPlugin extends Plugin
 				String resultMessage = "CV Helper action " + slot + " | invoked " + surface + " " + targetLabelForMessage(target) + " via widget"
 					+ (usedPhysicalFallback ? " | physical fallback selected" : "")
 					+ (mouseScreenPoint == null ? " | no mouse target click" : " | then mouse@" + mouseScreenPoint.x + "," + mouseScreenPoint.y);
-				clientThread.invokeLater(() -> client.addChatMessage(
-					ChatMessageType.GAMEMESSAGE,
-					"",
-					resultMessage,
-					""
-				));
+				finishAction(slot, resultMessage);
 			}
 			catch (RuntimeException | java.awt.AWTException e)
 			{
 				log.warn("CV Helper action widget follow-up failed", e);
-				clientThread.invokeLater(() -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "CV Helper action " + slot + " widget follow-up failed: " + e.getMessage(), ""));
+				finishAction(slot, "CV Helper action " + slot + " widget follow-up failed: " + e.getMessage());
 			}
 		}, "cv-helper-action-widget-follow-up");
 		clickThread.setDaemon(true);
@@ -1453,7 +1448,7 @@ public class CvHelperPlugin extends Plugin
 			return false;
 		}
 
-		String label = normalize(targetLabelForMessage(target) + " " + target.get("name") + " " + target.get("text"));
+		String label = normalizedTargetHaystack(target);
 		if (isCombatSpell(label))
 		{
 			return true;
@@ -1467,7 +1462,7 @@ public class CvHelperPlugin extends Plugin
 		{
 			return false;
 		}
-		String label = normalize(targetLabelForMessage(target) + " " + target.get("name") + " " + target.get("text"));
+		String label = normalizedTargetHaystack(target);
 		return !isSelfResolvingSpell(label);
 	}
 
@@ -1534,17 +1529,28 @@ public class CvHelperPlugin extends Plugin
 		Map<String, Object> panelTarget = findTargetByLabel(collectPanelTargets(), panelName, panelName.equals("spellbook") ? "magic" : panelName);
 		Map<String, Object> clickPoint = panelTarget == null ? null : firstPoint(panelTarget, "clickPoint", "center");
 		Point screenPoint = clickPoint == null ? null : canvasPointToScreen(clickPoint);
+		Integer widgetId = widgetId(panelTarget);
 		if (preferClick && screenPoint != null)
 		{
-			return new PanelSwitchTarget(panelName, null, screenPoint);
+			return new PanelSwitchTarget(panelName, null, screenPoint, widgetId, false);
 		}
 
 		Integer keyCode = panelKeyCode(panelName);
-		if (keyCode != null)
+		if (widgetId != null || keyCode != null)
 		{
-			return new PanelSwitchTarget(panelName, keyCode, screenPoint);
+			return new PanelSwitchTarget(panelName, keyCode, screenPoint, widgetId, widgetId != null);
 		}
-		return screenPoint == null ? null : new PanelSwitchTarget(panelName, null, screenPoint);
+		return screenPoint == null ? null : new PanelSwitchTarget(panelName, null, screenPoint, null, false);
+	}
+
+	private Integer widgetId(Map<String, Object> target)
+	{
+		if (target == null || !(target.get("widgetId") instanceof Number))
+		{
+			return null;
+		}
+		int widgetId = ((Number) target.get("widgetId")).intValue();
+		return widgetId <= 0 ? null : widgetId;
 	}
 
 	private Integer panelKeyCode(String panelName)
@@ -1588,10 +1594,17 @@ public class CvHelperPlugin extends Plugin
 	private void clickScreenPoint(Robot robot, Point point)
 	{
 		robot.mouseMove(point.x, point.y);
-		robot.delay(ACTION_MOUSE_SETTLE_DELAY_MS);
+		robot.delay(timing(config.actionMouseSettleDelayMs(), 0, 1000));
 		robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
 		robot.delay(18);
 		robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+	}
+
+	private void finishAction(int slot, String message)
+	{
+		actionInProgress.set(false);
+		updatePanelStatus(message);
+		clientThread.invokeLater(() -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, ""));
 	}
 
 	private boolean maybeReturnPanelWithHotkey(Robot robot, PanelSwitchTarget panelTarget)
@@ -1611,6 +1624,10 @@ public class CvHelperPlugin extends Plugin
 		{
 			return;
 		}
+		if (panelTarget.preferWidgetAction && panelTarget.widgetId != null && invokePanelWidget(panelTarget))
+		{
+			return;
+		}
 		if (panelTarget.keyCode != null)
 		{
 			robot.keyPress(panelTarget.keyCode);
@@ -1622,6 +1639,31 @@ public class CvHelperPlugin extends Plugin
 		{
 			clickScreenPoint(robot, panelTarget.clickPoint);
 		}
+	}
+
+	private boolean invokePanelWidget(PanelSwitchTarget panelTarget)
+	{
+		CountDownLatch latch = new CountDownLatch(1);
+		AtomicReference<Boolean> invoked = new AtomicReference<>(false);
+		clientThread.invokeLater(() ->
+		{
+			if (panelTarget.widgetId != null)
+			{
+				client.menuAction(-1, panelTarget.widgetId, MenuAction.CC_OP, 1, -1, "Select", panelTarget.panel);
+				invoked.set(true);
+			}
+			latch.countDown();
+		});
+		try
+		{
+			latch.await(250, TimeUnit.MILLISECONDS);
+		}
+		catch (InterruptedException e)
+		{
+			Thread.currentThread().interrupt();
+			return false;
+		}
+		return Boolean.TRUE.equals(invoked.get());
 	}
 
 	private Point currentMouseScreenPoint()
@@ -1734,7 +1776,7 @@ public class CvHelperPlugin extends Plugin
 	{
 		for (Map<String, Object> target : targets)
 		{
-			String haystack = normalize(targetLabelForMessage(target) + " " + target.get("name") + " " + target.get("text") + " " + Arrays.toString((String[]) target.get("actions")));
+			String haystack = normalizedTargetHaystack(target);
 			for (String needle : needles)
 			{
 				String normalizedNeedle = normalize(needle);
@@ -3128,10 +3170,6 @@ public class CvHelperPlugin extends Plugin
 
 	private String activeSidePanelName(Map<String, Object> interfaces)
 	{
-		if (Boolean.TRUE.equals(interfaces.get("combatVisible")))
-		{
-			return "combat";
-		}
 		if (Boolean.TRUE.equals(interfaces.get("inventoryVisible")))
 		{
 			return "inventory";
@@ -3147,6 +3185,10 @@ public class CvHelperPlugin extends Plugin
 		if (Boolean.TRUE.equals(interfaces.get("spellbookVisible")))
 		{
 			return "spellbook";
+		}
+		if (Boolean.TRUE.equals(interfaces.get("combatVisible")))
+		{
+			return "combat";
 		}
 		return "unknown";
 	}
@@ -3470,7 +3512,7 @@ public class CvHelperPlugin extends Plugin
 
 	private boolean isTargetEnabled(String surface, Map<String, Object> target)
 	{
-		String haystack = normalize(String.valueOf(target.get("name")) + " " + target.get("text") + " " + Arrays.toString((String[]) target.get("actions")));
+		String haystack = normalizedTargetHaystack(target);
 		if ("prayer".equals(surface))
 		{
 			return enabledPrayers.stream().anyMatch(key -> haystack.contains(normalize(key)));
@@ -3485,6 +3527,27 @@ public class CvHelperPlugin extends Plugin
 			return enabledSpellbooks.contains(String.valueOf(getSpellbookStatus().get("name")));
 		}
 		return true;
+	}
+
+	private String normalizedTargetHaystack(Map<String, Object> target)
+	{
+		if (target == null)
+		{
+			return "";
+		}
+		return normalize(targetLabelForMessage(target)
+			+ " " + target.get("name")
+			+ " " + target.get("text")
+			+ " " + actionsText(target.get("actions")));
+	}
+
+	private String actionsText(Object actions)
+	{
+		if (actions instanceof String[])
+		{
+			return Arrays.toString((String[]) actions);
+		}
+		return actions == null ? "" : String.valueOf(actions);
 	}
 
 	private String normalize(String value)
@@ -3515,6 +3578,10 @@ public class CvHelperPlugin extends Plugin
 
 	private String targetLabel(Map<String, Object> target, String fallback)
 	{
+		if (fallback != null && !fallback.isEmpty())
+		{
+			return fallback;
+		}
 		String name = String.valueOf(target.get("name"));
 		String text = String.valueOf(target.get("text"));
 		if (name != null && !name.isEmpty() && !"null".equals(name))
@@ -3524,10 +3591,6 @@ public class CvHelperPlugin extends Plugin
 		if (text != null && !text.isEmpty() && !"null".equals(text))
 		{
 			return text;
-		}
-		if (fallback != null && !fallback.isEmpty())
-		{
-			return fallback;
 		}
 		return target.get("surface") + "#" + target.get("index");
 	}

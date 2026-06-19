@@ -80,6 +80,8 @@ public interface CvHelperConfig extends Config
 	String ACTION_RETURN_PANEL_4 = "actionReturnPanel4";
 	String ACTION_RETURN_MOUSE_CENTER_4 = "actionReturnMouseCenter4";
 	String ACTION_PANEL_OPEN_DELAY_MS = "actionPanelOpenDelayMs";
+	String ACTION_RESOLVE_DELAY_MS = "actionResolveDelayMs";
+	String ACTION_MOUSE_SETTLE_DELAY_MS = "actionMouseSettleDelayMs";
 	String ACTION_WIDGET_TARGET_DELAY_MS = "actionWidgetTargetDelayMs";
 	String ACTION_SELECTED_WIDGET_TIMEOUT_MS = "actionSelectedWidgetTimeoutMs";
 	String ACTION_RETURN_PANEL_DELAY_MS = "actionReturnPanelDelayMs";
@@ -291,6 +293,28 @@ public interface CvHelperConfig extends Config
 	default int actionPanelOpenDelayMs()
 	{
 		return 125;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_RESOLVE_DELAY_MS,
+		name = "Target-resolve retry delay ms",
+		description = "Delay between retries when a target is not immediately available after opening a panel.",
+		section = actionSection
+	)
+	default int actionResolveDelayMs()
+	{
+		return 80;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_MOUSE_SETTLE_DELAY_MS,
+		name = "Mouse-settle delay ms",
+		description = "Delay after moving the OS mouse before pressing, giving the client hover target time to update.",
+		section = actionSection
+	)
+	default int actionMouseSettleDelayMs()
+	{
+		return 35;
 	}
 
 	@ConfigItem(

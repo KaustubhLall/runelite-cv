@@ -306,6 +306,17 @@ class CvHelperPanel extends PluginPanel
 		target.setEditable(true);
 		target.setToolTipText("Examples: Protect from Magic, High Level Alchemy, inventory slot 1");
 		populateTargetChoices(target, plugin.getActionSurface(slot), plugin.getActionTarget(slot));
+		target.getEditor().getEditorComponent().addKeyListener(new KeyAdapter()
+		{
+			@Override
+			public void keyReleased(KeyEvent e)
+			{
+				String typed = selectedTarget(target);
+				Timer timer = new Timer(80, ignored -> populateTargetChoices(target, (CvHelperActionSurface) surface.getSelectedItem(), typed, true));
+				timer.setRepeats(false);
+				timer.start();
+			}
+		});
 		JButton saveTarget = new JButton("Save target");
 		saveTarget.addActionListener(e -> plugin.setActionTarget(slot, selectedTarget(target)));
 
@@ -375,19 +386,30 @@ class CvHelperPanel extends PluginPanel
 
 	private void populateTargetChoices(JComboBox<String> target, CvHelperActionSurface surface, String selected)
 	{
+		populateTargetChoices(target, surface, selected, false);
+	}
+
+	private void populateTargetChoices(JComboBox<String> target, CvHelperActionSurface surface, String selected, boolean filter)
+	{
 		target.removeAllItems();
 		if (selected != null && !selected.trim().isEmpty())
 		{
 			target.addItem(selected);
 		}
+		String needle = normalize(selected);
 		for (String label : plugin.getSuggestedActionTargets(surface))
 		{
-			if (selected == null || !label.equals(selected))
+			if ((selected == null || !label.equals(selected)) && (!filter || needle.isEmpty() || normalize(label).contains(needle)))
 			{
 				target.addItem(label);
 			}
 		}
 		target.setSelectedItem(selected == null ? "" : selected);
+	}
+
+	private String normalize(String value)
+	{
+		return value == null ? "" : value.toLowerCase().replaceAll("[^a-z0-9]", "");
 	}
 
 	private String selectedTarget(JComboBox<String> target)
