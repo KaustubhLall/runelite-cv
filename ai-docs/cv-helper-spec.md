@@ -338,11 +338,11 @@ Current target-validity checks include:
 
 First-pass survival, menu interaction, and loot processing is implemented:
 
-- Auto-eat runs before loot or attack decisions. If current HP is at or below the configured percent threshold, the farmer opens inventory if needed, finds a matching food item with an `Eat`, `Drink`, or `Consume` action, and clicks it. If no food is found, the loop either stops automatically or records `warning:no-food-continue` and keeps farming based on `Stop if no food`.
+- Auto-eat runs before loot or attack decisions. If current HP is at or below the configured percent threshold, the farmer opens inventory if needed, finds a matching food item with an `Eat`, `Drink`, or `Consume` action, and invokes that inventory widget menu action. If no food is found, the loop either stops automatically or records `warning:no-food-continue` and keeps farming based on `Stop if no food`.
 - Loot pickup scans visible scene ground items and reports every candidate in `/automation/mob-farmer/status`. Selection uses explicit always-loot names/ids, Ground Items highlighted/hidden list metadata, minimum GE value, blacklist, ownership policy, loot radius, inventory capacity, stackability, interaction mode, and score.
-- Attack and loot interaction modes default to `MENU_ACTION`. NPC attacks use the exact `Attack` action index exported from NPC composition metadata, and loot uses `GROUND_ITEM_FIRST_OPTION`/`Take` with scene coordinates. `DIRECT_CLICK` remains available as a debug/fallback path.
-- Ground Items list reuse is first-pass implemented. `SUPPLEMENT` treats Ground Items highlighted entries as additional always-loot candidates. Hidden-list matches are reported on candidates; they block pickup only if `Respect hidden Ground Items` is enabled and the item is not explicitly listed by CV Helper.
-- Optional intermediate inventory actions can use matching items such as bones or ashes with `Bury`, `Scatter`, or `Use` actions during safe loop windows. This is intentionally smaller than a full inventory manager.
+- Attack and loot interaction modes default to `MENU_ACTION`. NPC attacks use the exact `Attack` action index exported from NPC composition metadata, and loot uses `GROUND_ITEM_FIRST_OPTION`/`Take` with scene coordinates. Before a live loot action fires, the target is revalidated on its scene tile; stale or newly rejected loot attempts fall through so the loop can attack instead of getting stuck. `DIRECT_CLICK` remains available as a debug/fallback path.
+- Ground Items list reuse is first-pass implemented. `SUPPLEMENT` treats Ground Items highlighted entries as additional always-loot candidates. Ground Items hidden-list, hide-under-value, and show-highlighted-only suppression metadata are reported on candidates; they block pickup only if `Respect hidden Ground Items` is enabled and the item is not explicitly listed by CV Helper. `Never-loot` still wins over all allowlist/highlight/value rules.
+- Optional intermediate inventory actions can use matching items such as bones or ashes with explicit inventory widget menu actions in priority order: `Bury`, `Scatter`, then `Use`. This is intentionally smaller than a full inventory manager, but it shares the intended future primitive for drop/use inventory processing.
 - Default loot flow prioritizes attacking first when idle, then collecting allowed drops during combat windows or when no valid target is available. This supports the desired "attack next mob first, then loot after the drop appears" rhythm.
 - Inventory status reports occupied/free slots, protected never-drop list, and the lowest-value unprotected drop candidate for future drop-processing work. The first pass does not drop inventory items automatically.
 
@@ -352,8 +352,8 @@ Dry mob-farmer steps also print the selected target/click point to in-game chat 
 
 Known farmer follow-ups:
 
-- Validate menu-action attack and pickup in crowded/hidden-drop cases and keep direct-click fallback available for debugging.
-- Expand Ground Items integration beyond first-pass highlighted/hidden reuse if needed, including stronger parity with Ground Items value tiers or ownership display settings.
+- Validate menu-action attack and pickup in crowded/hidden-drop cases and keep direct-click fallback available for debugging. Use `/automation/mob-farmer/status.lastActionAttempt` and `.recentMenuEntries` to compare the synthetic action parameters against exact RuneLite-generated menu entries.
+- Expand Ground Items integration beyond first-pass highlighted/hidden/show-highlighted-only/hide-under-value reuse if needed, including stronger parity with Ground Items value tiers or ownership display settings.
 - Add automatic low-value dropping, item priority tiers, and safe pathing/exit strategies before longer unattended loops.
 - Replace conservative line-of-sight filtering with real route/path distance using collision maps or a pathing plugin integration.
 - Add emergency teleport and configuration profiles/presets after the loop primitives are stable.

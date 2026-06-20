@@ -685,7 +685,7 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = MOB_FARMER_GROUND_ITEMS_MODE,
 		name = "Ground Items lists",
-		description = "OFF ignores Ground Items plugin lists. SUPPLEMENT treats highlighted Ground Items as always-loot candidates.",
+		description = "OFF ignores Ground Items plugin lists. SUPPLEMENT treats highlighted Ground Items as always-loot candidates and reports hidden/show-highlighted-only/value-hide metadata.",
 		section = mobFarmerSection
 	)
 	default CvHelperGroundItemsMode mobFarmerGroundItemsMode()
@@ -707,7 +707,7 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = MOB_FARMER_INTERMEDIATE_ACTIONS_ENABLED,
 		name = "Use bones/ashes",
-		description = "During safe loop windows, open inventory and use matching intermediate items such as bones or ashes.",
+		description = "During safe loop windows, open inventory and invoke Bury, Scatter, or Use on matching intermediate items such as bones or ashes.",
 		section = mobFarmerSection
 	)
 	default boolean mobFarmerIntermediateActionsEnabled()

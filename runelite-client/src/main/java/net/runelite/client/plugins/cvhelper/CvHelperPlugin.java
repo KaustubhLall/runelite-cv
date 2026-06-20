@@ -59,6 +59,7 @@ import net.runelite.api.InventoryID;
 import net.runelite.api.Item;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.ItemContainer;
+import net.runelite.api.MenuEntry;
 import net.runelite.api.MenuAction;
 import net.runelite.api.NPC;
 import net.runelite.api.NPCComposition;
@@ -74,6 +75,8 @@ import net.runelite.api.WorldView;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldArea;
 import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.events.MenuEntryAdded;
+import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.VarClientID;
 import net.runelite.api.gameval.VarbitID;
@@ -83,6 +86,7 @@ import net.runelite.api.widgets.Widget;
 import net.runelite.api.widgets.WidgetInfo;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.config.Keybind;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.input.KeyManager;
@@ -121,6 +125,12 @@ public class CvHelperPlugin extends Plugin
 	private static final String GROUND_ITEMS_CONFIG_GROUP = "grounditems";
 	private static final String GROUND_ITEMS_HIGHLIGHTED_ITEMS = "highlightedItems";
 	private static final String GROUND_ITEMS_HIDDEN_ITEMS = "hiddenItems";
+	private static final String GROUND_ITEMS_SHOW_HIGHLIGHTED_ONLY = "showHighlightedOnly";
+	private static final String GROUND_ITEMS_HIDE_UNDER_VALUE = "hideUnderValue";
+	private static final String GROUND_ITEMS_DONT_HIDE_UNTRADEABLES = "dontHideUntradeables";
+	private static final int GROUND_ITEMS_NONE = 0;
+	private static final int GROUND_ITEMS_WILDCARD = 1;
+	private static final int GROUND_ITEMS_EXACT = 2;
 	private static final DateTimeFormatter CAPTURE_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
 	private static final int[] PRAYER_COMPONENTS = {
 		InterfaceID.Prayerbook.PRAYER1,
@@ -220,6 +230,8 @@ public class CvHelperPlugin extends Plugin
 	private volatile Map<String, Object> lastMobFarmerLootDecision = new LinkedHashMap<>();
 	private volatile Map<String, Object> lastMobFarmerSurvivalDecision = new LinkedHashMap<>();
 	private volatile Map<String, Object> lastMobFarmerIntermediateDecision = new LinkedHashMap<>();
+	private volatile Map<String, Object> lastMobFarmerActionAttempt = new LinkedHashMap<>();
+	private volatile List<Map<String, Object>> lastMobFarmerMenuEntries = new ArrayList<>();
 	private volatile Map<String, Object> lastMobFarmerInventoryStatus = new LinkedHashMap<>();
 	private volatile boolean lastMobFarmerMultiCombat;
 	private final KeyEventDispatcher cvHotkeyDispatcher = this::dispatchCvHotkey;
@@ -314,6 +326,47 @@ public class CvHelperPlugin extends Plugin
 		private String decision = "none";
 	}
 
+	private static final class InventoryMenuAction
+	{
+		private final int param0;
+		private final int param1;
+		private final MenuAction menuAction;
+		private final int identifier;
+		private final int itemId;
+		private final String option;
+
+		private InventoryMenuAction(int param0, int param1, MenuAction menuAction, int identifier, int itemId, String option)
+		{
+			this.param0 = param0;
+			this.param1 = param1;
+			this.menuAction = menuAction;
+			this.identifier = identifier;
+			this.itemId = itemId;
+			this.option = option;
+		}
+
+		private Map<String, Object> asMap()
+		{
+			Map<String, Object> out = new LinkedHashMap<>();
+			out.put("param0", param0);
+			out.put("param1", param1);
+			out.put("menuAction", menuAction.name());
+			out.put("identifier", identifier);
+			out.put("itemId", itemId);
+			out.put("option", option);
+			return out;
+		}
+	}
+
+	private enum GroundItemsClassification
+	{
+		NONE,
+		HIGHLIGHTED,
+		HIDDEN,
+		HIDDEN_BY_VALUE,
+		SUPPRESSED_BY_SHOW_HIGHLIGHTED_ONLY
+	}
+
 	@Provides
 	CvHelperConfig provideConfig(ConfigManager configManager)
 	{
@@ -357,6 +410,101 @@ public class CvHelperPlugin extends Plugin
 		}
 		navButton = null;
 		panel = null;
+	}
+
+	@Subscribe
+	public void onMenuEntryAdded(MenuEntryAdded event)
+	{
+		rememberMobFarmerMenuEntry("added", event.getMenuEntry());
+	}
+
+	@Subscribe
+	public void onMenuOptionClicked(MenuOptionClicked event)
+	{
+		rememberMobFarmerMenuEntry("clicked", event.getMenuEntry());
+	}
+
+	private void rememberMobFarmerMenuEntry(String source, MenuEntry entry)
+	{
+		if (entry == null || !isMobFarmerRelevantMenuEntry(entry))
+		{
+			return;
+		}
+		Map<String, Object> out = new LinkedHashMap<>();
+		out.put("source", source);
+		out.put("at", Instant.now().toString());
+		out.put("option", cleanWidgetText(entry.getOption()));
+		out.put("target", cleanWidgetText(entry.getTarget()));
+		out.put("menuAction", entry.getType().name());
+		out.put("identifier", entry.getIdentifier());
+		out.put("param0", entry.getParam0());
+		out.put("param1", entry.getParam1());
+		out.put("itemId", entry.getItemId());
+		out.put("deprioritized", entry.isDeprioritized());
+		out.put("worldViewId", entry.getWorldViewId());
+		if (entry.getWidget() != null)
+		{
+			out.put("widgetId", entry.getWidget().getId());
+			out.put("widgetIndex", entry.getWidget().getIndex());
+		}
+		if (entry.getNpc() != null)
+		{
+			out.put("npcIndex", entry.getNpc().getIndex());
+			out.put("npcName", entry.getNpc().getName());
+		}
+		List<Map<String, Object>> entries = new ArrayList<>(lastMobFarmerMenuEntries);
+		entries.add(0, out);
+		while (entries.size() > 30)
+		{
+			entries.remove(entries.size() - 1);
+		}
+		lastMobFarmerMenuEntries = entries;
+	}
+
+	private boolean isMobFarmerRelevantMenuEntry(MenuEntry entry)
+	{
+		MenuAction type = entry.getType();
+		switch (type)
+		{
+			case NPC_FIRST_OPTION:
+			case NPC_SECOND_OPTION:
+			case NPC_THIRD_OPTION:
+			case NPC_FOURTH_OPTION:
+			case NPC_FIFTH_OPTION:
+			case GROUND_ITEM_FIRST_OPTION:
+			case GROUND_ITEM_SECOND_OPTION:
+			case GROUND_ITEM_THIRD_OPTION:
+			case GROUND_ITEM_FOURTH_OPTION:
+			case GROUND_ITEM_FIFTH_OPTION:
+			case WIDGET_TARGET_ON_GROUND_ITEM:
+			case CC_OP:
+			case CC_OP_LOW_PRIORITY:
+				break;
+			default:
+				return false;
+		}
+		String option = normalize(cleanWidgetText(entry.getOption()));
+		return option.equals("take")
+			|| option.equals("attack")
+			|| option.equals("bury")
+			|| option.equals("scatter")
+			|| option.equals("use")
+			|| option.equals("drop")
+			|| option.equals("eat")
+			|| option.equals("drink")
+			|| option.equals("consume");
+	}
+
+	private void recordMobFarmerActionAttempt(String kind, Map<String, Object> attempt)
+	{
+		Map<String, Object> out = new LinkedHashMap<>();
+		out.put("kind", kind);
+		out.put("at", Instant.now().toString());
+		if (attempt != null)
+		{
+			out.putAll(attempt);
+		}
+		lastMobFarmerActionAttempt = out;
 	}
 
 	private final HotkeyListener debugHotkeyListener = new HotkeyListener(() -> config.debugHotkey())
@@ -2701,6 +2849,8 @@ public class CvHelperPlugin extends Plugin
 		status.put("survivalDecision", lastMobFarmerSurvivalDecision);
 		status.put("intermediateDecision", lastMobFarmerIntermediateDecision);
 		status.put("lootDecision", lastMobFarmerLootDecision);
+		status.put("lastActionAttempt", lastMobFarmerActionAttempt);
+		status.put("recentMenuEntries", lastMobFarmerMenuEntries);
 		status.put("inventory", lastMobFarmerInventoryStatus);
 		status.put("candidates", lastMobFarmerCandidates);
 		status.put("lootCandidates", lastMobFarmerLootCandidates);
@@ -3015,7 +3165,7 @@ public class CvHelperPlugin extends Plugin
 		Map<String, Object> decision = new LinkedHashMap<>(hp);
 		decision.put("target", food);
 		setMobFarmerSurvivalDecision("eat", decision);
-		return clickMobFarmerAutomationTarget("auto-eat", food, live, generation);
+		return invokeMobFarmerInventoryAction("auto-eat", food, live, generation, "Eat", "Drink", "Consume");
 	}
 
 	private Map<String, Object> findFoodInventoryTarget(List<Map<String, Object>> inventoryTargets)
@@ -3076,8 +3226,8 @@ public class CvHelperPlugin extends Plugin
 		Map<String, Object> decision = new LinkedHashMap<>();
 		decision.put("phase", phase);
 		decision.put("target", item);
-		setMobFarmerIntermediateDecision("use", decision);
-		return clickMobFarmerAutomationTarget("intermediate", item, live, generation);
+		setMobFarmerIntermediateDecision("inventory-action", decision);
+		return invokeMobFarmerInventoryAction("intermediate", item, live, generation, "Bury", "Scatter", "Use");
 	}
 
 	private Map<String, Object> findIntermediateInventoryTarget(List<Map<String, Object>> inventoryTargets)
@@ -3165,14 +3315,27 @@ public class CvHelperPlugin extends Plugin
 		boolean cvBlacklist = matchesItemPolicy(name, itemId, quantity, getMobFarmerLootBlacklist());
 		boolean groundItemsHighlighted = Boolean.TRUE.equals(item.get("groundItemsHighlighted"));
 		boolean groundItemsHidden = Boolean.TRUE.equals(item.get("groundItemsHidden"));
+		boolean groundItemsHiddenByValue = Boolean.TRUE.equals(item.get("groundItemsHiddenByValue"));
+		boolean groundItemsSuppressedByShowHighlightedOnly = Boolean.TRUE.equals(item.get("groundItemsSuppressedByShowHighlightedOnly"));
 		boolean groundItemsSupplements = getMobFarmerGroundItemsMode() == CvHelperGroundItemsMode.SUPPLEMENT;
 		if (cvBlacklist)
 		{
 			candidate.reject("blacklisted");
 		}
-		if (groundItemsHidden)
+		if (groundItemsHidden || groundItemsHiddenByValue || groundItemsSuppressedByShowHighlightedOnly)
 		{
-			candidate.note("ground-items-hidden");
+			if (groundItemsHidden)
+			{
+				candidate.note("ground-items-hidden");
+			}
+			if (groundItemsHiddenByValue)
+			{
+				candidate.note("ground-items-hidden-by-value");
+			}
+			if (groundItemsSuppressedByShowHighlightedOnly)
+			{
+				candidate.note("ground-items-show-highlighted-only");
+			}
 			if (getMobFarmerRespectGroundItemsHidden() && !cvAllowlist)
 			{
 				candidate.reject("ground-items-hidden");
@@ -3269,6 +3432,43 @@ public class CvHelperPlugin extends Plugin
 		}
 	}
 
+	private Map<String, Object> freshGroundItemTarget(Map<String, Object> target)
+	{
+		int itemId = intValue(target.get("itemId"), -1);
+		int sceneX = intValue(target.get("sceneX"), Integer.MIN_VALUE);
+		int sceneY = intValue(target.get("sceneY"), Integer.MIN_VALUE);
+		if (itemId <= 0 || sceneX == Integer.MIN_VALUE || sceneY == Integer.MIN_VALUE)
+		{
+			return null;
+		}
+		Player localPlayer = client.getLocalPlayer();
+		WorldView worldView = localPlayer == null ? client.getTopLevelWorldView() : localPlayer.getWorldView();
+		if (worldView == null || worldView.getScene() == null)
+		{
+			return null;
+		}
+		Scene scene = worldView.getScene();
+		Tile[][][] tiles = scene.getTiles();
+		int plane = Math.max(0, Math.min(worldView.getPlane(), tiles.length - 1));
+		if (tiles.length == 0 || tiles[plane] == null || sceneX < 0 || sceneX >= tiles[plane].length || tiles[plane][sceneX] == null || sceneY < 0 || sceneY >= tiles[plane][sceneX].length)
+		{
+			return null;
+		}
+		Tile tile = tiles[plane][sceneX][sceneY];
+		if (tile == null || tile.getGroundItems() == null)
+		{
+			return null;
+		}
+		for (TileItem item : tile.getGroundItems())
+		{
+			if (item != null && item.getId() == itemId)
+			{
+				return groundItemTarget(tile, item, localPlayer);
+			}
+		}
+		return null;
+	}
+
 	private Map<String, Object> groundItemTarget(Tile tile, TileItem item, Player localPlayer)
 	{
 		if (tile == null || item == null || item.getId() <= 0)
@@ -3285,6 +3485,7 @@ public class CvHelperPlugin extends Plugin
 		int haEach = composition == null ? 0 : composition.getHaPrice();
 		long ge = (long) geEach * Math.max(1, item.getQuantity());
 		long ha = (long) haEach * Math.max(1, item.getQuantity());
+		GroundItemsClassification groundItemsClassification = groundItemsClassification(name, item.getQuantity(), geEach, haEach, composition);
 		net.runelite.api.Point scenePoint = tile.getSceneLocation();
 		Map<String, Object> target = new LinkedHashMap<>();
 		target.put("surface", "loot");
@@ -3302,8 +3503,11 @@ public class CvHelperPlugin extends Plugin
 		target.put("private", item.isPrivate());
 		target.put("visibleInTicks", item.getVisibleTime() - client.getTickCount());
 		target.put("despawnInTicks", item.getDespawnTime() - client.getTickCount());
-		target.put("groundItemsHighlighted", matchesGroundItemsHighlighted(name, item.getQuantity()));
-		target.put("groundItemsHidden", matchesGroundItemsHidden(name, item.getQuantity()));
+		target.put("groundItemsClassification", groundItemsClassification.name());
+		target.put("groundItemsHighlighted", groundItemsClassification == GroundItemsClassification.HIGHLIGHTED);
+		target.put("groundItemsHidden", groundItemsClassification == GroundItemsClassification.HIDDEN);
+		target.put("groundItemsHiddenByValue", groundItemsClassification == GroundItemsClassification.HIDDEN_BY_VALUE);
+		target.put("groundItemsSuppressedByShowHighlightedOnly", groundItemsClassification == GroundItemsClassification.SUPPRESSED_BY_SHOW_HIGHLIGHTED_ONLY);
 		if (scenePoint != null)
 		{
 			target.put("sceneX", scenePoint.getX());
@@ -3344,6 +3548,15 @@ public class CvHelperPlugin extends Plugin
 		report.put("selectable", candidate.selectable);
 		report.put("score", candidate.score);
 		report.put("reasons", new ArrayList<>(candidate.reasons));
+		report.put("groundItemsClassification", candidate.item.get("groundItemsClassification"));
+		report.put("groundItemsHighlighted", candidate.item.get("groundItemsHighlighted"));
+		report.put("groundItemsHidden", candidate.item.get("groundItemsHidden"));
+		report.put("groundItemsHiddenByValue", candidate.item.get("groundItemsHiddenByValue"));
+		report.put("groundItemsSuppressedByShowHighlightedOnly", candidate.item.get("groundItemsSuppressedByShowHighlightedOnly"));
+		report.put("sceneX", candidate.item.get("sceneX"));
+		report.put("sceneY", candidate.item.get("sceneY"));
+		report.put("menuAction", candidate.item.get("menuAction"));
+		report.put("menuOption", candidate.item.get("menuOption"));
 		report.put("clickPoint", candidate.item.get("clickPoint"));
 		report.put("worldLocation", candidate.item.get("worldLocation"));
 		return report;
@@ -3362,7 +3575,7 @@ public class CvHelperPlugin extends Plugin
 		{
 			mobFarmerStatus.set(action + "-off-canvas:" + targetLabelForMessage(target));
 			updatePanelStatus("Mob farmer " + action + " target off-canvas: " + targetLabelForMessage(target));
-			return true;
+			return !"loot".equals(action);
 		}
 
 		String label = targetLabelForMessage(target);
@@ -3418,6 +3631,126 @@ public class CvHelperPlugin extends Plugin
 		return true;
 	}
 
+	private boolean invokeMobFarmerInventoryAction(String actionName, Map<String, Object> target, boolean live, int generation, String... preferredActions)
+	{
+		String label = targetLabelForMessage(target);
+		InventoryMenuAction menu = inventoryMenuAction(target, preferredActions);
+		Map<String, Object> attempt = new LinkedHashMap<>();
+		attempt.put("kind", actionName);
+		attempt.put("target", label);
+		attempt.put("targetSnapshot", target);
+		attempt.put("preferredActions", Arrays.asList(preferredActions));
+		if (menu != null)
+		{
+			attempt.put("menu", menu.asMap());
+		}
+		if (!live)
+		{
+			attempt.put("result", menu == null ? "dry-missing-menu-action" : "dry");
+			recordMobFarmerActionAttempt(actionName, attempt);
+			String message = menu == null
+				? "Mob farmer dry " + actionName + ": no inventory menu action for " + label
+				: "Mob farmer dry " + actionName + ": " + menu.option + " " + label + " via " + menu.menuAction;
+			mobFarmerStatus.set("dry-" + actionName + ":" + label);
+			updatePanelStatus(message);
+			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, "");
+			return true;
+		}
+		if (menu == null)
+		{
+			attempt.put("result", "missing-menu-action");
+			recordMobFarmerActionAttempt(actionName, attempt);
+			mobFarmerStatus.set(actionName + "-menu-missing:" + label);
+			updatePanelStatus("Mob farmer " + actionName + " menu missing: " + label);
+			return false;
+		}
+		if (isStaleMobFarmerLoop(generation))
+		{
+			attempt.put("result", "stale-loop");
+			recordMobFarmerActionAttempt(actionName, attempt);
+			return true;
+		}
+		if (!actionInProgress.compareAndSet(false, true))
+		{
+			attempt.put("result", "action-running");
+			recordMobFarmerActionAttempt(actionName, attempt);
+			mobFarmerStatus.set("skipped:" + actionName + ":action-running");
+			updatePanelStatus("Mob farmer " + actionName + " skipped: action already running");
+			return true;
+		}
+		try
+		{
+			client.menuAction(menu.param0, menu.param1, menu.menuAction, menu.identifier, menu.itemId, menu.option, label);
+			attempt.put("result", "invoked");
+			recordMobFarmerActionAttempt(actionName, attempt);
+			String message = "Mob farmer " + actionName + " invoked " + menu.option + " on " + label + " via " + menu.menuAction;
+			mobFarmerStatus.set(actionName + "-menu:" + label);
+			lastEvent.set("mob-farmer-" + actionName + "@" + label + "@" + Instant.now());
+			updatePanelStatus(message);
+			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, "");
+			return true;
+		}
+		catch (RuntimeException e)
+		{
+			log.warn("CV Helper mob farmer {} inventory action failed", actionName, e);
+			attempt.put("result", "failed");
+			attempt.put("error", e.getMessage());
+			recordMobFarmerActionAttempt(actionName, attempt);
+			mobFarmerStatus.set(actionName + "-menu-failed:" + e.getMessage());
+			updatePanelStatus("Mob farmer " + actionName + " menu failed: " + e.getMessage());
+			return false;
+		}
+		finally
+		{
+			actionInProgress.set(false);
+		}
+	}
+
+	private InventoryMenuAction inventoryMenuAction(Map<String, Object> target, String... preferredActions)
+	{
+		int widgetId = intValue(target.get("parentId"), -1);
+		if (widgetId <= 0)
+		{
+			widgetId = intValue(target.get("widgetId"), -1);
+		}
+		int itemId = intValue(target.get("itemId"), -1);
+		int param0 = intValue(target.get("index"), -1);
+		if (widgetId <= 0 || itemId <= 0)
+		{
+			return null;
+		}
+		String[] actions = targetActions(target);
+		for (String preferred : preferredActions)
+		{
+			InventoryMenuAction menu = inventoryMenuActionForOption(actions, preferred, param0, widgetId, itemId);
+			if (menu != null)
+			{
+				return menu;
+			}
+		}
+		return null;
+	}
+
+	private InventoryMenuAction inventoryMenuActionForOption(String[] actions, String preferred, int param0, int widgetId, int itemId)
+	{
+		if (actions == null || preferred == null)
+		{
+			return null;
+		}
+		for (int i = 0; i < actions.length; i++)
+		{
+			String action = actions[i];
+			if (action == null || !action.equalsIgnoreCase(preferred))
+			{
+				continue;
+			}
+			int opId = i <= 0 ? 1 : i;
+			MenuAction menuAction = opId >= 6 ? MenuAction.CC_OP_LOW_PRIORITY : MenuAction.CC_OP;
+			return new InventoryMenuAction(param0, widgetId, menuAction, opId, itemId, action);
+		}
+		return null;
+	}
+
 	private void invokeMobFarmerAttack(Map<String, Object> target, Map<String, Object> clickPoint, boolean live, int generation)
 	{
 		if (getMobFarmerAttackInteractionMode() == CvHelperMobInteractionMode.MENU_ACTION)
@@ -3431,8 +3764,15 @@ public class CvHelperPlugin extends Plugin
 	private boolean invokeMobFarmerNpcMenuAction(Map<String, Object> target, Map<String, Object> clickPoint, boolean live, int generation)
 	{
 		String label = targetLabelForMessage(target);
+		Map<String, Object> attempt = new LinkedHashMap<>();
+		attempt.put("kind", "attack");
+		attempt.put("target", label);
+		attempt.put("targetSnapshot", target);
+		attempt.put("clickPoint", clickPoint);
 		if (!live)
 		{
+			attempt.put("result", "dry");
+			recordMobFarmerActionAttempt("attack", attempt);
 			String message = "Mob farmer dry attack menu: " + label + " @ " + clickPoint;
 			mobFarmerStatus.set("dry-attack-menu:" + label + "@" + clickPoint);
 			updatePanelStatus(message);
@@ -3441,10 +3781,14 @@ public class CvHelperPlugin extends Plugin
 		}
 		if (isStaleMobFarmerLoop(generation))
 		{
+			attempt.put("result", "stale-loop");
+			recordMobFarmerActionAttempt("attack", attempt);
 			return true;
 		}
 		if (!actionInProgress.compareAndSet(false, true))
 		{
+			attempt.put("result", "action-running");
+			recordMobFarmerActionAttempt("attack", attempt);
 			mobFarmerStatus.set("skipped:attack:action-running");
 			updatePanelStatus("Mob farmer attack skipped: action already running");
 			return true;
@@ -3455,11 +3799,18 @@ public class CvHelperPlugin extends Plugin
 			MenuAction menuAction = npcMenuActionForIndex(intValue(target.get("attackActionIndex"), -1));
 			if (index < 0 || menuAction == null)
 			{
+				attempt.put("result", "missing-menu-action");
+				recordMobFarmerActionAttempt("attack", attempt);
 				mobFarmerStatus.set("attack-menu-missing:" + label);
 				updatePanelStatus("Mob farmer attack menu missing: " + label);
 				return true;
 			}
+			attempt.put("menuAction", menuAction.name());
+			attempt.put("identifier", index);
+			attempt.put("option", "Attack");
 			client.menuAction(0, 0, menuAction, index, -1, "Attack", label);
+			attempt.put("result", "invoked");
+			recordMobFarmerActionAttempt("attack", attempt);
 			String message = "Mob farmer menu-attacked " + label + " via " + menuAction;
 			mobFarmerStatus.set("menu-attack:" + label);
 			lastEvent.set("mob-farmer-menu-attack@" + label + "@" + Instant.now());
@@ -3469,6 +3820,9 @@ public class CvHelperPlugin extends Plugin
 		catch (RuntimeException e)
 		{
 			log.warn("CV Helper mob farmer menu attack failed", e);
+			attempt.put("result", "failed");
+			attempt.put("error", e.getMessage());
+			recordMobFarmerActionAttempt("attack", attempt);
 			mobFarmerStatus.set("attack-menu-failed:" + e.getMessage());
 			updatePanelStatus("Mob farmer attack menu failed: " + e.getMessage());
 		}
@@ -3482,8 +3836,15 @@ public class CvHelperPlugin extends Plugin
 	private boolean invokeMobFarmerLootTake(Map<String, Object> target, Map<String, Object> clickPoint, boolean live, int generation)
 	{
 		String label = targetLabelForMessage(target);
+		Map<String, Object> attempt = new LinkedHashMap<>();
+		attempt.put("kind", "loot");
+		attempt.put("target", label);
+		attempt.put("targetSnapshot", target);
+		attempt.put("clickPoint", clickPoint);
 		if (!live)
 		{
+			attempt.put("result", "dry");
+			recordMobFarmerActionAttempt("loot", attempt);
 			String message = "Mob farmer dry loot menu: " + label + " @ " + clickPoint;
 			mobFarmerStatus.set("dry-loot-menu:" + label + "@" + clickPoint);
 			updatePanelStatus(message);
@@ -3492,10 +3853,14 @@ public class CvHelperPlugin extends Plugin
 		}
 		if (isStaleMobFarmerLoop(generation))
 		{
+			attempt.put("result", "stale-loop");
+			recordMobFarmerActionAttempt("loot", attempt);
 			return true;
 		}
 		if (!actionInProgress.compareAndSet(false, true))
 		{
+			attempt.put("result", "action-running");
+			recordMobFarmerActionAttempt("loot", attempt);
 			mobFarmerStatus.set("skipped:loot:action-running");
 			updatePanelStatus("Mob farmer loot skipped: action already running");
 			return true;
@@ -3507,11 +3872,45 @@ public class CvHelperPlugin extends Plugin
 			int sceneY = intValue(target.get("sceneY"), Integer.MIN_VALUE);
 			if (itemId <= 0 || sceneX == Integer.MIN_VALUE || sceneY == Integer.MIN_VALUE)
 			{
+				attempt.put("result", "missing-scene-point");
+				recordMobFarmerActionAttempt("loot", attempt);
 				mobFarmerStatus.set("loot-menu-missing:" + label);
 				updatePanelStatus("Mob farmer loot menu missing: " + label);
-				return true;
+				return false;
 			}
+			Map<String, Object> freshTarget = freshGroundItemTarget(target);
+			if (freshTarget == null)
+			{
+				attempt.put("result", "stale-target");
+				recordMobFarmerActionAttempt("loot", attempt);
+				mobFarmerStatus.set("loot-stale:" + label);
+				updatePanelStatus("Mob farmer loot stale before pickup: " + label);
+				return false;
+			}
+			MobFarmerLootCandidate freshCandidate = evaluateMobFarmerLootCandidate(freshTarget);
+			attempt.put("freshTarget", freshTarget);
+			attempt.put("freshSelectable", freshCandidate.selectable);
+			attempt.put("freshReasons", new ArrayList<>(freshCandidate.reasons));
+			if (!freshCandidate.selectable)
+			{
+				attempt.put("result", "fresh-target-rejected");
+				recordMobFarmerActionAttempt("loot", attempt);
+				mobFarmerStatus.set("loot-rejected:" + label);
+				updatePanelStatus("Mob farmer loot rejected before pickup: " + label + " | " + freshCandidate.reasons);
+				return false;
+			}
+			sceneX = intValue(freshTarget.get("sceneX"), sceneX);
+			sceneY = intValue(freshTarget.get("sceneY"), sceneY);
+			itemId = intValue(freshTarget.get("itemId"), itemId);
+			attempt.put("menuAction", MenuAction.GROUND_ITEM_FIRST_OPTION.name());
+			attempt.put("param0", sceneX);
+			attempt.put("param1", sceneY);
+			attempt.put("identifier", itemId);
+			attempt.put("itemId", itemId);
+			attempt.put("option", "Take");
 			client.menuAction(sceneX, sceneY, MenuAction.GROUND_ITEM_FIRST_OPTION, itemId, itemId, "Take", label);
+			attempt.put("result", "invoked");
+			recordMobFarmerActionAttempt("loot", attempt);
 			String message = "Mob farmer menu-took " + label + " @ scene " + sceneX + "," + sceneY;
 			mobFarmerStatus.set("menu-loot:" + label);
 			lastEvent.set("mob-farmer-menu-loot@" + label + "@" + Instant.now());
@@ -3521,8 +3920,12 @@ public class CvHelperPlugin extends Plugin
 		catch (RuntimeException e)
 		{
 			log.warn("CV Helper mob farmer menu loot failed", e);
+			attempt.put("result", "failed");
+			attempt.put("error", e.getMessage());
+			recordMobFarmerActionAttempt("loot", attempt);
 			mobFarmerStatus.set("loot-menu-failed:" + e.getMessage());
 			updatePanelStatus("Mob farmer loot menu failed: " + e.getMessage());
+			return false;
 		}
 		finally
 		{
@@ -3716,39 +4119,85 @@ public class CvHelperPlugin extends Plugin
 		return normalize(itemName).contains(needle);
 	}
 
-	private boolean matchesGroundItemsHighlighted(String itemName, int quantity)
+	private GroundItemsClassification groundItemsClassification(String itemName, int quantity, int geEach, int haEach, ItemComposition composition)
 	{
-		return matchesGroundItemsList(itemName, quantity, groundItemsHighlightedItems());
+		int highlighted = groundItemsListMatchLevel(itemName, quantity, groundItemsHighlightedItems());
+		if (highlighted == GROUND_ITEMS_EXACT)
+		{
+			return GroundItemsClassification.HIGHLIGHTED;
+		}
+		int hidden = groundItemsListMatchLevel(itemName, quantity, groundItemsHiddenItems());
+		if (hidden == GROUND_ITEMS_EXACT)
+		{
+			return GroundItemsClassification.HIDDEN;
+		}
+		if (highlighted == GROUND_ITEMS_WILDCARD)
+		{
+			return GroundItemsClassification.HIGHLIGHTED;
+		}
+		if (hidden == GROUND_ITEMS_WILDCARD)
+		{
+			return GroundItemsClassification.HIDDEN;
+		}
+		if (groundItemsHiddenByValue(geEach, haEach, composition))
+		{
+			return GroundItemsClassification.HIDDEN_BY_VALUE;
+		}
+		if (groundItemsShowHighlightedOnly())
+		{
+			return GroundItemsClassification.SUPPRESSED_BY_SHOW_HIGHLIGHTED_ONLY;
+		}
+		return GroundItemsClassification.NONE;
 	}
 
-	private boolean matchesGroundItemsHidden(String itemName, int quantity)
-	{
-		return matchesGroundItemsList(itemName, quantity, groundItemsHiddenItems());
-	}
-
-	private boolean matchesGroundItemsList(String itemName, int quantity, String policy)
+	private int groundItemsListMatchLevel(String itemName, int quantity, String policy)
 	{
 		if (policy == null || policy.trim().isEmpty())
 		{
+			return GROUND_ITEMS_NONE;
+		}
+		List<String> candidates = actionTargetCandidates(policy);
+		for (String candidate : candidates)
+		{
+			if (matchesGroundItemsEntry(itemName, quantity, candidate, false))
+			{
+				return GROUND_ITEMS_EXACT;
+			}
+		}
+		for (String candidate : candidates)
+		{
+			if (matchesGroundItemsEntry(itemName, quantity, candidate, true))
+			{
+				return GROUND_ITEMS_WILDCARD;
+			}
+		}
+		return GROUND_ITEMS_NONE;
+	}
+
+	private boolean matchesGroundItemsEntry(String itemName, int quantity, String candidate, boolean wildcardOnly)
+	{
+		if (!itemQuantityMatches(candidate, quantity))
+		{
 			return false;
 		}
-		for (String candidate : actionTargetCandidates(policy))
+		String nameTarget = itemPolicyName(candidate);
+		if (nameTarget.trim().isEmpty() || nameTarget.contains("*") != wildcardOnly)
 		{
-			if (!itemQuantityMatches(candidate, quantity))
-			{
-				continue;
-			}
-			String nameTarget = itemPolicyName(candidate);
-			if (nameTarget.trim().isEmpty())
-			{
-				continue;
-			}
-			if (nameTarget.contains("*") ? WildcardMatcher.matches(nameTarget, itemName) : normalize(itemName).equals(normalize(nameTarget)))
-			{
-				return true;
-			}
+			return false;
 		}
-		return false;
+		return wildcardOnly ? WildcardMatcher.matches(nameTarget, itemName) : normalize(itemName).equals(normalize(nameTarget));
+	}
+
+	private boolean groundItemsHiddenByValue(int geEach, int haEach, ItemComposition composition)
+	{
+		int hideUnderValue = groundItemsHideUnderValue();
+		if (hideUnderValue <= 0)
+		{
+			return false;
+		}
+		boolean tradeable = composition != null && composition.isGeTradeable();
+		boolean canBeHidden = geEach > 0 || tradeable || !groundItemsDontHideUntradeables();
+		return canBeHidden && geEach < hideUnderValue && haEach < hideUnderValue;
 	}
 
 	private boolean itemQuantityMatches(String target, int quantity)
@@ -3807,7 +4256,25 @@ public class CvHelperPlugin extends Plugin
 	private String groundItemsHiddenItems()
 	{
 		String value = configManager.getConfiguration(GROUND_ITEMS_CONFIG_GROUP, GROUND_ITEMS_HIDDEN_ITEMS);
-		return value == null ? "" : value;
+		return value == null ? "Vial, Ashes, Coins, Bones, Bucket, Jug, Seaweed" : value;
+	}
+
+	private boolean groundItemsShowHighlightedOnly()
+	{
+		Boolean value = configManager.getConfiguration(GROUND_ITEMS_CONFIG_GROUP, GROUND_ITEMS_SHOW_HIGHLIGHTED_ONLY, Boolean.class);
+		return value != null && value;
+	}
+
+	private int groundItemsHideUnderValue()
+	{
+		Integer value = configManager.getConfiguration(GROUND_ITEMS_CONFIG_GROUP, GROUND_ITEMS_HIDE_UNDER_VALUE, Integer.class);
+		return value == null ? 0 : Math.max(0, value);
+	}
+
+	private boolean groundItemsDontHideUntradeables()
+	{
+		Boolean value = configManager.getConfiguration(GROUND_ITEMS_CONFIG_GROUP, GROUND_ITEMS_DONT_HIDE_UNTRADEABLES, Boolean.class);
+		return value == null || value;
 	}
 
 	private Map<String, Object> groundItemsConfigStatus()
@@ -3815,6 +4282,9 @@ public class CvHelperPlugin extends Plugin
 		Map<String, Object> out = new LinkedHashMap<>();
 		out.put("highlightedItems", groundItemsHighlightedItems());
 		out.put("hiddenItems", groundItemsHiddenItems());
+		out.put("showHighlightedOnly", groundItemsShowHighlightedOnly());
+		out.put("hideUnderValue", groundItemsHideUnderValue());
+		out.put("dontHideUntradeables", groundItemsDontHideUntradeables());
 		out.put("mode", getMobFarmerGroundItemsMode().name());
 		out.put("respectHidden", getMobFarmerRespectGroundItemsHidden());
 		return out;

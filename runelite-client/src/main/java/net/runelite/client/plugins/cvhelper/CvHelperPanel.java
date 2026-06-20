@@ -580,7 +580,7 @@ class CvHelperPanel extends PluginPanel
 		JButton stop = new JButton("Stop loop");
 		stop.addActionListener(e -> plugin.stopMobFarmer());
 
-		JLabel help = new JLabel("<html>Farmer loop: survival guard, optional intermediate inventory actions, loot processing, then guarded attack selection. Use mob targets like goblin|spider or id:1234.</html>");
+		JLabel help = new JLabel("<html>Farmer loop: survival guard, optional intermediate inventory actions, loot processing, then guarded attack selection. Use mob targets like goblin|spider or id:1234. Loot failures are diagnosed in /automation/mob-farmer/status.</html>");
 		help.setForeground(Color.LIGHT_GRAY);
 
 		for (JComponent component : new JComponent[]{
