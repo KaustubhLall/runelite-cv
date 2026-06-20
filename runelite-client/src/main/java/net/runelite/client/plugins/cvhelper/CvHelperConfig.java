@@ -110,6 +110,12 @@ public interface CvHelperConfig extends Config
 	String MOB_FARMER_EAT_HITPOINT_PERCENT = "mobFarmerEatHitpointPercent";
 	String MOB_FARMER_FOOD_ITEMS = "mobFarmerFoodItems";
 	String MOB_FARMER_STOP_IF_NO_FOOD = "mobFarmerStopIfNoFood";
+	String MOB_FARMER_LOGIN_RECOVERY_ENABLED = "mobFarmerLoginRecoveryEnabled";
+	String MOB_FARMER_LOGIN_RECOVERY_F2P_ONLY = "mobFarmerLoginRecoveryF2pOnly";
+	String MOB_FARMER_LOGIN_CLICK_TO_PLAY_ENABLED = "mobFarmerLoginClickToPlayEnabled";
+	String MOB_FARMER_LOGIN_DISCONNECT_RECOVERY_ENABLED = "mobFarmerLoginDisconnectRecoveryEnabled";
+	String MOB_FARMER_AUTO_RESUME_AFTER_LOGIN = "mobFarmerAutoResumeAfterLogin";
+	String MOB_FARMER_PREFERRED_LOGIN_WORLD = "mobFarmerPreferredLoginWorld";
 	String MOB_FARMER_LOOT_ENABLED = "mobFarmerLootEnabled";
 	String MOB_FARMER_LOOT_DURING_COMBAT = "mobFarmerLootDuringCombat";
 	String MOB_FARMER_ATTACK_BEFORE_LOOT = "mobFarmerAttackBeforeLoot";
@@ -125,6 +131,7 @@ public interface CvHelperConfig extends Config
 	String MOB_FARMER_RESPECT_GROUND_ITEMS_HIDDEN = "mobFarmerRespectGroundItemsHidden";
 	String MOB_FARMER_INTERMEDIATE_ACTIONS_ENABLED = "mobFarmerIntermediateActionsEnabled";
 	String MOB_FARMER_INTERMEDIATE_ITEMS = "mobFarmerIntermediateItems";
+	String MOB_FARMER_INTERMEDIATE_ACTION_MAPPINGS = "mobFarmerIntermediateActionMappings";
 
 	@ConfigSection(
 		name = "Action hotkeys",
@@ -573,6 +580,72 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = MOB_FARMER_LOGIN_RECOVERY_ENABLED,
+		name = "Recover after logout",
+		description = "When the live farmer reaches RuneLite's login screen, queue the same guarded click-to-play helper used by the panel. This is login recovery only, not anti-idle input.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerLoginRecoveryEnabled()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOGIN_RECOVERY_F2P_ONLY,
+		name = "Recover only on F2P worlds",
+		description = "Skip automatic login recovery on member, PvP, Deadman, seasonal, or minigame/special worlds.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerLoginRecoveryF2pOnly()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOGIN_CLICK_TO_PLAY_ENABLED,
+		name = "Click-to-play recovery",
+		description = "Allow login recovery to click or press Enter on RuneLite's click-to-play login screen.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerLoginClickToPlayEnabled()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOGIN_DISCONNECT_RECOVERY_ENABLED,
+		name = "Recover connection-lost",
+		description = "When RuneLite reports CONNECTION_LOST, allow a guarded Enter press to advance the disconnect/login flow. This is recovery only, not anti-idle input.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerLoginDisconnectRecoveryEnabled()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_AUTO_RESUME_AFTER_LOGIN,
+		name = "Auto-resume after login",
+		description = "Keep the farmer loop alive through login recovery so it resumes after successful login. Disable to stop the farmer when logout/disconnect is detected.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerAutoResumeAfterLogin()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_PREFERRED_LOGIN_WORLD,
+		name = "Preferred login world",
+		description = "Preferred safe F2P world for local development status/reporting. The recovery guard still validates the actual current world before clicking.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerPreferredLoginWorld()
+	{
+		return 301;
+	}
+
+	@ConfigItem(
 		keyName = MOB_FARMER_LOOT_ENABLED,
 		name = "Loot pickup enabled",
 		description = "Allow the farmer loop to pick up matching or valuable ground items.",
@@ -706,8 +779,8 @@ public interface CvHelperConfig extends Config
 
 	@ConfigItem(
 		keyName = MOB_FARMER_INTERMEDIATE_ACTIONS_ENABLED,
-		name = "Use bones/ashes",
-		description = "During safe loop windows, open inventory and invoke Bury, Scatter, or Use on matching intermediate items such as bones or ashes.",
+		name = "Use intermediate actions",
+		description = "During safe loop windows, open inventory and invoke configured item actions. Missing required actions are skipped rather than using or dropping the item.",
 		section = mobFarmerSection
 	)
 	default boolean mobFarmerIntermediateActionsEnabled()
@@ -724,6 +797,17 @@ public interface CvHelperConfig extends Config
 	default String mobFarmerIntermediateItems()
 	{
 		return "bones|big bones|ashes";
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_INTERMEDIATE_ACTION_MAPPINGS,
+		name = "Intermediate mappings",
+		description = "Inventory action mappings, one per line or separated by semicolon. Example: bones -> Bury; ashes -> Scatter|Bury. Drop is never allowed for intermediate actions.",
+		section = mobFarmerSection
+	)
+	default String mobFarmerIntermediateActionMappings()
+	{
+		return "bones -> Bury; big bones -> Bury; ashes -> Scatter|Bury";
 	}
 
 	@ConfigItem(

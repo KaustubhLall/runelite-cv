@@ -98,7 +98,6 @@ import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.HotkeyListener;
-import net.runelite.client.util.ImageUtil;
 import net.runelite.client.util.WildcardMatcher;
 import net.runelite.http.api.RuneLiteAPI;
 import okhttp3.Call;
@@ -122,6 +121,8 @@ public class CvHelperPlugin extends Plugin
 	private static final int ACTION_SLOT_COUNT = 22;
 	private static final int ACTION_RESOLVE_RETRIES = 4;
 	private static final int MOB_FARMER_LOOP_DELAY_MS = 1200;
+	private static final long MOB_FARMER_LOGIN_CLICK_COOLDOWN_MS = 5000L;
+	private static final int MOB_FARMER_PROGRESS_WINDOW_TICKS = 8;
 	private static final String GROUND_ITEMS_CONFIG_GROUP = "grounditems";
 	private static final String GROUND_ITEMS_HIGHLIGHTED_ITEMS = "highlightedItems";
 	private static final String GROUND_ITEMS_HIDDEN_ITEMS = "hiddenItems";
@@ -233,12 +234,21 @@ public class CvHelperPlugin extends Plugin
 	private volatile Map<String, Object> lastMobFarmerActionAttempt = new LinkedHashMap<>();
 	private volatile List<Map<String, Object>> lastMobFarmerMenuEntries = new ArrayList<>();
 	private volatile Map<String, Object> lastMobFarmerInventoryStatus = new LinkedHashMap<>();
+	private volatile Map<String, Object> lastMobFarmerLoginRecovery = new LinkedHashMap<>();
+	private volatile Map<String, Object> lastMobFarmerProgressStatus = new LinkedHashMap<>();
+	private volatile List<Map<String, Object>> lastMobFarmerIntents = new ArrayList<>();
 	private volatile boolean lastMobFarmerMultiCombat;
 	private final KeyEventDispatcher cvHotkeyDispatcher = this::dispatchCvHotkey;
 	private volatile String lastStableSidePanel = "inventory";
 	private volatile String mobFarmerTarget = "cow";
 	private volatile boolean mobFarmerLiveMode;
 	private volatile Thread mobFarmerThread;
+	private volatile long lastMobFarmerLoginClickMillis;
+	private volatile String activeMobFarmerLootKey;
+	private volatile int activeMobFarmerLootStartTick;
+	private volatile int activeMobFarmerLootLastDistance = Integer.MAX_VALUE;
+	private volatile boolean activeMobFarmerLootImproving;
+	private volatile int mobFarmerMakeProgressUntilTick;
 
 	private static final class PanelSwitchTarget
 	{
@@ -329,6 +339,7 @@ public class CvHelperPlugin extends Plugin
 	private static final class InventoryMenuAction
 	{
 		private final int opIndex;
+		private final int componentOpId;
 		private final int param0;
 		private final int param1;
 		private final MenuAction menuAction;
@@ -336,9 +347,10 @@ public class CvHelperPlugin extends Plugin
 		private final int itemId;
 		private final String option;
 
-		private InventoryMenuAction(int opIndex, int param0, int param1, MenuAction menuAction, int identifier, int itemId, String option)
+		private InventoryMenuAction(int opIndex, int componentOpId, int param0, int param1, MenuAction menuAction, int identifier, int itemId, String option)
 		{
 			this.opIndex = opIndex;
+			this.componentOpId = componentOpId;
 			this.param0 = param0;
 			this.param1 = param1;
 			this.menuAction = menuAction;
@@ -351,6 +363,7 @@ public class CvHelperPlugin extends Plugin
 		{
 			Map<String, Object> out = new LinkedHashMap<>();
 			out.put("opIndex", opIndex);
+			out.put("componentOpId", componentOpId);
 			out.put("param0", param0);
 			out.put("param1", param1);
 			out.put("menuAction", menuAction.name());
@@ -358,6 +371,41 @@ public class CvHelperPlugin extends Plugin
 			out.put("itemId", itemId);
 			out.put("option", option);
 			return out;
+		}
+	}
+
+	private static final class IntermediateInventoryAction
+	{
+		private final Map<String, Object> target;
+		private final String[] preferredActions;
+		private final String failureReason;
+		private final String matchedRule;
+
+		private IntermediateInventoryAction(Map<String, Object> target, String[] preferredActions, String failureReason, String matchedRule)
+		{
+			this.target = target;
+			this.preferredActions = preferredActions;
+			this.failureReason = failureReason;
+			this.matchedRule = matchedRule;
+		}
+
+		private boolean isActionable()
+		{
+			return failureReason == null;
+		}
+	}
+
+	private static final class IntermediateActionRule
+	{
+		private final String itemTarget;
+		private final String[] actions;
+		private final String source;
+
+		private IntermediateActionRule(String itemTarget, String[] actions, String source)
+		{
+			this.itemTarget = itemTarget;
+			this.actions = actions;
+			this.source = source;
 		}
 	}
 
@@ -2672,6 +2720,66 @@ public class CvHelperPlugin extends Plugin
 		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_STOP_IF_NO_FOOD, stop);
 	}
 
+	boolean getMobFarmerLoginRecoveryEnabled()
+	{
+		return config.mobFarmerLoginRecoveryEnabled();
+	}
+
+	void setMobFarmerLoginRecoveryEnabled(boolean enabled)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_LOGIN_RECOVERY_ENABLED, enabled);
+	}
+
+	boolean getMobFarmerLoginRecoveryF2pOnly()
+	{
+		return config.mobFarmerLoginRecoveryF2pOnly();
+	}
+
+	void setMobFarmerLoginRecoveryF2pOnly(boolean enabled)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_LOGIN_RECOVERY_F2P_ONLY, enabled);
+	}
+
+	boolean getMobFarmerLoginClickToPlayEnabled()
+	{
+		return config.mobFarmerLoginClickToPlayEnabled();
+	}
+
+	void setMobFarmerLoginClickToPlayEnabled(boolean enabled)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_LOGIN_CLICK_TO_PLAY_ENABLED, enabled);
+	}
+
+	boolean getMobFarmerLoginDisconnectRecoveryEnabled()
+	{
+		return config.mobFarmerLoginDisconnectRecoveryEnabled();
+	}
+
+	void setMobFarmerLoginDisconnectRecoveryEnabled(boolean enabled)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_LOGIN_DISCONNECT_RECOVERY_ENABLED, enabled);
+	}
+
+	boolean getMobFarmerAutoResumeAfterLogin()
+	{
+		return config.mobFarmerAutoResumeAfterLogin();
+	}
+
+	void setMobFarmerAutoResumeAfterLogin(boolean enabled)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_AUTO_RESUME_AFTER_LOGIN, enabled);
+	}
+
+	int getMobFarmerPreferredLoginWorld()
+	{
+		return Math.max(0, config.mobFarmerPreferredLoginWorld());
+	}
+
+	void setMobFarmerPreferredLoginWorld(int world)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_PREFERRED_LOGIN_WORLD, Math.max(0, world));
+	}
+
 	boolean getMobFarmerLootEnabled()
 	{
 		return config.mobFarmerLootEnabled();
@@ -2816,6 +2924,16 @@ public class CvHelperPlugin extends Plugin
 		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_INTERMEDIATE_ITEMS, items == null ? "" : items.trim());
 	}
 
+	String getMobFarmerIntermediateActionMappings()
+	{
+		return config.mobFarmerIntermediateActionMappings() == null ? "" : config.mobFarmerIntermediateActionMappings();
+	}
+
+	void setMobFarmerIntermediateActionMappings(String mappings)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_INTERMEDIATE_ACTION_MAPPINGS, mappings == null ? "" : mappings.trim());
+	}
+
 	String getMobFarmerNeverDropItems()
 	{
 		return config.mobFarmerNeverDropItems() == null ? "" : config.mobFarmerNeverDropItems();
@@ -2847,12 +2965,15 @@ public class CvHelperPlugin extends Plugin
 		status.put("requireLineOfSight", getMobFarmerRequireLineOfSight());
 		status.put("maxDistance", getMobFarmerMaxDistance());
 		status.put("autoEat", mobFarmerAutoEatConfigStatus());
+		status.put("loginRecovery", mobFarmerLoginRecoveryStatus());
 		status.put("loot", mobFarmerLootConfigStatus());
 		status.put("decision", lastMobFarmerDecision);
 		status.put("survivalDecision", lastMobFarmerSurvivalDecision);
 		status.put("intermediateDecision", lastMobFarmerIntermediateDecision);
 		status.put("lootDecision", lastMobFarmerLootDecision);
 		status.put("lastActionAttempt", lastMobFarmerActionAttempt);
+		status.put("progress", lastMobFarmerProgressStatus);
+		status.put("recentIntents", lastMobFarmerIntents);
 		status.put("recentMenuEntries", lastMobFarmerMenuEntries);
 		status.put("inventory", lastMobFarmerInventoryStatus);
 		status.put("candidates", lastMobFarmerCandidates);
@@ -2867,6 +2988,33 @@ public class CvHelperPlugin extends Plugin
 		out.put("hitpointPercent", getMobFarmerEatHitpointPercent());
 		out.put("foodItems", getMobFarmerFoodItems());
 		out.put("stopIfNoFood", getMobFarmerStopIfNoFood());
+		return out;
+	}
+
+	private Map<String, Object> mobFarmerLoginRecoveryStatus()
+	{
+		Map<String, Object> out = new LinkedHashMap<>();
+		GameState gameState = safeValue(client::getGameState, GameState.UNKNOWN);
+		int preferredWorld = getMobFarmerPreferredLoginWorld();
+		int currentWorld = safeValue(() -> client.getWorld() > 0 ? client.getWorld() : -1, -1);
+		out.put("currentClientLoginState", gameState == null ? null : gameState.name());
+		out.put("detectedScreen", detectedLoginScreen(gameState));
+		out.put("enabled", getMobFarmerLoginRecoveryEnabled());
+		out.put("loginRecoveryEnabled", getMobFarmerLoginRecoveryEnabled());
+		out.put("clickToPlayEnabled", getMobFarmerLoginClickToPlayEnabled());
+		out.put("disconnectRecoveryEnabled", getMobFarmerLoginDisconnectRecoveryEnabled());
+		out.put("autoResumeAfterLogin", getMobFarmerAutoResumeAfterLogin());
+		out.put("f2pWorldOnly", getMobFarmerLoginRecoveryF2pOnly());
+		out.put("preferredWorld", preferredWorld);
+		out.put("currentWorld", currentWorld);
+		out.put("preferredWorldUsed", preferredWorld > 0 && currentWorld == preferredWorld);
+		out.put("worldHost", safeValue(client::getWorldHost, null));
+		out.put("worldType", currentWorldTypeText());
+		out.put("currentWorldAllowed", mobFarmerLoginWorldAllowed());
+		out.put("cooldownMs", MOB_FARMER_LOGIN_CLICK_COOLDOWN_MS);
+		out.put("antiIdle", false);
+		out.put("idleTimerGuidance", "Use RuneLite's Logout Timer plugin/settings to extend idle logout windows; CV Helper only recovers after a normal logout/login-screen state.");
+		out.put("last", lastMobFarmerLoginRecovery);
 		return out;
 	}
 
@@ -2888,6 +3036,8 @@ public class CvHelperPlugin extends Plugin
 		out.put("groundItems", groundItemsConfigStatus());
 		out.put("intermediateActionsEnabled", getMobFarmerIntermediateActionsEnabled());
 		out.put("intermediateItems", getMobFarmerIntermediateItems());
+		out.put("intermediateActionMappings", getMobFarmerIntermediateActionMappings());
+		out.put("parsedIntermediateActionMappings", parsedIntermediateActionMappingsStatus());
 		out.put("neverDropItems", getMobFarmerNeverDropItems());
 		return out;
 	}
@@ -2990,6 +3140,198 @@ public class CvHelperPlugin extends Plugin
 		}
 	}
 
+	private boolean tryMobFarmerLoginRecovery(boolean live, int generation, GameState gameState)
+	{
+		Map<String, Object> details = new LinkedHashMap<>();
+		details.put("enabled", getMobFarmerLoginRecoveryEnabled());
+		details.put("loginRecoveryEnabled", getMobFarmerLoginRecoveryEnabled());
+		details.put("live", live);
+		details.put("gameState", gameState == null ? null : gameState.name());
+		details.put("detectedScreen", detectedLoginScreen(gameState));
+		details.put("clickToPlayEnabled", getMobFarmerLoginClickToPlayEnabled());
+		details.put("disconnectRecoveryEnabled", getMobFarmerLoginDisconnectRecoveryEnabled());
+		details.put("autoResumeAfterLogin", getMobFarmerAutoResumeAfterLogin());
+		details.put("f2pWorldOnly", getMobFarmerLoginRecoveryF2pOnly());
+		details.put("preferredWorld", getMobFarmerPreferredLoginWorld());
+		details.put("currentWorld", safeValue(() -> client.getWorld() > 0 ? client.getWorld() : -1, -1));
+		details.put("worldHost", safeValue(client::getWorldHost, null));
+		details.put("worldType", currentWorldTypeText());
+		details.put("antiIdle", false);
+		details.put("idleTimerGuidance", "Use RuneLite Logout Timer for longer idle windows; this only recovers after logout.");
+
+		if (!live || !getMobFarmerLoginRecoveryEnabled())
+		{
+			details.put("result", live ? "disabled" : "dry-run-skip");
+			setMobFarmerLoginRecoveryDecision(live ? "disabled" : "dry-run-skip", details);
+			return false;
+		}
+		if (gameState == GameState.LOGGING_IN || gameState == GameState.LOADING || gameState == GameState.HOPPING)
+		{
+			details.put("result", "waiting");
+			setMobFarmerLoginRecoveryDecision("waiting:" + gameState, details);
+			mobFarmerStatus.set("login-recovery-waiting:" + gameState);
+			setMobFarmerDecision("login-recovery-waiting", details);
+			return true;
+		}
+		if (!getMobFarmerAutoResumeAfterLogin())
+		{
+			details.put("result", "auto-resume-disabled");
+			setMobFarmerLoginRecoveryDecision("auto-resume-disabled", details);
+			mobFarmerStatus.set("login-recovery-disabled:auto-resume");
+			setMobFarmerDecision("login-auto-resume-disabled", details);
+			updatePanelStatus("Mob farmer stopped at login/disconnect because auto-resume is disabled");
+			stopMobFarmer();
+			return true;
+		}
+		boolean clickToPlayState = gameState == GameState.LOGIN_SCREEN || gameState == GameState.LOGIN_SCREEN_AUTHENTICATOR;
+		boolean disconnectState = gameState == GameState.CONNECTION_LOST;
+		if (!clickToPlayState && !disconnectState)
+		{
+			details.put("result", "not-clickable-login-state");
+			setMobFarmerLoginRecoveryDecision("not-clickable-login-state", details);
+			return false;
+		}
+		if (clickToPlayState && !getMobFarmerLoginClickToPlayEnabled())
+		{
+			details.put("result", "click-to-play-disabled");
+			setMobFarmerLoginRecoveryDecision("click-to-play-disabled", details);
+			mobFarmerStatus.set("login-recovery-disabled:click-to-play");
+			setMobFarmerDecision("login-recovery-click-to-play-disabled", details);
+			return true;
+		}
+		if (disconnectState && !getMobFarmerLoginDisconnectRecoveryEnabled())
+		{
+			details.put("result", "disconnect-recovery-disabled");
+			setMobFarmerLoginRecoveryDecision("disconnect-recovery-disabled", details);
+			mobFarmerStatus.set("login-recovery-disabled:connection-lost");
+			setMobFarmerDecision("login-recovery-disconnect-disabled", details);
+			return true;
+		}
+		if (isStaleMobFarmerLoop(generation))
+		{
+			details.put("result", "stale-loop");
+			setMobFarmerLoginRecoveryDecision("stale-loop", details);
+			return true;
+		}
+
+		String blockReason = mobFarmerLoginWorldBlockReason();
+		details.put("currentWorldAllowed", blockReason == null);
+		if (blockReason != null)
+		{
+			details.put("failureReason", blockReason);
+			setMobFarmerLoginRecoveryDecision("blocked:" + blockReason, details);
+			mobFarmerStatus.set("login-recovery-blocked:" + blockReason);
+			setMobFarmerDecision("login-recovery-blocked", details);
+			updatePanelStatus("Mob farmer login recovery blocked: " + blockReason);
+			return true;
+		}
+
+		long now = System.currentTimeMillis();
+		long elapsed = now - lastMobFarmerLoginClickMillis;
+		if (elapsed >= 0 && elapsed < MOB_FARMER_LOGIN_CLICK_COOLDOWN_MS)
+		{
+			long remaining = MOB_FARMER_LOGIN_CLICK_COOLDOWN_MS - elapsed;
+			details.put("remainingCooldownMs", remaining);
+			details.put("result", "cooldown");
+			setMobFarmerLoginRecoveryDecision("cooldown", details);
+			mobFarmerStatus.set("login-recovery-cooldown:" + remaining + "ms");
+			setMobFarmerDecision("login-recovery-cooldown", details);
+			return true;
+		}
+
+		lastMobFarmerLoginClickMillis = now;
+		details.put("intendedAction", disconnectState ? "Recover connection lost" : "Click login");
+		details.put("actualAction", disconnectState ? "enter-key-disconnect-recovery" : "guarded-login-widget-click");
+		details.put("result", "queued");
+		setMobFarmerLoginRecoveryDecision("queued", details);
+		mobFarmerStatus.set(disconnectState ? "login-disconnect-recovery-queued" : "login-recovery-click-queued");
+		setMobFarmerDecision(disconnectState ? "login-disconnect-recovery-queued" : "login-recovery-click-queued", details);
+		updatePanelStatus(disconnectState ? "Mob farmer queued connection-lost recovery" : "Mob farmer queued guarded login recovery click");
+		if (disconnectState)
+		{
+			pressLoginEnterFallback("login-disconnect-enter-fallback", "Pressed Enter on connection-lost screen");
+		}
+		else
+		{
+			clickLoginScreen();
+		}
+		return true;
+	}
+
+	private void setMobFarmerLoginRecoveryDecision(String decision, Map<String, Object> details)
+	{
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("decision", decision);
+		payload.put("at", Instant.now().toString());
+		if (details != null && !details.isEmpty())
+		{
+			payload.put("details", new LinkedHashMap<>(details));
+		}
+		lastMobFarmerLoginRecovery = payload;
+	}
+
+	private boolean mobFarmerLoginWorldAllowed()
+	{
+		return mobFarmerLoginWorldBlockReason() == null;
+	}
+
+	private String mobFarmerLoginWorldBlockReason()
+	{
+		if (!getMobFarmerLoginRecoveryF2pOnly())
+		{
+			return null;
+		}
+		int world = safeValue(() -> client.getWorld() > 0 ? client.getWorld() : -1, -1);
+		if (world <= 0)
+		{
+			return "unknown-world";
+		}
+
+		String worldType = currentWorldTypeText().toLowerCase();
+		for (String blocked : Arrays.asList("members", "pvp", "deadman", "seasonal", "beta", "last_man_standing", "bounty", "high_risk", "skill_total", "quest_speedrunning", "fresh_start", "tournament"))
+		{
+			if (worldType.contains(blocked))
+			{
+				return "unsafe-world-type:" + blocked + "@" + world;
+			}
+		}
+		return null;
+	}
+
+	private String detectedLoginScreen(GameState gameState)
+	{
+		if (gameState == null)
+		{
+			return "unknown";
+		}
+		switch (gameState)
+		{
+			case LOGGED_IN:
+				return "logged-in";
+			case LOGIN_SCREEN:
+				return "login-screen";
+			case LOGIN_SCREEN_AUTHENTICATOR:
+				return "authenticator";
+			case LOGGING_IN:
+				return "logging-in";
+			case LOADING:
+				return "loading";
+			case CONNECTION_LOST:
+				return "connection-lost";
+			case HOPPING:
+				return "world-hop";
+			case STARTING:
+				return "starting";
+			default:
+				return "unknown";
+		}
+	}
+
+	private String currentWorldTypeText()
+	{
+		return safeValue(() -> client.getWorldType() == null ? "[]" : client.getWorldType().toString(), "unknown");
+	}
+
 	private void mobFarmerStep(boolean live, int generation)
 	{
 		if (isStaleMobFarmerLoop(generation))
@@ -2999,6 +3341,10 @@ public class CvHelperPlugin extends Plugin
 		lastMobFarmerMultiCombat = isMultiCombat();
 		if (client.getGameState() != GameState.LOGGED_IN)
 		{
+			if (tryMobFarmerLoginRecovery(live, generation, client.getGameState()))
+			{
+				return;
+			}
 			mobFarmerStatus.set("needs-login:" + client.getGameState());
 			setMobFarmerDecision("needs-login", null);
 			updatePanelStatus("Mob farmer needs login: " + client.getGameState());
@@ -3068,6 +3414,10 @@ public class CvHelperPlugin extends Plugin
 		}
 
 		if (!getMobFarmerAttackBeforeLoot() && tryMobFarmerLoot(localPlayer, live, generation, "idle-before-attack"))
+		{
+			return;
+		}
+		if (mobFarmerMakeProgressActive() && tryMobFarmerLoot(localPlayer, live, generation, "make-progress-before-attack"))
 		{
 			return;
 		}
@@ -3186,7 +3536,7 @@ public class CvHelperPlugin extends Plugin
 			{
 				continue;
 			}
-			String[] actions = targetActions(target);
+			String[] actions = inventoryTargetActions(target);
 			if (hasActionNamed(actions, "Eat") || hasActionNamed(actions, "Drink") || hasActionNamed(actions, "Consume"))
 			{
 				return target;
@@ -3204,8 +3554,8 @@ public class CvHelperPlugin extends Plugin
 		}
 		lastInventoryTargets = collectInventoryTargets();
 		lastMobFarmerInventoryStatus = inventoryPolicyStatus();
-		Map<String, Object> item = findIntermediateInventoryTarget(lastInventoryTargets);
-		if (item == null)
+		IntermediateInventoryAction intermediateAction = findIntermediateInventoryAction(lastInventoryTargets);
+		if (intermediateAction == null)
 		{
 			if (!isInventoryVisible())
 			{
@@ -3225,16 +3575,32 @@ public class CvHelperPlugin extends Plugin
 			setMobFarmerIntermediateDecision("none:" + phase, null);
 			return false;
 		}
+		if (!intermediateAction.isActionable())
+		{
+			recordSkippedIntermediateAction(intermediateAction, phase);
+			return false;
+		}
 
 		Map<String, Object> decision = new LinkedHashMap<>();
 		decision.put("phase", phase);
-		decision.put("target", item);
+		decision.put("target", intermediateAction.target);
+		decision.put("matchedRule", intermediateAction.matchedRule);
+		decision.put("configuredAction", configuredActionText(intermediateAction.preferredActions));
+		decision.put("configuredActions", Arrays.asList(intermediateAction.preferredActions));
+		decision.put("availableItemActions", Arrays.asList(inventoryTargetActions(intermediateAction.target)));
+		decision.put("preferredActions", Arrays.asList(intermediateAction.preferredActions));
+		decision.put("intendedAction", firstMatchingActionName(inventoryTargetActions(intermediateAction.target), intermediateAction.preferredActions));
 		setMobFarmerIntermediateDecision("inventory-action", decision);
-		return invokeMobFarmerInventoryAction("intermediate", item, live, generation, "Bury", "Scatter", "Use");
+		Map<String, Object> targetWithRule = new LinkedHashMap<>(intermediateAction.target);
+		targetWithRule.put("intermediateMatchedRule", intermediateAction.matchedRule);
+		targetWithRule.put("intermediateConfiguredActions", Arrays.asList(intermediateAction.preferredActions));
+		return invokeMobFarmerInventoryAction("intermediate", targetWithRule, live, generation, intermediateAction.preferredActions);
 	}
 
-	private Map<String, Object> findIntermediateInventoryTarget(List<Map<String, Object>> inventoryTargets)
+	private IntermediateInventoryAction findIntermediateInventoryAction(List<Map<String, Object>> inventoryTargets)
 	{
+		IntermediateInventoryAction firstSkipped = null;
+		List<IntermediateActionRule> rules = intermediateActionRules();
 		for (Map<String, Object> target : inventoryTargets)
 		{
 			String name = String.valueOf(target.get("itemName"));
@@ -3244,17 +3610,140 @@ public class CvHelperPlugin extends Plugin
 			{
 				continue;
 			}
-			if (!matchesItemPolicy(name, itemId, quantity, getMobFarmerIntermediateItems()))
+			IntermediateActionRule matchedRule = matchingIntermediateActionRule(name, itemId, quantity, rules);
+			boolean legacyMatch = matchesItemPolicy(name, itemId, quantity, getMobFarmerIntermediateItems());
+			if (matchedRule == null && !legacyMatch)
 			{
 				continue;
 			}
-			String[] actions = targetActions(target);
-			if (hasActionNamed(actions, "Bury") || hasActionNamed(actions, "Scatter") || hasActionNamed(actions, "Use"))
+			String[] preferredActions = matchedRule == null ? preferredIntermediateActions(target) : matchedRule.actions;
+			String matchedRuleText = matchedRule == null ? "legacy-category:" + getMobFarmerIntermediateItems() : matchedRule.source;
+			String[] actions = inventoryTargetActions(target);
+			if (preferredActions.length == 0)
 			{
-				return target;
+				if (firstSkipped == null)
+				{
+					firstSkipped = new IntermediateInventoryAction(target, preferredActions, "unsupported-intermediate-item", matchedRuleText);
+				}
+				continue;
+			}
+			if (firstMatchingActionName(actions, preferredActions) != null)
+			{
+				return new IntermediateInventoryAction(target, preferredActions, null, matchedRuleText);
+			}
+			if (firstSkipped == null)
+			{
+				firstSkipped = new IntermediateInventoryAction(target, preferredActions, "required-action-unavailable", matchedRuleText);
+			}
+		}
+		return firstSkipped;
+	}
+
+	private List<IntermediateActionRule> intermediateActionRules()
+	{
+		List<IntermediateActionRule> rules = new ArrayList<>();
+		String mappings = getMobFarmerIntermediateActionMappings();
+		if (mappings.trim().isEmpty())
+		{
+			return rules;
+		}
+		for (String rawRule : mappings.split("\\s*(?:\\r?\\n|;)\\s*"))
+		{
+			String rule = rawRule.trim();
+			if (rule.isEmpty())
+			{
+				continue;
+			}
+			String[] parts = rule.split("\\s*(?:->|=>|=|:)\\s*", 2);
+			if (parts.length != 2)
+			{
+				continue;
+			}
+			String itemTarget = parts[0].trim();
+			List<String> actions = actionTargetCandidates(parts[1]);
+			if (itemTarget.isEmpty() || actions.isEmpty())
+			{
+				continue;
+			}
+			rules.add(new IntermediateActionRule(itemTarget, actions.toArray(new String[0]), rule));
+		}
+		return rules;
+	}
+
+	private IntermediateActionRule matchingIntermediateActionRule(String name, int itemId, int quantity, List<IntermediateActionRule> rules)
+	{
+		for (IntermediateActionRule rule : rules)
+		{
+			if (matchesItemTarget(name, itemId, quantity, rule.itemTarget))
+			{
+				return rule;
 			}
 		}
 		return null;
+	}
+
+	private List<Map<String, Object>> parsedIntermediateActionMappingsStatus()
+	{
+		List<Map<String, Object>> out = new ArrayList<>();
+		for (IntermediateActionRule rule : intermediateActionRules())
+		{
+			Map<String, Object> entry = new LinkedHashMap<>();
+			entry.put("item", rule.itemTarget);
+			entry.put("configuredAction", configuredActionText(rule.actions));
+			entry.put("actions", Arrays.asList(rule.actions));
+			entry.put("source", rule.source);
+			out.add(entry);
+		}
+		return out;
+	}
+
+	private String configuredActionText(String[] actions)
+	{
+		return actions == null || actions.length == 0 ? "" : String.join("|", actions);
+	}
+
+	private String[] preferredIntermediateActions(Map<String, Object> target)
+	{
+		String itemName = String.valueOf(target.get("itemName"));
+		String normalizedName = normalize(itemName);
+		if (normalizedName.contains("ash"))
+		{
+			return new String[]{"Scatter", "Bury"};
+		}
+		if (normalizedName.contains("bone"))
+		{
+			return new String[]{"Bury"};
+		}
+		return new String[0];
+	}
+
+	private void recordSkippedIntermediateAction(IntermediateInventoryAction intermediateAction, String phase)
+	{
+		Map<String, Object> target = intermediateAction.target;
+		String label = targetLabelForMessage(target);
+		String itemName = String.valueOf(target.get("itemName"));
+		int slot = intValue(target.get("index"), -1);
+		String[] availableActions = inventoryTargetActions(target);
+		String intendedAction = firstMatchingActionName(availableActions, intermediateAction.preferredActions);
+		Map<String, Object> details = new LinkedHashMap<>();
+		details.put("phase", phase);
+		details.put("target", target);
+		details.put("itemName", itemName);
+		details.put("slot", slot);
+		details.put("availableActions", Arrays.asList(availableActions));
+		details.put("availableItemActions", Arrays.asList(availableActions));
+		details.put("matchedRule", intermediateAction.matchedRule);
+		details.put("configuredAction", configuredActionText(intermediateAction.preferredActions));
+		details.put("configuredActions", Arrays.asList(intermediateAction.preferredActions));
+		details.put("preferredActions", Arrays.asList(intermediateAction.preferredActions));
+		details.put("intendedAction", intendedAction);
+		details.put("actualAction", null);
+		details.put("result", "skipped");
+		details.put("failureReason", intermediateAction.failureReason);
+		setMobFarmerIntermediateDecision("skipped:" + intermediateAction.failureReason, details);
+		recordMobFarmerActionAttempt("intermediate", details);
+		mobFarmerStatus.set("intermediate-skipped:" + intermediateAction.failureReason + ":" + label);
+		updatePanelStatus("Mob farmer intermediate skipped: " + label + " slot " + slot + " (" + intermediateAction.failureReason + ")");
 	}
 
 	private boolean tryMobFarmerLoot(Player localPlayer, boolean live, int generation, String phase)
@@ -3270,8 +3759,13 @@ public class CvHelperPlugin extends Plugin
 		setMobFarmerLootDecision(selection.decision + ":" + phase, selection.target);
 		if (selection.target == null)
 		{
+			if (phase.startsWith("make-progress"))
+			{
+				clearMobFarmerLootChase("no-valid-loot:" + phase);
+			}
 			return false;
 		}
+		recordMobFarmerIntent("LOOT_ITEM", selection.target);
 		return clickMobFarmerAutomationTarget("loot", selection.target, live, generation);
 	}
 
@@ -3639,22 +4133,39 @@ public class CvHelperPlugin extends Plugin
 		String label = targetLabelForMessage(target);
 		String itemName = String.valueOf(target.get("itemName"));
 		int slot = intValue(target.get("index"), -1);
-		String[] availableActions = targetActions(target);
+		String[] availableActions = inventoryTargetActions(target);
 		String intendedAction = firstMatchingActionName(availableActions, preferredActions);
-		InventoryMenuAction menu = inventoryMenuAction(target, preferredActions);
+		InventoryMenuAction menu = inventoryMenuAction(target, availableActions, preferredActions);
 		Map<String, Object> attempt = new LinkedHashMap<>();
 		attempt.put("kind", actionName);
 		attempt.put("target", label);
 		attempt.put("itemName", itemName);
 		attempt.put("slot", slot);
 		attempt.put("availableActions", Arrays.asList(availableActions));
+		attempt.put("availableItemActions", Arrays.asList(availableActions));
 		attempt.put("intendedAction", intendedAction);
 		attempt.put("targetSnapshot", target);
 		attempt.put("preferredActions", Arrays.asList(preferredActions));
+		if ("intermediate".equals(actionName))
+		{
+			attempt.put("matchedRule", target.get("intermediateMatchedRule"));
+			attempt.put("configuredAction", configuredActionText(preferredActions));
+			attempt.put("configuredActions", target.get("intermediateConfiguredActions") instanceof List ? target.get("intermediateConfiguredActions") : Arrays.asList(preferredActions));
+		}
 		if (menu != null)
 		{
 			attempt.put("actualAction", menu.option);
 			attempt.put("menu", menu.asMap());
+		}
+		if ("intermediate".equals(actionName) && menu != null && normalize(menu.option).equals("drop"))
+		{
+			attempt.put("result", "skipped");
+			attempt.put("failureReason", "drop-action-blocked");
+			recordMobFarmerActionAttempt(actionName, attempt);
+			setMobFarmerIntermediateDecision("skipped:drop-action-blocked", attempt);
+			mobFarmerStatus.set("intermediate-skipped:drop-action-blocked:" + label);
+			updatePanelStatus("Mob farmer intermediate skipped: blocked Drop on " + label + " slot " + slot);
+			return false;
 		}
 		if (!live)
 		{
@@ -3664,6 +4175,10 @@ public class CvHelperPlugin extends Plugin
 				attempt.put("failureReason", intendedAction == null ? "no-supported-inventory-action" : "menu-action-unresolved");
 			}
 			recordMobFarmerActionAttempt(actionName, attempt);
+			if ("intermediate".equals(actionName))
+			{
+				setMobFarmerIntermediateDecision(menu == null ? "dry-skipped:menu-missing" : "dry:" + menu.option, attempt);
+			}
 			String message = menu == null
 				? "Mob farmer dry " + actionName + ": skipped " + label + " slot " + slot + " (intended=" + intendedAction + ", available=" + Arrays.toString(availableActions) + ")"
 				: "Mob farmer dry " + actionName + ": " + menu.option + " " + label + " slot " + slot + " via " + menu.menuAction;
@@ -3689,7 +4204,12 @@ public class CvHelperPlugin extends Plugin
 				details.put("itemName", itemName);
 				details.put("slot", slot);
 				details.put("intendedAction", intendedAction);
+				details.put("actualAction", null);
 				details.put("availableActions", Arrays.asList(availableActions));
+				details.put("availableItemActions", Arrays.asList(availableActions));
+				details.put("configuredAction", configuredActionText(preferredActions));
+				details.put("configuredActions", Arrays.asList(preferredActions));
+				details.put("matchedRule", target.get("intermediateMatchedRule"));
 				details.put("reason", reason);
 				setMobFarmerIntermediateDecision("skipped:menu-missing", details);
 			}
@@ -3699,12 +4219,20 @@ public class CvHelperPlugin extends Plugin
 		{
 			attempt.put("result", "stale-loop");
 			recordMobFarmerActionAttempt(actionName, attempt);
+			if ("intermediate".equals(actionName))
+			{
+				setMobFarmerIntermediateDecision("skipped:stale-loop", attempt);
+			}
 			return true;
 		}
 		if (!actionInProgress.compareAndSet(false, true))
 		{
 			attempt.put("result", "action-running");
 			recordMobFarmerActionAttempt(actionName, attempt);
+			if ("intermediate".equals(actionName))
+			{
+				setMobFarmerIntermediateDecision("skipped:action-running", attempt);
+			}
 			mobFarmerStatus.set("skipped:" + actionName + ":action-running");
 			updatePanelStatus("Mob farmer " + actionName + " skipped: action already running");
 			return true;
@@ -3715,6 +4243,10 @@ public class CvHelperPlugin extends Plugin
 			attempt.put("result", "invoked");
 			attempt.put("actualAction", menu.option);
 			recordMobFarmerActionAttempt(actionName, attempt);
+			if ("intermediate".equals(actionName))
+			{
+				setMobFarmerIntermediateDecision("invoked:" + menu.option, attempt);
+			}
 			String message = "Mob farmer " + actionName + " invoked " + menu.option + " on " + label + " slot " + slot + " via " + menu.menuAction;
 			mobFarmerStatus.set(actionName + "-menu:" + label);
 			lastEvent.set("mob-farmer-" + actionName + "@" + label + "@" + Instant.now());
@@ -3728,6 +4260,10 @@ public class CvHelperPlugin extends Plugin
 			attempt.put("result", "failed");
 			attempt.put("error", e.getMessage());
 			recordMobFarmerActionAttempt(actionName, attempt);
+			if ("intermediate".equals(actionName))
+			{
+				setMobFarmerIntermediateDecision("failed:" + menu.option, attempt);
+			}
 			mobFarmerStatus.set(actionName + "-menu-failed:" + e.getMessage());
 			updatePanelStatus("Mob farmer " + actionName + " menu failed: " + e.getMessage());
 			return false;
@@ -3740,6 +4276,11 @@ public class CvHelperPlugin extends Plugin
 
 	private InventoryMenuAction inventoryMenuAction(Map<String, Object> target, String... preferredActions)
 	{
+		return inventoryMenuAction(target, inventoryTargetActions(target), preferredActions);
+	}
+
+	private InventoryMenuAction inventoryMenuAction(Map<String, Object> target, String[] actions, String... preferredActions)
+	{
 		int widgetId = intValue(target.get("parentId"), -1);
 		if (widgetId <= 0)
 		{
@@ -3751,7 +4292,6 @@ public class CvHelperPlugin extends Plugin
 		{
 			return null;
 		}
-		String[] actions = targetActions(target);
 		for (String preferred : preferredActions)
 		{
 			InventoryMenuAction menu = inventoryMenuActionForOption(actions, preferred, param0, widgetId, itemId);
@@ -3776,9 +4316,9 @@ public class CvHelperPlugin extends Plugin
 			{
 				continue;
 			}
-			int opId = i + 1;
-			MenuAction menuAction = opId >= 6 ? MenuAction.CC_OP_LOW_PRIORITY : MenuAction.CC_OP;
-			return new InventoryMenuAction(i, param0, widgetId, menuAction, opId, itemId, action);
+			int componentOpId = i + 2;
+			MenuAction menuAction = componentOpId >= 6 ? MenuAction.CC_OP_LOW_PRIORITY : MenuAction.CC_OP;
+			return new InventoryMenuAction(i, componentOpId, param0, widgetId, menuAction, componentOpId, itemId, action);
 		}
 		return null;
 	}
@@ -3808,6 +4348,7 @@ public class CvHelperPlugin extends Plugin
 
 	private void invokeMobFarmerAttack(Map<String, Object> target, Map<String, Object> clickPoint, boolean live, int generation)
 	{
+		recordMobFarmerIntent("ATTACK_TARGET", target);
 		if (getMobFarmerAttackInteractionMode() == CvHelperMobInteractionMode.MENU_ACTION)
 		{
 			invokeMobFarmerNpcMenuAction(target, clickPoint, live, generation);
@@ -4089,7 +4630,7 @@ public class CvHelperPlugin extends Plugin
 				return true;
 			}
 		}
-		return items.length <= 0 || occupied < items.length;
+		return occupied < inventorySlotCount(InventoryID.INVENTORY, items);
 	}
 
 	private boolean isInventoryVisible()
@@ -4365,6 +4906,37 @@ public class CvHelperPlugin extends Plugin
 		return new String[0];
 	}
 
+	private String[] inventoryTargetActions(Map<String, Object> target)
+	{
+		Object actions = target.get("inventoryActions");
+		if (actions instanceof String[])
+		{
+			return (String[]) actions;
+		}
+		if (actions instanceof List)
+		{
+			List<?> actionList = (List<?>) actions;
+			String[] out = new String[actionList.size()];
+			for (int i = 0; i < actionList.size(); i++)
+			{
+				out[i] = actionList.get(i) == null ? "" : String.valueOf(actionList.get(i));
+			}
+			return out;
+		}
+		return targetActions(target);
+	}
+
+	private String[] itemInventoryActions(int itemId)
+	{
+		if (itemId <= 0)
+		{
+			return new String[0];
+		}
+		ItemComposition composition = itemManager.getItemComposition(itemId);
+		String[] actions = composition == null ? null : composition.getInventoryActions();
+		return actions == null ? new String[0] : actions;
+	}
+
 	private void setMobFarmerLootDecision(String decision, Map<String, Object> target)
 	{
 		Map<String, Object> payload = new LinkedHashMap<>();
@@ -4559,6 +5131,145 @@ public class CvHelperPlugin extends Plugin
 			payload.put("target", target);
 		}
 		lastMobFarmerDecision = payload;
+	}
+
+	private void recordMobFarmerIntent(String intent, Map<String, Object> target)
+	{
+		int tick = safeValue(client::getTickCount, 0);
+		String key = mobFarmerTargetKey(target);
+		int distance = target == null ? Integer.MAX_VALUE : intValue(target.get("distance"), Integer.MAX_VALUE);
+		Map<String, Object> entry = new LinkedHashMap<>();
+		entry.put("intent", intent);
+		entry.put("at", Instant.now().toString());
+		entry.put("tick", tick);
+		entry.put("target", target == null ? null : targetLabelForMessage(target));
+		entry.put("targetKey", key);
+		if (distance != Integer.MAX_VALUE)
+		{
+			entry.put("distance", distance);
+		}
+
+		if ("LOOT_ITEM".equals(intent) && key != null)
+		{
+			updateMobFarmerLootChase(key, distance, tick);
+		}
+
+		List<Map<String, Object>> intents = new ArrayList<>(lastMobFarmerIntents);
+		intents.add(entry);
+		while (intents.size() > 6)
+		{
+			intents.remove(0);
+		}
+		lastMobFarmerIntents = intents;
+
+		boolean oscillation = mobFarmerOscillationDetected(intents);
+		if (oscillation)
+		{
+			mobFarmerMakeProgressUntilTick = Math.max(mobFarmerMakeProgressUntilTick, tick + MOB_FARMER_PROGRESS_WINDOW_TICKS);
+		}
+		updateMobFarmerProgressStatus(intent, target, oscillation, tick);
+	}
+
+	private void updateMobFarmerLootChase(String key, int distance, int tick)
+	{
+		if (!key.equals(activeMobFarmerLootKey))
+		{
+			activeMobFarmerLootKey = key;
+			activeMobFarmerLootStartTick = tick;
+			activeMobFarmerLootLastDistance = distance;
+			activeMobFarmerLootImproving = true;
+			return;
+		}
+		activeMobFarmerLootImproving = distance <= activeMobFarmerLootLastDistance;
+		activeMobFarmerLootLastDistance = distance;
+	}
+
+	private boolean mobFarmerOscillationDetected(List<Map<String, Object>> intents)
+	{
+		if (intents.size() < 4)
+		{
+			return false;
+		}
+		List<String> recent = new ArrayList<>();
+		for (int i = intents.size() - 4; i < intents.size(); i++)
+		{
+			recent.add(String.valueOf(intents.get(i).get("intent")));
+		}
+		return ("ATTACK_TARGET".equals(recent.get(0)) && "LOOT_ITEM".equals(recent.get(1)) && "ATTACK_TARGET".equals(recent.get(2)) && "LOOT_ITEM".equals(recent.get(3)))
+			|| ("LOOT_ITEM".equals(recent.get(0)) && "ATTACK_TARGET".equals(recent.get(1)) && "LOOT_ITEM".equals(recent.get(2)) && "ATTACK_TARGET".equals(recent.get(3)));
+	}
+
+	private void updateMobFarmerProgressStatus(String intent, Map<String, Object> target, boolean oscillationDetected, int tick)
+	{
+		Map<String, Object> status = new LinkedHashMap<>();
+		status.put("currentIntent", intent);
+		status.put("currentTick", tick);
+		status.put("target", target == null ? null : targetLabelForMessage(target));
+		status.put("targetKey", mobFarmerTargetKey(target));
+		if (target != null && target.get("distance") != null)
+		{
+			status.put("targetDistance", target.get("distance"));
+		}
+		status.put("oscillationDetected", oscillationDetected);
+		status.put("makeProgressActive", activeMobFarmerLootKey != null && activeMobFarmerLootImproving && tick <= mobFarmerMakeProgressUntilTick);
+		status.put("makeProgressUntilTick", mobFarmerMakeProgressUntilTick);
+		status.put("activeLootKey", activeMobFarmerLootKey);
+		status.put("activeLootStartTick", activeMobFarmerLootStartTick);
+		status.put("activeLootLastDistance", activeMobFarmerLootLastDistance == Integer.MAX_VALUE ? null : activeMobFarmerLootLastDistance);
+		status.put("activeLootDistanceImproving", activeMobFarmerLootImproving);
+		status.put("recentIntentNames", recentMobFarmerIntentNames());
+		lastMobFarmerProgressStatus = status;
+	}
+
+	private List<String> recentMobFarmerIntentNames()
+	{
+		List<String> names = new ArrayList<>();
+		for (Map<String, Object> entry : lastMobFarmerIntents)
+		{
+			names.add(String.valueOf(entry.get("intent")));
+		}
+		return names;
+	}
+
+	private boolean mobFarmerMakeProgressActive()
+	{
+		int tick = safeValue(client::getTickCount, 0);
+		return activeMobFarmerLootKey != null
+			&& activeMobFarmerLootImproving
+			&& tick <= mobFarmerMakeProgressUntilTick
+			&& (activeMobFarmerLootStartTick <= 0 || tick - activeMobFarmerLootStartTick <= MOB_FARMER_PROGRESS_WINDOW_TICKS);
+	}
+
+	private void clearMobFarmerLootChase(String reason)
+	{
+		activeMobFarmerLootKey = null;
+		activeMobFarmerLootStartTick = 0;
+		activeMobFarmerLootLastDistance = Integer.MAX_VALUE;
+		activeMobFarmerLootImproving = false;
+		Map<String, Object> status = new LinkedHashMap<>(lastMobFarmerProgressStatus);
+		status.put("activeLootClearedReason", reason);
+		status.put("activeLootKey", null);
+		status.put("activeLootDistanceImproving", false);
+		lastMobFarmerProgressStatus = status;
+	}
+
+	private String mobFarmerTargetKey(Map<String, Object> target)
+	{
+		if (target == null)
+		{
+			return null;
+		}
+		Object surface = target.get("surface");
+		if ("loot".equals(surface))
+		{
+			return "loot:" + target.get("itemId") + "@" + target.get("sceneX") + "," + target.get("sceneY");
+		}
+		Object type = target.get("type");
+		if ("npc".equals(type))
+		{
+			return "npc:" + target.get("id") + "@" + target.get("index");
+		}
+		return String.valueOf(target.get("label"));
 	}
 
 	private boolean matchesAnyMobTarget(NPC npc, String targetLabel)
@@ -4775,23 +5486,36 @@ public class CvHelperPlugin extends Plugin
 				return;
 			}
 
-			Widget loginWidget = client.getWidget(WidgetInfo.LOGIN_CLICK_TO_PLAY_SCREEN);
-			if (loginWidget == null || loginWidget.isHidden() || loginWidget.getBounds() == null)
+			Widget loginWidget = findLoginClickWidget();
+			Point screenPoint;
+			boolean enterFallback = false;
+			if (isVisibleWidget(loginWidget))
+			{
+				Rectangle bounds = loginWidget.getBounds();
+				screenPoint = canvasPointToScreen(pointMap(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
+			}
+			else if (loginEnterFallbackAllowed())
+			{
+				screenPoint = null;
+				enterFallback = true;
+			}
+			else
+			{
+				screenPoint = null;
+			}
+			if (screenPoint == null && !enterFallback)
 			{
 				updatePanelStatus("Login click skipped: click-to-play widget not visible");
 				lastEvent.set("login-click-skipped:no-widget@" + Instant.now());
 				return;
 			}
 
-			Rectangle bounds = loginWidget.getBounds();
-			Point screenPoint = canvasPointToScreen(pointMap(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
-			if (screenPoint == null)
+			boolean usedEnterFallback = enterFallback;
+			if (usedEnterFallback)
 			{
-				updatePanelStatus("Login click skipped: widget is off-canvas");
-				lastEvent.set("login-click-skipped:off-canvas@" + Instant.now());
+				pressLoginEnterFallback("login-enter-fallback", "Pressed Enter on login screen");
 				return;
 			}
-
 			Thread loginClickThread = new Thread(() ->
 			{
 				try
@@ -4811,6 +5535,111 @@ public class CvHelperPlugin extends Plugin
 			loginClickThread.setDaemon(true);
 			loginClickThread.start();
 		});
+	}
+
+	private void pressLoginEnterFallback(String eventName, String panelMessage)
+	{
+		Thread loginClickThread = new Thread(() ->
+		{
+			try
+			{
+				Robot robot = new Robot();
+				robot.keyPress(KeyEvent.VK_ENTER);
+				robot.delay(40);
+				robot.keyRelease(KeyEvent.VK_ENTER);
+				updatePanelStatus(panelMessage);
+				lastEvent.set(eventName + "@" + Instant.now());
+			}
+			catch (RuntimeException | java.awt.AWTException e)
+			{
+				log.warn("CV Helper login Enter fallback failed", e);
+				updatePanelStatus("Login Enter fallback failed: " + e.getMessage());
+				lastEvent.set(eventName + "-failed:" + e.getMessage() + "@" + Instant.now());
+			}
+		}, "cv-helper-login-enter");
+		loginClickThread.setDaemon(true);
+		loginClickThread.start();
+	}
+
+	private Widget findLoginClickWidget()
+	{
+		for (int componentId : new int[]{InterfaceID.WelcomeScreen.PLAY, InterfaceID.WelcomeScreen.CLICKHERE_TEXT})
+		{
+			Widget widget = client.getWidget(componentId);
+			if (isVisibleWidget(widget))
+			{
+				return widget;
+			}
+		}
+
+		Widget widget = client.getWidget(WidgetInfo.LOGIN_CLICK_TO_PLAY_SCREEN);
+		if (isVisibleWidget(widget))
+		{
+			return widget;
+		}
+
+		return findLoginClickWidget(client.getWidget(InterfaceID.WelcomeScreen.UNIVERSE));
+	}
+
+	private boolean loginEnterFallbackAllowed()
+	{
+		return client.getGameState() == GameState.LOGIN_SCREEN && mobFarmerLoginWorldAllowed();
+	}
+
+	private Widget findLoginClickWidget(Widget widget)
+	{
+		if (widget == null)
+		{
+			return null;
+		}
+		if (isVisibleWidget(widget) && isLoginClickCandidate(widget))
+		{
+			return widget;
+		}
+
+		for (Widget[] children : new Widget[][]{widget.getDynamicChildren(), widget.getStaticChildren(), widget.getNestedChildren()})
+		{
+			if (children == null)
+			{
+				continue;
+			}
+			for (Widget child : children)
+			{
+				Widget found = findLoginClickWidget(child);
+				if (found != null)
+				{
+					return found;
+				}
+			}
+		}
+		return null;
+	}
+
+	private boolean isVisibleWidget(Widget widget)
+	{
+		if (widget == null || widget.isHidden())
+		{
+			return false;
+		}
+		Rectangle bounds = widget.getBounds();
+		return bounds != null && bounds.width > 0 && bounds.height > 0;
+	}
+
+	private boolean isLoginClickCandidate(Widget widget)
+	{
+		StringBuilder haystack = new StringBuilder();
+		haystack.append(cleanWidgetText(widget.getText())).append(' ');
+		haystack.append(cleanWidgetText(widget.getName())).append(' ');
+		String[] actions = widget.getActions();
+		if (actions != null)
+		{
+			for (String action : actions)
+			{
+				haystack.append(cleanWidgetText(action)).append(' ');
+			}
+		}
+		String normalized = normalize(haystack.toString());
+		return normalized.contains("click here to play") || normalized.equals("play") || normalized.contains(" play ");
 	}
 
 	private void captureImage(String captureType, boolean addFrame, Rectangle crop)
@@ -5664,6 +6493,7 @@ public class CvHelperPlugin extends Plugin
 		target.put("text", text);
 		target.put("itemName", itemName);
 		target.put("actions", actions == null ? new String[0] : actions);
+		target.put("inventoryActions", itemInventoryActions(widget.getItemId()));
 		target.put("itemId", widget.getItemId());
 		target.put("itemQuantity", widget.getItemQuantity());
 		target.put("spriteId", widget.getSpriteId());
@@ -6071,12 +6901,25 @@ public class CvHelperPlugin extends Plugin
 
 		summary.put("name", name);
 		summary.put("containerId", inventoryId.getId());
-		summary.put("slotCount", containerItems.length);
+		summary.put("slotCount", inventorySlotCount(inventoryId, containerItems));
 		summary.put("occupiedSlots", occupiedSlots);
 		summary.put("gePrice", gePrice);
 		summary.put("haPrice", haPrice);
 		summary.put("items", items);
 		return summary;
+	}
+
+	private int inventorySlotCount(InventoryID inventoryId, Item[] containerItems)
+	{
+		if (inventoryId == InventoryID.INVENTORY)
+		{
+			return 28;
+		}
+		if (inventoryId == InventoryID.EQUIPMENT)
+		{
+			return 14;
+		}
+		return containerItems.length;
 	}
 
 	private long longValue(Object value)

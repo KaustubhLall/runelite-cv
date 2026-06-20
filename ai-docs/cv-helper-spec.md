@@ -163,9 +163,15 @@ Returns visible equipped-item/equipment slot targets with click centers, item id
 
 Returns player and client state, including login state, world info, base coordinates, player world/local coordinates, mouse canvas position, optional self/player screen bounds, run energy, special attack energy/enabled state, HP/prayer boosted and real levels, weight, current spellbook, selected widget state, current visible interface/tab metadata, coarse inventory/equipment/current-loot/risked-value summaries, all skills, and prayer active/export state where available.
 
+Inventory/equipment summary counts should reflect real slot capacity, not just the number of occupied `Item[]` entries. The standard player inventory is 28 slots, so `freeSlots` should remain meaningful even when the exported item list is sparse or only partially refreshed.
+
 ### `POST /login/click` / `GET /login/click`
 
 Queues a guarded click on RuneLite's visible click-to-play/login widget. This is a convenience for local testing when the client is waiting at the login screen. It must skip and report status if the client is not on a login screen or if RuneLite does not expose a visible login widget.
+
+The mob farmer can optionally reuse this guarded login click for live-loop recovery after a normal logout/login-screen state. It also has a separate inactivity-disconnect recovery setting for RuneLite `CONNECTION_LOST`, which queues a guarded Enter press to advance the disconnect/login flow. Recovery is cooldown-gated, reports current client login state, detected screen/state, click-to-play/disconnect/auto-resume settings, current/preferred world and F2P guard decisions under `/automation/mob-farmer/status`, and is intentionally separate from idle-extension behavior. To extend the idle logout window, configure RuneLite's Logout Timer plugin/settings rather than relying on CV Helper to move the mouse or generate fake activity.
+
+Mob-farmer status also includes progress diagnostics under `progress` and `recentIntents`. These fields record recent high-level intents such as `ATTACK_TARGET` and `LOOT_ITEM`, expose target keys/distances, flag attack/loot alternation, and report whether the short make-progress preference window is active.
 
 ### `GET /targets/panels`
 
@@ -342,7 +348,7 @@ First-pass survival, menu interaction, and loot processing is implemented:
 - Loot pickup scans visible scene ground items and reports every candidate in `/automation/mob-farmer/status`. Selection uses explicit always-loot names/ids, Ground Items highlighted/hidden list metadata, minimum GE value, blacklist, ownership policy, loot radius, inventory capacity, stackability, interaction mode, and score.
 - Attack and loot interaction modes default to `MENU_ACTION`. NPC attacks use the exact `Attack` action index exported from NPC composition metadata, and loot uses `GROUND_ITEM_FIRST_OPTION`/`Take` with scene coordinates. Before a live loot action fires, the target is revalidated on its scene tile; stale or newly rejected loot attempts fall through so the loop can attack instead of getting stuck. `DIRECT_CLICK` remains available as a debug/fallback path.
 - Ground Items list reuse is first-pass implemented. `SUPPLEMENT` treats Ground Items highlighted entries as additional always-loot candidates. Ground Items hidden-list, hide-under-value, and show-highlighted-only suppression metadata are reported on candidates; they block pickup only if `Respect hidden Ground Items` is enabled and the item is not explicitly listed by CV Helper. `Never-loot` still wins over all allowlist/highlight/value rules.
-- Optional intermediate inventory actions can use matching items such as bones or ashes with explicit inventory widget menu actions in priority order: `Bury`, `Scatter`, then `Use`. This is intentionally smaller than a full inventory manager, but it shares the intended future primitive for drop/use inventory processing.
+- Optional intermediate inventory actions can use matching items with configurable item-to-action mappings. Defaults preserve `bones -> Bury`, `big bones -> Bury`, and `ashes -> Scatter|Bury`, but future entries can map other item names or ids to different inventory actions. If the configured action is unavailable, the farmer skips the item and reports selected item, slot, matched rule, configured action(s), available item actions, intended/actual action, menu params, result, and failure reason instead of falling back to `Use` or `Drop`.
 - Default loot flow prioritizes attacking first when idle, then collecting allowed drops during combat windows or when no valid target is available. This supports the desired "attack next mob first, then loot after the drop appears" rhythm.
 - Inventory status reports occupied/free slots, protected never-drop list, and the lowest-value unprotected drop candidate for future drop-processing work. The first pass does not drop inventory items automatically.
 
@@ -357,7 +363,7 @@ Known farmer follow-ups:
 - Add automatic low-value dropping, item priority tiers, and safe pathing/exit strategies before longer unattended loops.
 - Replace conservative line-of-sight filtering with real route/path distance using collision maps or a pathing plugin integration.
 - Add emergency teleport and configuration profiles/presets after the loop primitives are stable.
-- Add login/reconnect/world-recovery flow after the core combat loop is stable.
+- Add explicit world-switching/reconnect policy after the core combat loop is stable. Login-screen recovery already reuses the guarded `/login/click` helper when enabled.
 
 The verifier dashboard groups `/status` data into connection, vitals, wealth, and interface sections. It shows HP/prayer, run energy, special attack energy/enabled state, active prayers, current loot/equipment/total carried/risked-value approximation, selected widget state, and latest capture preview/path.
 

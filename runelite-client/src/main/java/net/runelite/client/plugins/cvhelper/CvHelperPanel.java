@@ -23,7 +23,9 @@ import javax.swing.JComponent;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
+import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.Timer;
 import javax.swing.JToggleButton;
@@ -484,6 +486,28 @@ class CvHelperPanel extends PluginPanel
 		JCheckBox stopIfNoFood = new JCheckBox("Stop if no food", plugin.getMobFarmerStopIfNoFood());
 		styleCheckbox(stopIfNoFood);
 		stopIfNoFood.addActionListener(e -> plugin.setMobFarmerStopIfNoFood(stopIfNoFood.isSelected()));
+		JCheckBox loginRecovery = new JCheckBox("Recover after logout", plugin.getMobFarmerLoginRecoveryEnabled());
+		styleCheckbox(loginRecovery);
+		loginRecovery.setToolTipText("Clicks RuneLite's visible login widget after a normal logout; it does not generate anti-idle input.");
+		loginRecovery.addActionListener(e -> plugin.setMobFarmerLoginRecoveryEnabled(loginRecovery.isSelected()));
+		JCheckBox loginRecoveryF2p = new JCheckBox("F2P-world recovery only", plugin.getMobFarmerLoginRecoveryF2pOnly());
+		styleCheckbox(loginRecoveryF2p);
+		loginRecoveryF2p.setToolTipText("Blocks autonomous login recovery on member, PvP, Deadman, seasonal, or minigame/special worlds.");
+		loginRecoveryF2p.addActionListener(e -> plugin.setMobFarmerLoginRecoveryF2pOnly(loginRecoveryF2p.isSelected()));
+		JCheckBox clickToPlayRecovery = new JCheckBox("Click-to-play recovery", plugin.getMobFarmerLoginClickToPlayEnabled());
+		styleCheckbox(clickToPlayRecovery);
+		clickToPlayRecovery.setToolTipText("Clicks the visible login widget or presses Enter on the click-to-play screen.");
+		clickToPlayRecovery.addActionListener(e -> plugin.setMobFarmerLoginClickToPlayEnabled(clickToPlayRecovery.isSelected()));
+		JCheckBox disconnectRecovery = new JCheckBox("Inactivity disconnect recovery", plugin.getMobFarmerLoginDisconnectRecoveryEnabled());
+		styleCheckbox(disconnectRecovery);
+		disconnectRecovery.setToolTipText("Handles RuneLite CONNECTION_LOST with a guarded Enter press. This is not anti-idle input.");
+		disconnectRecovery.addActionListener(e -> plugin.setMobFarmerLoginDisconnectRecoveryEnabled(disconnectRecovery.isSelected()));
+		JCheckBox autoResumeAfterLogin = new JCheckBox("Auto-resume after login", plugin.getMobFarmerAutoResumeAfterLogin());
+		styleCheckbox(autoResumeAfterLogin);
+		autoResumeAfterLogin.setToolTipText("Keep the farmer loop alive through logout/disconnect so it resumes after login.");
+		autoResumeAfterLogin.addActionListener(e -> plugin.setMobFarmerAutoResumeAfterLogin(autoResumeAfterLogin.isSelected()));
+		JTextField preferredLoginWorld = new JTextField(String.valueOf(plugin.getMobFarmerPreferredLoginWorld()));
+		preferredLoginWorld.setToolTipText("Preferred local dev login world for status/reporting; current world is still validated before clicking.");
 
 		JCheckBox lootEnabled = new JCheckBox("Loot pickup", plugin.getMobFarmerLootEnabled());
 		styleCheckbox(lootEnabled);
@@ -514,11 +538,17 @@ class CvHelperPanel extends PluginPanel
 		JCheckBox respectGroundItemsHidden = new JCheckBox("Respect hidden Ground Items", plugin.getMobFarmerRespectGroundItemsHidden());
 		styleCheckbox(respectGroundItemsHidden);
 		respectGroundItemsHidden.addActionListener(e -> plugin.setMobFarmerRespectGroundItemsHidden(respectGroundItemsHidden.isSelected()));
-		JCheckBox intermediateActions = new JCheckBox("Use bones/ashes", plugin.getMobFarmerIntermediateActionsEnabled());
+		JCheckBox intermediateActions = new JCheckBox("Use intermediate actions", plugin.getMobFarmerIntermediateActionsEnabled());
 		styleCheckbox(intermediateActions);
 		intermediateActions.addActionListener(e -> plugin.setMobFarmerIntermediateActionsEnabled(intermediateActions.isSelected()));
 		JTextField intermediateItems = new JTextField(plugin.getMobFarmerIntermediateItems());
 		intermediateItems.setToolTipText("Items to use during farming, such as bones or ashes.");
+		JTextArea intermediateMappings = new JTextArea(plugin.getMobFarmerIntermediateActionMappings(), 3, 18);
+		intermediateMappings.setLineWrap(true);
+		intermediateMappings.setWrapStyleWord(true);
+		intermediateMappings.setToolTipText("Examples: bones -> Bury; big bones -> Bury; ashes -> Scatter|Bury");
+		JScrollPane intermediateMappingsPane = new JScrollPane(intermediateMappings);
+		intermediateMappingsPane.setPreferredSize(new Dimension(0, 76));
 		JTextField neverDrop = new JTextField(plugin.getMobFarmerNeverDropItems());
 		neverDrop.setToolTipText("Inventory items that future drop processing must never drop.");
 
@@ -535,6 +565,12 @@ class CvHelperPanel extends PluginPanel
 			plugin.setMobFarmerEatHitpointPercent(parseNonNegativeInt(eatThreshold.getText(), plugin.getMobFarmerEatHitpointPercent()));
 			plugin.setMobFarmerFoodItems(foodItems.getText());
 			plugin.setMobFarmerStopIfNoFood(stopIfNoFood.isSelected());
+			plugin.setMobFarmerLoginRecoveryEnabled(loginRecovery.isSelected());
+			plugin.setMobFarmerLoginRecoveryF2pOnly(loginRecoveryF2p.isSelected());
+			plugin.setMobFarmerLoginClickToPlayEnabled(clickToPlayRecovery.isSelected());
+			plugin.setMobFarmerLoginDisconnectRecoveryEnabled(disconnectRecovery.isSelected());
+			plugin.setMobFarmerAutoResumeAfterLogin(autoResumeAfterLogin.isSelected());
+			plugin.setMobFarmerPreferredLoginWorld(parseNonNegativeInt(preferredLoginWorld.getText(), plugin.getMobFarmerPreferredLoginWorld()));
 			plugin.setMobFarmerLootEnabled(lootEnabled.isSelected());
 			plugin.setMobFarmerLootDuringCombat(lootDuringCombat.isSelected());
 			plugin.setMobFarmerAttackBeforeLoot(attackBeforeLoot.isSelected());
@@ -548,6 +584,7 @@ class CvHelperPanel extends PluginPanel
 			plugin.setMobFarmerRespectGroundItemsHidden(respectGroundItemsHidden.isSelected());
 			plugin.setMobFarmerIntermediateActionsEnabled(intermediateActions.isSelected());
 			plugin.setMobFarmerIntermediateItems(intermediateItems.getText());
+			plugin.setMobFarmerIntermediateActionMappings(intermediateMappings.getText());
 			plugin.setMobFarmerNeverDropItems(neverDrop.getText());
 			updateStatus("Mob farmer guards saved");
 		});
@@ -603,6 +640,15 @@ class CvHelperPanel extends PluginPanel
 			label("Food items"),
 			foodItems,
 			stopIfNoFood,
+			label("Login recovery"),
+			loginRecovery,
+			loginRecoveryF2p,
+			clickToPlayRecovery,
+			disconnectRecovery,
+			autoResumeAfterLogin,
+			label("Preferred login world"),
+			preferredLoginWorld,
+			label("<html>Idle handling: use RuneLite's Logout Timer plugin/settings for longer idle windows. CV Helper only recovers after logout.</html>"),
 			label("Loot"),
 			lootEnabled,
 			lootDuringCombat,
@@ -626,6 +672,8 @@ class CvHelperPanel extends PluginPanel
 			intermediateActions,
 			label("Intermediate items"),
 			intermediateItems,
+			label("Item -> action mappings"),
+			intermediateMappingsPane,
 			label("Protected inventory"),
 			neverDrop,
 			saveGuards,
