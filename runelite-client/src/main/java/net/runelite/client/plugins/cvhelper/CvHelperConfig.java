@@ -110,6 +110,7 @@ public interface CvHelperConfig extends Config
 	String MOB_FARMER_EAT_HITPOINT_PERCENT = "mobFarmerEatHitpointPercent";
 	String MOB_FARMER_FOOD_ITEMS = "mobFarmerFoodItems";
 	String MOB_FARMER_STOP_IF_NO_FOOD = "mobFarmerStopIfNoFood";
+	String MOB_FARMER_SURVIVAL_PREEMPTS_ACTIONS = "mobFarmerSurvivalPreemptsActions";
 	String MOB_FARMER_LOGIN_RECOVERY_ENABLED = "mobFarmerLoginRecoveryEnabled";
 	String MOB_FARMER_LOGIN_RECOVERY_F2P_ONLY = "mobFarmerLoginRecoveryF2pOnly";
 	String MOB_FARMER_LOGIN_CLICK_TO_PLAY_ENABLED = "mobFarmerLoginClickToPlayEnabled";
@@ -120,6 +121,9 @@ public interface CvHelperConfig extends Config
 	String MOB_FARMER_LOOT_DURING_COMBAT = "mobFarmerLootDuringCombat";
 	String MOB_FARMER_ATTACK_BEFORE_LOOT = "mobFarmerAttackBeforeLoot";
 	String MOB_FARMER_LOOT_MIN_VALUE_GE = "mobFarmerLootMinValueGe";
+	String MOB_FARMER_HIGH_PRIORITY_LOOT_VALUE_GE = "mobFarmerHighPriorityLootValueGe";
+	String MOB_FARMER_LOOT_URGENT_DESPAWN_TICKS = "mobFarmerLootUrgentDespawnTicks";
+	String MOB_FARMER_LOOT_CLEANUP_PILE_COUNT = "mobFarmerLootCleanupPileCount";
 	String MOB_FARMER_LOOT_RADIUS = "mobFarmerLootRadius";
 	String MOB_FARMER_LOOT_ITEMS = "mobFarmerLootItems";
 	String MOB_FARMER_LOOT_BLACKLIST = "mobFarmerLootBlacklist";
@@ -580,6 +584,17 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = MOB_FARMER_SURVIVAL_PREEMPTS_ACTIONS,
+		name = "Survival preempts actions",
+		description = "When HP is below the auto-eat threshold, survival actions interrupt combat/loot scheduling. Survival still wins over high-priority loot.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerSurvivalPreemptsActions()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = MOB_FARMER_LOGIN_RECOVERY_ENABLED,
 		name = "Recover after logout",
 		description = "When the live farmer reaches RuneLite's login screen, queue the same guarded click-to-play helper used by the panel. This is login recovery only, not anti-idle input.",
@@ -687,6 +702,39 @@ public interface CvHelperConfig extends Config
 	default int mobFarmerLootMinValueGe()
 	{
 		return 100;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_HIGH_PRIORITY_LOOT_VALUE_GE,
+		name = "Priority loot GE",
+		description = "Loot at or above this GE value can override Attack before loot. Use 0 to treat all selectable loot as priority.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerHighPriorityLootValueGe()
+	{
+		return 1000;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_URGENT_DESPAWN_TICKS,
+		name = "Urgent loot despawn ticks",
+		description = "Loot with this many or fewer ticks before despawn can override Attack before loot. Use 0 to disable age urgency.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerLootUrgentDespawnTicks()
+	{
+		return 30;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_CLEANUP_PILE_COUNT,
+		name = "Loot cleanup pile count",
+		description = "When at least this many selectable loot piles are visible, cleanup mode can override Attack before loot. Use 0 to disable cleanup override.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerLootCleanupPileCount()
+	{
+		return 5;
 	}
 
 	@ConfigItem(

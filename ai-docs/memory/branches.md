@@ -7,7 +7,7 @@ Track active or paused branches here so session memory does not bleed across wor
 | Branch | State | Purpose | Linear | Last Updated | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `codex/osr-1-set-up-ai-docs-harness-and-default-mcp-tooling` | archived | Initial AI docs harness setup and MCP defaults | [OSR-1](https://linear.app/hutechventures/issue/OSR-1/set-up-ai-docs-harness-and-default-mcp-tooling) | 2026-06-17 | Merged PR: https://github.com/KaustubhLall/runelite-cv/pull/1 |
-| `master` | active | CV Helper plugin scaffold, target/action exports, action hotkeys, and mob-farmer automation stabilization | [OSR-2](https://linear.app/hutechventures/issue/OSR-2/plan-example-runelite-plugin-with-broadcast-server-and-character) | 2026-06-20 | Local uncommitted CV Helper work. Mob farmer is live-tested enough to wrap stabilization; next focus is config/profile foundation, real pathing/navigation/anchor behavior, local-area/piling constraints, and then mining/woodcutting/fishing modules using shared primitives. |
+| `master` | active | CV Helper plugin scaffold, target/action exports, action hotkeys, and mob-farmer automation stabilization | [OSR-2](https://linear.app/hutechventures/issue/OSR-2/plan-example-runelite-plugin-with-broadcast-server-and-character) | 2026-06-20 | Local uncommitted CV Helper work. Mob farmer now has tick-driven logged-in stepping, priority loot diagnostics, and death-loot timing diagnostics. Next focus is config/profile export/import, real pathing/navigation/anchor behavior, local-area/piling constraints, UI grouping, and then mining/woodcutting/fishing modules using shared primitives. |
 
 ## Rules
 

@@ -486,6 +486,10 @@ class CvHelperPanel extends PluginPanel
 		JCheckBox stopIfNoFood = new JCheckBox("Stop if no food", plugin.getMobFarmerStopIfNoFood());
 		styleCheckbox(stopIfNoFood);
 		stopIfNoFood.addActionListener(e -> plugin.setMobFarmerStopIfNoFood(stopIfNoFood.isSelected()));
+		JCheckBox survivalPreempts = new JCheckBox("Survival preempts actions", plugin.getMobFarmerSurvivalPreemptsActions());
+		styleCheckbox(survivalPreempts);
+		survivalPreempts.setToolTipText("When HP is low, auto-eat takes priority over loot and combat.");
+		survivalPreempts.addActionListener(e -> plugin.setMobFarmerSurvivalPreemptsActions(survivalPreempts.isSelected()));
 		JCheckBox loginRecovery = new JCheckBox("Recover after logout", plugin.getMobFarmerLoginRecoveryEnabled());
 		styleCheckbox(loginRecovery);
 		loginRecovery.setToolTipText("Clicks RuneLite's visible login widget after a normal logout; it does not generate anti-idle input.");
@@ -520,6 +524,12 @@ class CvHelperPanel extends PluginPanel
 		attackBeforeLoot.addActionListener(e -> plugin.setMobFarmerAttackBeforeLoot(attackBeforeLoot.isSelected()));
 		JTextField lootMinValue = new JTextField(String.valueOf(plugin.getMobFarmerLootMinValueGe()));
 		lootMinValue.setToolTipText("Minimum total GE value for items not in the always-loot list.");
+		JTextField highPriorityLootValue = new JTextField(String.valueOf(plugin.getMobFarmerHighPriorityLootValueGe()));
+		highPriorityLootValue.setToolTipText("Loot at or above this GE value can override attack-before-loot.");
+		JTextField urgentLootTicks = new JTextField(String.valueOf(plugin.getMobFarmerLootUrgentDespawnTicks()));
+		urgentLootTicks.setToolTipText("Loot with this many ticks left becomes high priority; 0 disables despawn urgency.");
+		JTextField cleanupPileCount = new JTextField(String.valueOf(plugin.getMobFarmerLootCleanupPileCount()));
+		cleanupPileCount.setToolTipText("If this many selectable loot piles are present, cleanup can override combat; 0 disables pile pressure.");
 		JTextField lootRadius = new JTextField(String.valueOf(plugin.getMobFarmerLootRadius()));
 		lootRadius.setToolTipText("0 disables the loot radius guard.");
 		JTextField lootItems = new JTextField(plugin.getMobFarmerLootItems());
@@ -565,6 +575,7 @@ class CvHelperPanel extends PluginPanel
 			plugin.setMobFarmerEatHitpointPercent(parseNonNegativeInt(eatThreshold.getText(), plugin.getMobFarmerEatHitpointPercent()));
 			plugin.setMobFarmerFoodItems(foodItems.getText());
 			plugin.setMobFarmerStopIfNoFood(stopIfNoFood.isSelected());
+			plugin.setMobFarmerSurvivalPreemptsActions(survivalPreempts.isSelected());
 			plugin.setMobFarmerLoginRecoveryEnabled(loginRecovery.isSelected());
 			plugin.setMobFarmerLoginRecoveryF2pOnly(loginRecoveryF2p.isSelected());
 			plugin.setMobFarmerLoginClickToPlayEnabled(clickToPlayRecovery.isSelected());
@@ -575,6 +586,9 @@ class CvHelperPanel extends PluginPanel
 			plugin.setMobFarmerLootDuringCombat(lootDuringCombat.isSelected());
 			plugin.setMobFarmerAttackBeforeLoot(attackBeforeLoot.isSelected());
 			plugin.setMobFarmerLootMinValueGe(parseNonNegativeInt(lootMinValue.getText(), plugin.getMobFarmerLootMinValueGe()));
+			plugin.setMobFarmerHighPriorityLootValueGe(parseNonNegativeInt(highPriorityLootValue.getText(), plugin.getMobFarmerHighPriorityLootValueGe()));
+			plugin.setMobFarmerLootUrgentDespawnTicks(parseNonNegativeInt(urgentLootTicks.getText(), plugin.getMobFarmerLootUrgentDespawnTicks()));
+			plugin.setMobFarmerLootCleanupPileCount(parseNonNegativeInt(cleanupPileCount.getText(), plugin.getMobFarmerLootCleanupPileCount()));
 			plugin.setMobFarmerLootRadius(parseNonNegativeInt(lootRadius.getText(), plugin.getMobFarmerLootRadius()));
 			plugin.setMobFarmerLootItems(lootItems.getText());
 			plugin.setMobFarmerLootBlacklist(lootBlacklist.getText());
@@ -640,6 +654,7 @@ class CvHelperPanel extends PluginPanel
 			label("Food items"),
 			foodItems,
 			stopIfNoFood,
+			survivalPreempts,
 			label("Login recovery"),
 			loginRecovery,
 			loginRecoveryF2p,
@@ -655,6 +670,12 @@ class CvHelperPanel extends PluginPanel
 			attackBeforeLoot,
 			label("Loot min GE value"),
 			lootMinValue,
+			label("High-priority GE value"),
+			highPriorityLootValue,
+			label("Urgent loot ticks"),
+			urgentLootTicks,
+			label("Cleanup pile count"),
+			cleanupPileCount,
 			label("Loot radius"),
 			lootRadius,
 			label("Always-loot items"),
