@@ -328,6 +328,7 @@ public class CvHelperPlugin extends Plugin
 
 	private static final class InventoryMenuAction
 	{
+		private final int opIndex;
 		private final int param0;
 		private final int param1;
 		private final MenuAction menuAction;
@@ -335,8 +336,9 @@ public class CvHelperPlugin extends Plugin
 		private final int itemId;
 		private final String option;
 
-		private InventoryMenuAction(int param0, int param1, MenuAction menuAction, int identifier, int itemId, String option)
+		private InventoryMenuAction(int opIndex, int param0, int param1, MenuAction menuAction, int identifier, int itemId, String option)
 		{
+			this.opIndex = opIndex;
 			this.param0 = param0;
 			this.param1 = param1;
 			this.menuAction = menuAction;
@@ -348,6 +350,7 @@ public class CvHelperPlugin extends Plugin
 		private Map<String, Object> asMap()
 		{
 			Map<String, Object> out = new LinkedHashMap<>();
+			out.put("opIndex", opIndex);
 			out.put("param0", param0);
 			out.put("param1", param1);
 			out.put("menuAction", menuAction.name());
@@ -3634,23 +3637,36 @@ public class CvHelperPlugin extends Plugin
 	private boolean invokeMobFarmerInventoryAction(String actionName, Map<String, Object> target, boolean live, int generation, String... preferredActions)
 	{
 		String label = targetLabelForMessage(target);
+		String itemName = String.valueOf(target.get("itemName"));
+		int slot = intValue(target.get("index"), -1);
+		String[] availableActions = targetActions(target);
+		String intendedAction = firstMatchingActionName(availableActions, preferredActions);
 		InventoryMenuAction menu = inventoryMenuAction(target, preferredActions);
 		Map<String, Object> attempt = new LinkedHashMap<>();
 		attempt.put("kind", actionName);
 		attempt.put("target", label);
+		attempt.put("itemName", itemName);
+		attempt.put("slot", slot);
+		attempt.put("availableActions", Arrays.asList(availableActions));
+		attempt.put("intendedAction", intendedAction);
 		attempt.put("targetSnapshot", target);
 		attempt.put("preferredActions", Arrays.asList(preferredActions));
 		if (menu != null)
 		{
+			attempt.put("actualAction", menu.option);
 			attempt.put("menu", menu.asMap());
 		}
 		if (!live)
 		{
 			attempt.put("result", menu == null ? "dry-missing-menu-action" : "dry");
+			if (menu == null)
+			{
+				attempt.put("failureReason", intendedAction == null ? "no-supported-inventory-action" : "menu-action-unresolved");
+			}
 			recordMobFarmerActionAttempt(actionName, attempt);
 			String message = menu == null
-				? "Mob farmer dry " + actionName + ": no inventory menu action for " + label
-				: "Mob farmer dry " + actionName + ": " + menu.option + " " + label + " via " + menu.menuAction;
+				? "Mob farmer dry " + actionName + ": skipped " + label + " slot " + slot + " (intended=" + intendedAction + ", available=" + Arrays.toString(availableActions) + ")"
+				: "Mob farmer dry " + actionName + ": " + menu.option + " " + label + " slot " + slot + " via " + menu.menuAction;
 			mobFarmerStatus.set("dry-" + actionName + ":" + label);
 			updatePanelStatus(message);
 			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, "");
@@ -3659,9 +3675,24 @@ public class CvHelperPlugin extends Plugin
 		if (menu == null)
 		{
 			attempt.put("result", "missing-menu-action");
+			attempt.put("failureReason", intendedAction == null ? "no-supported-inventory-action" : "menu-action-unresolved");
 			recordMobFarmerActionAttempt(actionName, attempt);
-			mobFarmerStatus.set(actionName + "-menu-missing:" + label);
-			updatePanelStatus("Mob farmer " + actionName + " menu missing: " + label);
+			mobFarmerStatus.set(actionName + "-skipped:menu-missing:" + label);
+			String reason = intendedAction == null
+				? "no supported action"
+				: "unable to resolve menu action for " + intendedAction;
+			updatePanelStatus("Mob farmer " + actionName + " skipped: " + label + " slot " + slot + " (" + reason + ")");
+			if ("intermediate".equals(actionName))
+			{
+				Map<String, Object> details = new LinkedHashMap<>();
+				details.put("target", target);
+				details.put("itemName", itemName);
+				details.put("slot", slot);
+				details.put("intendedAction", intendedAction);
+				details.put("availableActions", Arrays.asList(availableActions));
+				details.put("reason", reason);
+				setMobFarmerIntermediateDecision("skipped:menu-missing", details);
+			}
 			return false;
 		}
 		if (isStaleMobFarmerLoop(generation))
@@ -3682,8 +3713,9 @@ public class CvHelperPlugin extends Plugin
 		{
 			client.menuAction(menu.param0, menu.param1, menu.menuAction, menu.identifier, menu.itemId, menu.option, label);
 			attempt.put("result", "invoked");
+			attempt.put("actualAction", menu.option);
 			recordMobFarmerActionAttempt(actionName, attempt);
-			String message = "Mob farmer " + actionName + " invoked " + menu.option + " on " + label + " via " + menu.menuAction;
+			String message = "Mob farmer " + actionName + " invoked " + menu.option + " on " + label + " slot " + slot + " via " + menu.menuAction;
 			mobFarmerStatus.set(actionName + "-menu:" + label);
 			lastEvent.set("mob-farmer-" + actionName + "@" + label + "@" + Instant.now());
 			updatePanelStatus(message);
@@ -3744,9 +3776,32 @@ public class CvHelperPlugin extends Plugin
 			{
 				continue;
 			}
-			int opId = i <= 0 ? 1 : i;
+			int opId = i + 1;
 			MenuAction menuAction = opId >= 6 ? MenuAction.CC_OP_LOW_PRIORITY : MenuAction.CC_OP;
-			return new InventoryMenuAction(param0, widgetId, menuAction, opId, itemId, action);
+			return new InventoryMenuAction(i, param0, widgetId, menuAction, opId, itemId, action);
+		}
+		return null;
+	}
+
+	private String firstMatchingActionName(String[] availableActions, String... preferredActions)
+	{
+		if (availableActions == null || preferredActions == null)
+		{
+			return null;
+		}
+		for (String preferred : preferredActions)
+		{
+			if (preferred == null)
+			{
+				continue;
+			}
+			for (String available : availableActions)
+			{
+				if (available != null && available.equalsIgnoreCase(preferred))
+				{
+					return available;
+				}
+			}
 		}
 		return null;
 	}
