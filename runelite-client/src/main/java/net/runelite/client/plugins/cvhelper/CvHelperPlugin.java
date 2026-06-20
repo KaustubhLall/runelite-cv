@@ -3513,7 +3513,7 @@ public class CvHelperPlugin extends Plugin
 			target.put("sceneX", scenePoint.getX());
 			target.put("sceneY", scenePoint.getY());
 		}
-		target.put("menuAction", MenuAction.GROUND_ITEM_FIRST_OPTION.name());
+		target.put("menuAction", MenuAction.GROUND_ITEM_THIRD_OPTION.name());
 		target.put("menuOption", "Take");
 		target.put("menuTarget", name);
 		target.put("worldLocation", pointValue(tile.getWorldLocation()));
@@ -3902,13 +3902,13 @@ public class CvHelperPlugin extends Plugin
 			sceneX = intValue(freshTarget.get("sceneX"), sceneX);
 			sceneY = intValue(freshTarget.get("sceneY"), sceneY);
 			itemId = intValue(freshTarget.get("itemId"), itemId);
-			attempt.put("menuAction", MenuAction.GROUND_ITEM_FIRST_OPTION.name());
+			attempt.put("menuAction", MenuAction.GROUND_ITEM_THIRD_OPTION.name());
 			attempt.put("param0", sceneX);
 			attempt.put("param1", sceneY);
 			attempt.put("identifier", itemId);
 			attempt.put("itemId", itemId);
 			attempt.put("option", "Take");
-			client.menuAction(sceneX, sceneY, MenuAction.GROUND_ITEM_FIRST_OPTION, itemId, itemId, "Take", label);
+			client.menuAction(sceneX, sceneY, MenuAction.GROUND_ITEM_THIRD_OPTION, itemId, itemId, "Take", label);
 			attempt.put("result", "invoked");
 			recordMobFarmerActionAttempt("loot", attempt);
 			String message = "Mob farmer menu-took " + label + " @ scene " + sceneX + "," + sceneY;
