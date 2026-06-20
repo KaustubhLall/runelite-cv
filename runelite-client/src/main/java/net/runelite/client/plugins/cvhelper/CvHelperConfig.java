@@ -43,6 +43,7 @@ public interface CvHelperConfig extends Config
 	String CAPTURE_SCREEN_HOTKEY = "captureScreenHotkey";
 	String REFRESH_ENTITIES_HOTKEY = "refreshEntitiesHotkey";
 	String NEAREST_ENTITY_HOTKEY = "nearestEntityHotkey";
+	String PANIC_STOP_HOTKEY = "panicStopHotkey";
 	String ACTION_ENABLED_1 = "actionEnabled1";
 	String ACTION_HOTKEY_1 = "actionHotkey1";
 	String ACTION_SURFACE_1 = "actionSurface1";
@@ -50,6 +51,8 @@ public interface CvHelperConfig extends Config
 	String ACTION_CLICK_MOUSE_1 = "actionClickMouse1";
 	String ACTION_CLICK_AFTER_MODE_1 = "actionClickAfterMode1";
 	String ACTION_INVOCATION_MODE_1 = "actionInvocationMode1";
+	String ACTION_PRAYER_MODE_1 = "actionPrayerMode1";
+	String ACTION_SPELL_AVAILABILITY_MODE_1 = "actionSpellAvailabilityMode1";
 	String ACTION_RETURN_PANEL_1 = "actionReturnPanel1";
 	String ACTION_RETURN_MOUSE_CENTER_1 = "actionReturnMouseCenter1";
 	String ACTION_ENABLED_2 = "actionEnabled2";
@@ -59,6 +62,8 @@ public interface CvHelperConfig extends Config
 	String ACTION_CLICK_MOUSE_2 = "actionClickMouse2";
 	String ACTION_CLICK_AFTER_MODE_2 = "actionClickAfterMode2";
 	String ACTION_INVOCATION_MODE_2 = "actionInvocationMode2";
+	String ACTION_PRAYER_MODE_2 = "actionPrayerMode2";
+	String ACTION_SPELL_AVAILABILITY_MODE_2 = "actionSpellAvailabilityMode2";
 	String ACTION_RETURN_PANEL_2 = "actionReturnPanel2";
 	String ACTION_RETURN_MOUSE_CENTER_2 = "actionReturnMouseCenter2";
 	String ACTION_ENABLED_3 = "actionEnabled3";
@@ -68,6 +73,8 @@ public interface CvHelperConfig extends Config
 	String ACTION_CLICK_MOUSE_3 = "actionClickMouse3";
 	String ACTION_CLICK_AFTER_MODE_3 = "actionClickAfterMode3";
 	String ACTION_INVOCATION_MODE_3 = "actionInvocationMode3";
+	String ACTION_PRAYER_MODE_3 = "actionPrayerMode3";
+	String ACTION_SPELL_AVAILABILITY_MODE_3 = "actionSpellAvailabilityMode3";
 	String ACTION_RETURN_PANEL_3 = "actionReturnPanel3";
 	String ACTION_RETURN_MOUSE_CENTER_3 = "actionReturnMouseCenter3";
 	String ACTION_ENABLED_4 = "actionEnabled4";
@@ -77,6 +84,8 @@ public interface CvHelperConfig extends Config
 	String ACTION_CLICK_MOUSE_4 = "actionClickMouse4";
 	String ACTION_CLICK_AFTER_MODE_4 = "actionClickAfterMode4";
 	String ACTION_INVOCATION_MODE_4 = "actionInvocationMode4";
+	String ACTION_PRAYER_MODE_4 = "actionPrayerMode4";
+	String ACTION_SPELL_AVAILABILITY_MODE_4 = "actionSpellAvailabilityMode4";
 	String ACTION_RETURN_PANEL_4 = "actionReturnPanel4";
 	String ACTION_RETURN_MOUSE_CENTER_4 = "actionReturnMouseCenter4";
 	String ACTION_PANEL_OPEN_DELAY_MS = "actionPanelOpenDelayMs";
@@ -290,6 +299,17 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = PANIC_STOP_HOTKEY,
+		name = "Panic stop hotkey",
+		description = "Immediately stop CV Helper loops and clear the in-progress action guard.",
+		section = actionSection
+	)
+	default Keybind panicStopHotkey()
+	{
+		return new Keybind(java.awt.event.KeyEvent.VK_F12, 0);
+	}
+
+	@ConfigItem(
 		keyName = ACTION_PANEL_OPEN_DELAY_MS,
 		name = "Panel-open delay ms",
 		description = "Delay after opening a required side panel before resolving and invoking the action.",
@@ -500,6 +520,28 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = ACTION_PRAYER_MODE_1,
+		name = "Action 1 prayer mode",
+		description = "TOGGLE clicks normally; ON_ONLY skips if the prayer is already active; OFF_ONLY skips if it is already inactive.",
+		section = actionSection
+	)
+	default CvHelperPrayerActionMode actionPrayerMode1()
+	{
+		return CvHelperPrayerActionMode.TOGGLE;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_SPELL_AVAILABILITY_MODE_1,
+		name = "Action 1 spell guard",
+		description = "Guard against clearly unavailable/shaded spells before attempting the action.",
+		section = actionSection
+	)
+	default CvHelperSpellAvailabilityMode actionSpellAvailabilityMode1()
+	{
+		return CvHelperSpellAvailabilityMode.GUARD_UNAVAILABLE;
+	}
+
+	@ConfigItem(
 		keyName = ACTION_RETURN_PANEL_1,
 		name = "Action 1 return previous tab",
 		description = "After action slot 1 finishes, switch back to the previously open side panel. Function keys are used when possible.",
@@ -597,6 +639,28 @@ public interface CvHelperConfig extends Config
 	default CvHelperActionInvocationMode actionInvocationMode2()
 	{
 		return CvHelperActionInvocationMode.AUTO;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_PRAYER_MODE_2,
+		name = "Action 2 prayer mode",
+		description = "TOGGLE clicks normally; ON_ONLY skips if the prayer is already active; OFF_ONLY skips if it is already inactive.",
+		section = actionSection
+	)
+	default CvHelperPrayerActionMode actionPrayerMode2()
+	{
+		return CvHelperPrayerActionMode.TOGGLE;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_SPELL_AVAILABILITY_MODE_2,
+		name = "Action 2 spell guard",
+		description = "Guard against clearly unavailable/shaded spells before attempting the action.",
+		section = actionSection
+	)
+	default CvHelperSpellAvailabilityMode actionSpellAvailabilityMode2()
+	{
+		return CvHelperSpellAvailabilityMode.GUARD_UNAVAILABLE;
 	}
 
 	@ConfigItem(
@@ -700,6 +764,28 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = ACTION_PRAYER_MODE_3,
+		name = "Action 3 prayer mode",
+		description = "TOGGLE clicks normally; ON_ONLY skips if the prayer is already active; OFF_ONLY skips if it is already inactive.",
+		section = actionSection
+	)
+	default CvHelperPrayerActionMode actionPrayerMode3()
+	{
+		return CvHelperPrayerActionMode.TOGGLE;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_SPELL_AVAILABILITY_MODE_3,
+		name = "Action 3 spell guard",
+		description = "Guard against clearly unavailable/shaded spells before attempting the action.",
+		section = actionSection
+	)
+	default CvHelperSpellAvailabilityMode actionSpellAvailabilityMode3()
+	{
+		return CvHelperSpellAvailabilityMode.GUARD_UNAVAILABLE;
+	}
+
+	@ConfigItem(
 		keyName = ACTION_RETURN_PANEL_3,
 		name = "Action 3 return previous tab",
 		description = "After action slot 3 finishes, switch back to the previously open side panel. Function keys are used when possible.",
@@ -797,6 +883,28 @@ public interface CvHelperConfig extends Config
 	default CvHelperActionInvocationMode actionInvocationMode4()
 	{
 		return CvHelperActionInvocationMode.AUTO;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_PRAYER_MODE_4,
+		name = "Action 4 prayer mode",
+		description = "TOGGLE clicks normally; ON_ONLY skips if the prayer is already active; OFF_ONLY skips if it is already inactive.",
+		section = actionSection
+	)
+	default CvHelperPrayerActionMode actionPrayerMode4()
+	{
+		return CvHelperPrayerActionMode.TOGGLE;
+	}
+
+	@ConfigItem(
+		keyName = ACTION_SPELL_AVAILABILITY_MODE_4,
+		name = "Action 4 spell guard",
+		description = "Guard against clearly unavailable/shaded spells before attempting the action.",
+		section = actionSection
+	)
+	default CvHelperSpellAvailabilityMode actionSpellAvailabilityMode4()
+	{
+		return CvHelperSpellAvailabilityMode.GUARD_UNAVAILABLE;
 	}
 
 	@ConfigItem(

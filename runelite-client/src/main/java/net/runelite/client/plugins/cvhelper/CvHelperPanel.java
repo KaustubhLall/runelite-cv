@@ -83,6 +83,11 @@ class CvHelperPanel extends PluginPanel
 		JButton printBoundsButton = new JButton("Print overlay bounds");
 		printBoundsButton.addActionListener(e -> plugin.printOverlayCoordinates());
 
+		JButton panicButton = new JButton("PANIC STOP");
+		panicButton.setForeground(Color.RED);
+		panicButton.addActionListener(e -> plugin.panicStop());
+
+		buttons.add(panicButton);
 		buttons.add(captureButton);
 		buttons.add(screenButton);
 		buttons.add(minimapButton);
@@ -340,6 +345,14 @@ class CvHelperPanel extends PluginPanel
 		invocationMode.setSelectedItem(plugin.getActionInvocationMode(slot));
 		invocationMode.addActionListener(e -> plugin.setActionInvocationMode(slot, (CvHelperActionInvocationMode) invocationMode.getSelectedItem()));
 
+		JComboBox<CvHelperPrayerActionMode> prayerMode = new JComboBox<>(CvHelperPrayerActionMode.values());
+		prayerMode.setSelectedItem(plugin.getActionPrayerMode(slot));
+		prayerMode.addActionListener(e -> plugin.setActionPrayerMode(slot, (CvHelperPrayerActionMode) prayerMode.getSelectedItem()));
+
+		JComboBox<CvHelperSpellAvailabilityMode> spellGuard = new JComboBox<>(CvHelperSpellAvailabilityMode.values());
+		spellGuard.setSelectedItem(plugin.getActionSpellAvailabilityMode(slot));
+		spellGuard.addActionListener(e -> plugin.setActionSpellAvailabilityMode(slot, (CvHelperSpellAvailabilityMode) spellGuard.getSelectedItem()));
+
 		JButton refreshChoices = new JButton("Refresh choices");
 		refreshChoices.addActionListener(e ->
 		{
@@ -372,7 +385,8 @@ class CvHelperPanel extends PluginPanel
 		top.add(hotkey);
 		top.add(run);
 
-		JPanel main = new JPanel(new GridLayout(0, 1, 0, 2));
+		JPanel main = new JPanel();
+		main.setLayout(new BoxLayout(main, BoxLayout.Y_AXIS));
 		main.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		for (JComponent component : new JComponent[]{
 			label("Surface"),
@@ -385,7 +399,8 @@ class CvHelperPanel extends PluginPanel
 			main.add(component);
 		}
 
-		JPanel advancedBody = new JPanel(new GridLayout(0, 1, 0, 2));
+		JPanel advancedBody = new JPanel();
+		advancedBody.setLayout(new BoxLayout(advancedBody, BoxLayout.Y_AXIS));
 		advancedBody.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		for (JComponent component : new JComponent[]{
 			saveTarget,
@@ -393,6 +408,10 @@ class CvHelperPanel extends PluginPanel
 			resetMemory,
 			label("Invocation"),
 			invocationMode,
+			label("Prayer mode"),
+			prayerMode,
+			label("Spell guard"),
+			spellGuard,
 			label("Click-after"),
 			clickAfterMode,
 			returnPanel,
@@ -434,7 +453,8 @@ class CvHelperPanel extends PluginPanel
 		section.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		section.setBorder(BorderFactory.createTitledBorder("Mob farmer"));
 
-		JPanel body = new JPanel(new GridLayout(0, 1, 0, 3));
+		JPanel body = new JPanel();
+		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
 		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
 
 		JTextField target = new JTextField(plugin.getMobFarmerTarget());
@@ -468,7 +488,7 @@ class CvHelperPanel extends PluginPanel
 		JButton stop = new JButton("Stop loop");
 		stop.addActionListener(e -> plugin.stopMobFarmer());
 
-		JLabel help = new JLabel("<html>First farmer pass: if not interacting, find nearest matching player/NPC target and optionally click it. Loot/eat/pathing stay follow-ups.</html>");
+		JLabel help = new JLabel("<html>First farmer pass: if not interacting, find nearest matching NPC target and optionally click it. Loot/eat/pathing stay follow-ups.</html>");
 		help.setForeground(Color.LIGHT_GRAY);
 
 		for (JComponent component : new JComponent[]{
@@ -558,6 +578,7 @@ class CvHelperPanel extends PluginPanel
 	private void setCompact(JComponent component)
 	{
 		component.setAlignmentX(LEFT_ALIGNMENT);
+		component.setMaximumSize(new Dimension(Integer.MAX_VALUE, Short.MAX_VALUE));
 	}
 
 	private void stretch(JComponent component)
@@ -565,6 +586,7 @@ class CvHelperPanel extends PluginPanel
 		component.setAlignmentX(Component.LEFT_ALIGNMENT);
 		Dimension preferred = component.getPreferredSize();
 		component.setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(24, preferred.height)));
+		component.setPreferredSize(new Dimension(Math.max(160, preferred.width), Math.max(24, preferred.height)));
 	}
 
 	void updateStatus(String message)

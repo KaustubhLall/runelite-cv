@@ -41,6 +41,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.imageio.ImageIO;
 import javax.swing.SwingUtilities;
@@ -200,11 +201,13 @@ public class CvHelperPlugin extends Plugin
 	private final AtomicBoolean actionInProgress = new AtomicBoolean(false);
 	private final Map<Integer, Integer> actionSequenceIndexes = new HashMap<>();
 	private final AtomicBoolean mobFarmerRunning = new AtomicBoolean(false);
+	private final AtomicInteger mobFarmerGeneration = new AtomicInteger();
 	private final AtomicReference<String> mobFarmerStatus = new AtomicReference<>("idle");
 	private final KeyEventDispatcher cvHotkeyDispatcher = this::dispatchCvHotkey;
 	private volatile String lastStableSidePanel = "inventory";
 	private volatile String mobFarmerTarget = "cow";
 	private volatile boolean mobFarmerLiveMode;
+	private volatile Thread mobFarmerThread;
 
 	private static final class PanelSwitchTarget
 	{
@@ -364,6 +367,21 @@ public class CvHelperPlugin extends Plugin
 		}
 	};
 
+	private final HotkeyListener panicStopHotkeyListener = new HotkeyListener(() -> config.panicStopHotkey())
+	{
+		@Override
+		public void keyPressed(java.awt.event.KeyEvent e)
+		{
+			super.keyPressed(e);
+		}
+
+		@Override
+		public void hotkeyPressed()
+		{
+			panicStop();
+		}
+	};
+
 	private void registerHotkeys()
 	{
 		keyManager.registerKeyListener(debugHotkeyListener);
@@ -371,6 +389,7 @@ public class CvHelperPlugin extends Plugin
 		keyManager.registerKeyListener(captureScreenHotkeyListener);
 		keyManager.registerKeyListener(refreshEntitiesHotkeyListener);
 		keyManager.registerKeyListener(nearestEntityHotkeyListener);
+		keyManager.registerKeyListener(panicStopHotkeyListener);
 		actionHotkeyListeners.clear();
 		for (int slot = 1; slot <= ACTION_SLOT_COUNT; slot++)
 		{
@@ -405,6 +424,7 @@ public class CvHelperPlugin extends Plugin
 		keyManager.unregisterKeyListener(captureScreenHotkeyListener);
 		keyManager.unregisterKeyListener(refreshEntitiesHotkeyListener);
 		keyManager.unregisterKeyListener(nearestEntityHotkeyListener);
+		keyManager.unregisterKeyListener(panicStopHotkeyListener);
 		for (HotkeyListener listener : actionHotkeyListeners)
 		{
 			keyManager.unregisterKeyListener(listener);
@@ -423,7 +443,7 @@ public class CvHelperPlugin extends Plugin
 			preDispatcherPressedKeys.remove(preDispatchKey(event));
 			return false;
 		}
-		if (event.getID() != KeyEvent.KEY_PRESSED || shouldSuppressHotkey())
+		if (event.getID() != KeyEvent.KEY_PRESSED)
 		{
 			return false;
 		}
@@ -433,6 +453,18 @@ public class CvHelperPlugin extends Plugin
 		{
 			event.consume();
 			return true;
+		}
+
+		if (config.panicStopHotkey().matches(event))
+		{
+			preDispatcherPressedKeys.add(key);
+			panicStop();
+			event.consume();
+			return true;
+		}
+		if (shouldSuppressHotkey())
+		{
+			return false;
 		}
 
 		if (config.debugHotkey().matches(event))
@@ -470,7 +502,6 @@ public class CvHelperPlugin extends Plugin
 			event.consume();
 			return true;
 		}
-
 		for (int slot = 1; slot <= ACTION_SLOT_COUNT; slot++)
 		{
 			if (getActionHotkey(slot).matches(event))
@@ -859,6 +890,18 @@ public class CvHelperPlugin extends Plugin
 		updatePanelStatus("Action " + slot + " invocation mode saved");
 	}
 
+	void setActionPrayerMode(int slot, CvHelperPrayerActionMode mode)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, "actionPrayerMode" + slot, mode == null ? CvHelperPrayerActionMode.TOGGLE : mode);
+		updatePanelStatus("Action " + slot + " prayer mode saved");
+	}
+
+	void setActionSpellAvailabilityMode(int slot, CvHelperSpellAvailabilityMode mode)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, "actionSpellAvailabilityMode" + slot, mode == null ? CvHelperSpellAvailabilityMode.GUARD_UNAVAILABLE : mode);
+		updatePanelStatus("Action " + slot + " spell guard saved");
+	}
+
 	void setActionReturnPanel(int slot, boolean value)
 	{
 		configManager.setConfiguration(CvHelperConfig.GROUP, "actionReturnPanel" + slot, value);
@@ -1060,6 +1103,42 @@ public class CvHelperPlugin extends Plugin
 		}
 	}
 
+	CvHelperPrayerActionMode getActionPrayerMode(int slot)
+	{
+		switch (slot)
+		{
+			case 1:
+				return config.actionPrayerMode1();
+			case 2:
+				return config.actionPrayerMode2();
+			case 3:
+				return config.actionPrayerMode3();
+			case 4:
+				return config.actionPrayerMode4();
+			default:
+				CvHelperPrayerActionMode mode = configManager.getConfiguration(CvHelperConfig.GROUP, "actionPrayerMode" + slot, CvHelperPrayerActionMode.class);
+				return mode == null ? CvHelperPrayerActionMode.TOGGLE : mode;
+		}
+	}
+
+	CvHelperSpellAvailabilityMode getActionSpellAvailabilityMode(int slot)
+	{
+		switch (slot)
+		{
+			case 1:
+				return config.actionSpellAvailabilityMode1();
+			case 2:
+				return config.actionSpellAvailabilityMode2();
+			case 3:
+				return config.actionSpellAvailabilityMode3();
+			case 4:
+				return config.actionSpellAvailabilityMode4();
+			default:
+				CvHelperSpellAvailabilityMode mode = configManager.getConfiguration(CvHelperConfig.GROUP, "actionSpellAvailabilityMode" + slot, CvHelperSpellAvailabilityMode.class);
+				return mode == null ? CvHelperSpellAvailabilityMode.GUARD_UNAVAILABLE : mode;
+		}
+	}
+
 	boolean getActionReturnPanel(int slot)
 	{
 		switch (slot)
@@ -1218,6 +1297,13 @@ public class CvHelperPlugin extends Plugin
 					return;
 				}
 				finishAction(slot, "CV Helper action " + slot + " | no target matched " + surface + " / " + targetLabel);
+				return;
+			}
+
+			String guardMessage = actionGuardMessage(slot, surface, target);
+			if (guardMessage != null)
+			{
+				finishAction(slot, guardMessage);
 				return;
 			}
 
@@ -1458,6 +1544,81 @@ public class CvHelperPlugin extends Plugin
 	private boolean isWidgetActionSurface(CvHelperActionSurface surface)
 	{
 		return surface == CvHelperActionSurface.SPELL || surface == CvHelperActionSurface.PRAYER;
+	}
+
+	private String actionGuardMessage(int slot, CvHelperActionSurface surface, Map<String, Object> target)
+	{
+		if (surface == CvHelperActionSurface.PRAYER)
+		{
+			return prayerGuardMessage(slot, target);
+		}
+		if (surface == CvHelperActionSurface.SPELL)
+		{
+			return spellGuardMessage(slot, target);
+		}
+		return null;
+	}
+
+	private String prayerGuardMessage(int slot, Map<String, Object> target)
+	{
+		CvHelperPrayerActionMode mode = getActionPrayerMode(slot);
+		if (mode == CvHelperPrayerActionMode.TOGGLE)
+		{
+			return null;
+		}
+		Prayer prayer = prayerForTarget(target);
+		if (prayer == null)
+		{
+			return "CV Helper action " + slot + " | prayer guard could not resolve state for " + targetLabelForMessage(target);
+		}
+		boolean active = client.isPrayerActive(prayer);
+		if (mode == CvHelperPrayerActionMode.ON_ONLY && active)
+		{
+			return "CV Helper action " + slot + " | skipped " + friendlyName(prayer.name()) + " because it is already on";
+		}
+		if (mode == CvHelperPrayerActionMode.OFF_ONLY && !active)
+		{
+			return "CV Helper action " + slot + " | skipped " + friendlyName(prayer.name()) + " because it is already off";
+		}
+		return null;
+	}
+
+	private String spellGuardMessage(int slot, Map<String, Object> target)
+	{
+		if (getActionSpellAvailabilityMode(slot) == CvHelperSpellAvailabilityMode.ALLOW_ATTEMPT)
+		{
+			return null;
+		}
+		if (Boolean.TRUE.equals(target.get("spellUnavailable")))
+		{
+			return "CV Helper action " + slot + " | skipped unavailable spell " + targetLabelForMessage(target) + " | opacity=" + target.get("opacity") + ", clickMask=" + target.get("clickMask") + ", textColor=" + target.get("textColor");
+		}
+		return null;
+	}
+
+	private Prayer prayerForTarget(Map<String, Object> target)
+	{
+		Object explicit = target.get("prayer");
+		if (explicit instanceof String)
+		{
+			try
+			{
+				return Prayer.valueOf((String) explicit);
+			}
+			catch (IllegalArgumentException ignored)
+			{
+				// Fall back to normalized haystack matching below.
+			}
+		}
+		String haystack = normalizedTargetHaystack(target);
+		for (Prayer prayer : Prayer.values())
+		{
+			if (haystack.contains(normalize(prayer.name())) || haystack.contains(normalize(friendlyName(prayer.name()))))
+			{
+				return prayer;
+			}
+		}
+		return null;
 	}
 
 	private boolean invokeWidgetAction(CvHelperActionSurface surface, Map<String, Object> target, boolean targetedSpell)
@@ -2204,7 +2365,7 @@ public class CvHelperPlugin extends Plugin
 
 	void runMobFarmerStep(boolean live)
 	{
-		clientThread.invokeLater(() -> mobFarmerStep(live));
+		clientThread.invokeLater(() -> mobFarmerStep(live, 0));
 	}
 
 	void startMobFarmer(boolean live)
@@ -2215,39 +2376,97 @@ public class CvHelperPlugin extends Plugin
 			return;
 		}
 		mobFarmerLiveMode = live;
+		int generation = mobFarmerGeneration.incrementAndGet();
 		mobFarmerStatus.set((live ? "live" : "dry") + "-loop-started");
 		Thread loopThread = new Thread(() ->
 		{
-			while (mobFarmerRunning.get())
+			try
 			{
-				runMobFarmerStep(live);
-				try
+				while (isCurrentMobFarmerLoop(generation))
 				{
+					clientThread.invokeLater(() ->
+					{
+						if (isCurrentMobFarmerLoop(generation))
+						{
+							mobFarmerStep(live, generation);
+						}
+					});
 					Thread.sleep(MOB_FARMER_LOOP_DELAY_MS);
 				}
-				catch (InterruptedException e)
+			}
+			catch (InterruptedException e)
+			{
+				Thread.currentThread().interrupt();
+			}
+			finally
+			{
+				if (Thread.currentThread() == mobFarmerThread)
 				{
-					Thread.currentThread().interrupt();
-					break;
+					mobFarmerThread = null;
+				}
+				if (mobFarmerGeneration.get() == generation)
+				{
+					mobFarmerRunning.set(false);
+					mobFarmerLiveMode = false;
+					mobFarmerStatus.set("stopped");
 				}
 			}
-			mobFarmerStatus.set("stopped");
 		}, "cv-helper-mob-farmer");
 		loopThread.setDaemon(true);
+		mobFarmerThread = loopThread;
 		loopThread.start();
 		updatePanelStatus("Mob farmer " + (live ? "live" : "dry-run") + " loop started");
 	}
 
 	void stopMobFarmer()
 	{
+		mobFarmerGeneration.incrementAndGet();
 		mobFarmerRunning.set(false);
 		mobFarmerLiveMode = false;
+		interruptMobFarmerThread();
 		mobFarmerStatus.set("stopped");
 		updatePanelStatus("Mob farmer stopped");
 	}
 
-	private void mobFarmerStep(boolean live)
+	void panicStop()
 	{
+		mobFarmerGeneration.incrementAndGet();
+		mobFarmerRunning.set(false);
+		mobFarmerLiveMode = false;
+		interruptMobFarmerThread();
+		actionInProgress.set(false);
+		mobFarmerStatus.set("panic-stopped");
+		lastEvent.set("panic-stop@" + Instant.now());
+		String message = "CV Helper panic stop: loops stopped and action guard cleared";
+		updatePanelStatus(message);
+		clientThread.invokeLater(() -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, ""));
+	}
+
+	private boolean isCurrentMobFarmerLoop(int generation)
+	{
+		return mobFarmerRunning.get() && mobFarmerGeneration.get() == generation;
+	}
+
+	private boolean isStaleMobFarmerLoop(int generation)
+	{
+		return generation > 0 && !isCurrentMobFarmerLoop(generation);
+	}
+
+	private void interruptMobFarmerThread()
+	{
+		Thread thread = mobFarmerThread;
+		if (thread != null)
+		{
+			thread.interrupt();
+		}
+	}
+
+	private void mobFarmerStep(boolean live, int generation)
+	{
+		if (isStaleMobFarmerLoop(generation))
+		{
+			return;
+		}
 		if (client.getGameState() != GameState.LOGGED_IN)
 		{
 			mobFarmerStatus.set("needs-login:" + client.getGameState());
@@ -2291,8 +2510,10 @@ public class CvHelperPlugin extends Plugin
 
 		if (!live)
 		{
+			String message = "Mob farmer dry target: " + targetLabelForMessage(target) + " @ " + clickPoint;
 			mobFarmerStatus.set("dry-target:" + targetLabelForMessage(target) + "@" + clickPoint);
-			updatePanelStatus("Mob farmer dry target: " + targetLabelForMessage(target) + " @ " + clickPoint);
+			updatePanelStatus(message);
+			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, "");
 			return;
 		}
 
@@ -2307,8 +2528,16 @@ public class CvHelperPlugin extends Plugin
 		{
 			try
 			{
+				if (isStaleMobFarmerLoop(generation))
+				{
+					return;
+				}
 				Robot robot = new Robot();
 				clickScreenPoint(robot, screenPoint);
+				if (isStaleMobFarmerLoop(generation))
+				{
+					return;
+				}
 				String message = "Mob farmer attacked " + targetLabelForMessage(target) + " @ " + clickPoint;
 				mobFarmerStatus.set("clicked:" + targetLabelForMessage(target));
 				lastEvent.set("mob-farmer-click@" + targetLabelForMessage(target) + "@" + Instant.now());
@@ -2588,6 +2817,7 @@ public class CvHelperPlugin extends Plugin
 			server.createContext("/automation/mob-farmer/step", this::handleMobFarmerStepRequest);
 			server.createContext("/automation/mob-farmer/start", this::handleMobFarmerStartRequest);
 			server.createContext("/automation/mob-farmer/stop", this::handleMobFarmerStopRequest);
+			server.createContext("/automation/panic-stop", this::handlePanicStopRequest);
 			server.createContext("/login/click", exchange ->
 			{
 				clickLoginScreen();
@@ -2652,7 +2882,7 @@ public class CvHelperPlugin extends Plugin
 			body.put("status", lastEvent.get());
 			body.put("port", localPort());
 			body.put("preferredPort", config.localPort() > 0 ? config.localPort() : DEFAULT_LOCAL_PORT);
-			body.put("endpoints", new String[]{"/status", "/login/click", "/capture", "/capture/screen", "/capture/minimap", "/capture/latest/client-frame", "/capture/latest/screen", "/capture/latest/minimap", "/player/status", "/targets/prayer", "/targets/spell", "/targets/minimap", "/targets/inventory", "/targets/equipment", "/targets/panels", "/targets/combat", "/targets", "/entities", "/entities/nearest", "/automation/mob-farmer/status", "/automation/mob-farmer/step", "/automation/mob-farmer/start", "/automation/mob-farmer/stop"});
+			body.put("endpoints", new String[]{"/status", "/login/click", "/capture", "/capture/screen", "/capture/minimap", "/capture/latest/client-frame", "/capture/latest/screen", "/capture/latest/minimap", "/player/status", "/targets/prayer", "/targets/spell", "/targets/minimap", "/targets/inventory", "/targets/equipment", "/targets/panels", "/targets/combat", "/targets", "/entities", "/entities/nearest", "/automation/mob-farmer/status", "/automation/mob-farmer/step", "/automation/mob-farmer/start", "/automation/mob-farmer/stop", "/automation/panic-stop"});
 			Map<String, Object> playerStatus = getPlayerStatusOnClientThread();
 			body.put("player", playerStatus);
 			body.put("spellbook", playerStatus.get("spellbook"));
@@ -2804,6 +3034,16 @@ public class CvHelperPlugin extends Plugin
 	{
 		stopMobFarmer();
 		writeJson(exchange, 202, getMobFarmerStatus());
+	}
+
+	private void handlePanicStopRequest(HttpExchange exchange) throws IOException
+	{
+		panicStop();
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("ok", true);
+		body.put("action", "panic-stop");
+		body.put("mobFarmer", getMobFarmerStatus());
+		writeJson(exchange, 202, body);
 	}
 
 	private void applyMobFarmerQuery(HttpExchange exchange)
@@ -3004,7 +3244,12 @@ public class CvHelperPlugin extends Plugin
 		Prayer[] prayers = Prayer.values();
 		for (int i = 0; i < PRAYER_COMPONENTS.length && i < prayers.length; i++)
 		{
+			int before = targets.size();
 			collectComponentTarget("prayer", prayers[i].name(), PRAYER_COMPONENTS[i], targets);
+			if (targets.size() > before)
+			{
+				targets.get(targets.size() - 1).put("prayer", prayers[i].name());
+			}
 		}
 	}
 
@@ -3313,6 +3558,13 @@ public class CvHelperPlugin extends Plugin
 		target.put("itemId", widget.getItemId());
 		target.put("itemQuantity", widget.getItemQuantity());
 		target.put("spriteId", widget.getSpriteId());
+		target.put("opacity", widget.getOpacity());
+		target.put("textColor", widget.getTextColor());
+		target.put("clickMask", widget.getClickMask());
+		if (surface.contains("spell"))
+		{
+			target.put("spellUnavailable", isUnavailableSpellWidget(widget, actions));
+		}
 		target.put("bounds", boundsMap(bounds));
 		target.put("center", pointMap(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
 		target.put("label", targetLabel(target, fallbackLabel));
@@ -3356,6 +3608,13 @@ public class CvHelperPlugin extends Plugin
 				target.put("itemId", widget.getItemId());
 				target.put("itemQuantity", widget.getItemQuantity());
 				target.put("spriteId", widget.getSpriteId());
+				target.put("opacity", widget.getOpacity());
+				target.put("textColor", widget.getTextColor());
+				target.put("clickMask", widget.getClickMask());
+				if (surface.contains("spell"))
+				{
+					target.put("spellUnavailable", isUnavailableSpellWidget(widget, actions));
+				}
 				target.put("bounds", boundsMap(bounds));
 				target.put("center", pointMap(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
 				target.put("label", targetLabel(target, null));
@@ -3396,6 +3655,36 @@ public class CvHelperPlugin extends Plugin
 			}
 		}
 		return false;
+	}
+
+	private boolean hasActionNamed(String[] actions, String name)
+	{
+		if (actions == null)
+		{
+			return false;
+		}
+		String needle = normalize(name);
+		for (String action : actions)
+		{
+			if (normalize(action).contains(needle))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private boolean isUnavailableSpellWidget(Widget widget, String[] actions)
+	{
+		if (widget == null)
+		{
+			return false;
+		}
+		if (widget.getOpacity() >= 200)
+		{
+			return true;
+		}
+		return widget.getClickMask() == 0 && !hasActionNamed(actions, "Cast");
 	}
 
 	private Map<String, Object> boundsMap(Rectangle bounds)
