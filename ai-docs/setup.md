@@ -114,6 +114,8 @@ RuneLite writes CV Helper screenshots under `C:\Users\kaust\.runelite\screenshot
 
 `/status` responding while `gameState` is `LOGIN_SCREEN` means CV Helper is running but live widget polling cannot be verified yet. Ask the user to log in, or use the guarded `POST http://127.0.0.1:11777/login/click` helper if the click-to-play widget is visible. Do not treat empty prayer/spell/panel targets at the login screen as plugin failure.
 
+For live checks, the practical login flow is: click `Play Now`, wait for the client to reach the game login flow, then let the user finish login. If this wait is the only blocker, ask a follow-up confirmation question instead of ending the session with no verification checklist.
+
 For prayer target verification, open the prayer tab in RuneLite before calling `/targets/prayer`. The endpoint reports canvas `bounds` and `center` points for visible prayer-related widgets.
 
 For runtime verification that depends on live game widgets, ask the user to log in to the newest launched custom client before interpreting endpoint output. Logged-out state commonly reports unavailable spellbook metadata and empty target surfaces.

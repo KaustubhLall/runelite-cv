@@ -131,6 +131,7 @@ class CvHelperPanel extends PluginPanel
 		JPanel prayerSection = createNestedSection("Prayer toggles", plugin.getPrayerNames(), true, true);
 		JPanel spellSection = createNestedSection("Spellbook toggles", plugin.getSpellbookNames(), false, true);
 		JPanel actionSection = createActionSection();
+		JPanel mobFarmerSection = createMobFarmerSection();
 
 		JPanel serverSettings = new JPanel(new BorderLayout(0, 4));
 		serverSettings.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -174,6 +175,7 @@ class CvHelperPanel extends PluginPanel
 		lower.add(prayerSection);
 		lower.add(spellSection);
 		lower.add(actionSection);
+		lower.add(mobFarmerSection);
 		lower.add(serverSettings);
 		lower.add(playerPanel);
 		center.add(lower, BorderLayout.SOUTH);
@@ -255,16 +257,16 @@ class CvHelperPanel extends PluginPanel
 		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
 		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
 
-		JLabel help = new JLabel("<html>Configure a hotkey, choose a target surface, type part of the target label, then press the hotkey or Run. For spells, enable mouse-after to click the current mouse target after selecting the spell.</html>");
+		JLabel help = new JLabel("<html>Compact cards use the same targets as the verifier. Fallback list: <b>Bind | Ice Barrage</b>. Memory sequence: <b>food -> brew</b>.</html>");
 		help.setForeground(Color.LIGHT_GRAY);
 		help.setBorder(new EmptyBorder(0, 0, 6, 0));
 		stretch(help);
 		body.add(help);
 
-		for (int slot = 1; slot <= 8; slot++)
+		for (int slot = 1; slot <= plugin.getActionSlotCount(); slot++)
 		{
 			body.add(createActionSlot(slot));
-			if (slot < 8)
+			if (slot < plugin.getActionSlotCount())
 			{
 				JSeparator separator = new JSeparator(SwingConstants.HORIZONTAL);
 				stretch(separator);
@@ -293,8 +295,7 @@ class CvHelperPanel extends PluginPanel
 
 	private JPanel createActionSlot(int slot)
 	{
-		JPanel panel = new JPanel();
-		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+		JPanel panel = new JPanel(new BorderLayout(0, 4));
 		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		panel.setBorder(BorderFactory.createTitledBorder("Action " + slot));
 
@@ -362,30 +363,147 @@ class CvHelperPanel extends PluginPanel
 		JButton run = new JButton("Run action " + slot);
 		run.addActionListener(e -> plugin.performConfiguredAction(slot));
 
+		JButton resetMemory = new JButton("Reset memory");
+		resetMemory.addActionListener(e -> plugin.resetActionSequence(slot));
+
+		JPanel top = new JPanel(new GridLayout(1, 3, 4, 0));
+		top.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		top.add(enabled);
+		top.add(hotkey);
+		top.add(run);
+
+		JPanel main = new JPanel(new GridLayout(0, 1, 0, 2));
+		main.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		for (JComponent component : new JComponent[]{
-			enabled,
-			label("Hotkey"),
-			hotkey,
 			label("Surface"),
 			surface,
-			label("Target label contains"),
-			target,
+			label("Target or list"),
+			target
+		})
+		{
+			stretch(component);
+			main.add(component);
+		}
+
+		JPanel advancedBody = new JPanel(new GridLayout(0, 1, 0, 2));
+		advancedBody.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		for (JComponent component : new JComponent[]{
 			saveTarget,
 			refreshChoices,
+			resetMemory,
 			label("Invocation"),
 			invocationMode,
 			label("Click-after"),
 			clickAfterMode,
 			returnPanel,
-			returnMouseCenter,
-			run
+			returnMouseCenter
 		})
 		{
 			stretch(component);
-			panel.add(component);
+			advancedBody.add(component);
 		}
+		advancedBody.setVisible(false);
+
+		JToggleButton advanced = new JToggleButton("Advanced");
+		advanced.setSelected(true);
+		advanced.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		advanced.setForeground(Color.LIGHT_GRAY);
+		advanced.addActionListener(e ->
+		{
+			boolean isCollapsed = advanced.isSelected();
+			advanced.setText(isCollapsed ? "Advanced" : "Hide advanced");
+			advancedBody.setVisible(!isCollapsed);
+			panel.revalidate();
+		});
+
+		JPanel bottom = new JPanel(new BorderLayout(0, 2));
+		bottom.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		bottom.add(advanced, BorderLayout.NORTH);
+		bottom.add(advancedBody, BorderLayout.CENTER);
+
+		panel.add(top, BorderLayout.NORTH);
+		panel.add(main, BorderLayout.CENTER);
+		panel.add(bottom, BorderLayout.SOUTH);
 		setCompact(panel);
 		return panel;
+	}
+
+	private JPanel createMobFarmerSection()
+	{
+		JPanel section = new JPanel(new BorderLayout(0, 4));
+		section.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		section.setBorder(BorderFactory.createTitledBorder("Mob farmer"));
+
+		JPanel body = new JPanel(new GridLayout(0, 1, 0, 3));
+		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
+
+		JTextField target = new JTextField(plugin.getMobFarmerTarget());
+		target.setToolTipText("Partial name or id:<npc id>, for example cow or id:2790");
+		JButton saveTarget = new JButton("Save mob target");
+		saveTarget.addActionListener(e -> plugin.setMobFarmerTarget(target.getText()));
+		JButton dryStep = new JButton("Dry step");
+		dryStep.addActionListener(e ->
+		{
+			plugin.setMobFarmerTarget(target.getText());
+			plugin.runMobFarmerStep(false);
+		});
+		JButton liveStep = new JButton("Live attack step");
+		liveStep.addActionListener(e ->
+		{
+			plugin.setMobFarmerTarget(target.getText());
+			plugin.runMobFarmerStep(true);
+		});
+		JButton startDry = new JButton("Start dry loop");
+		startDry.addActionListener(e ->
+		{
+			plugin.setMobFarmerTarget(target.getText());
+			plugin.startMobFarmer(false);
+		});
+		JButton startLive = new JButton("Start live loop");
+		startLive.addActionListener(e ->
+		{
+			plugin.setMobFarmerTarget(target.getText());
+			plugin.startMobFarmer(true);
+		});
+		JButton stop = new JButton("Stop loop");
+		stop.addActionListener(e -> plugin.stopMobFarmer());
+
+		JLabel help = new JLabel("<html>First farmer pass: if not interacting, find nearest matching player/NPC target and optionally click it. Loot/eat/pathing stay follow-ups.</html>");
+		help.setForeground(Color.LIGHT_GRAY);
+
+		for (JComponent component : new JComponent[]{
+			help,
+			label("Mob target"),
+			target,
+			saveTarget,
+			dryStep,
+			liveStep,
+			startDry,
+			startLive,
+			stop
+		})
+		{
+			stretch(component);
+			body.add(component);
+		}
+
+		JToggleButton expand = new JToggleButton("Expand");
+		body.setVisible(false);
+		expand.setSelected(true);
+		expand.addActionListener(e ->
+		{
+			boolean isCollapsed = expand.isSelected();
+			expand.setText(isCollapsed ? "Expand" : "Collapse");
+			body.setVisible(!isCollapsed);
+			section.revalidate();
+		});
+		expand.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		expand.setForeground(Color.LIGHT_GRAY);
+
+		section.add(expand, BorderLayout.NORTH);
+		section.add(body, BorderLayout.CENTER);
+		setCompact(section);
+		return section;
 	}
 
 	private void populateTargetChoices(JComboBox<String> target, CvHelperActionSurface surface, String selected)

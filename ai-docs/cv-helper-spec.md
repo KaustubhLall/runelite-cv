@@ -256,7 +256,8 @@ RuneLite has existing hotkey primitives (`Keybind`, `HotkeyButton`, `KeyManager`
 - `Click login`: guarded helper action exposed in the panel and through `/login/click`; clicks RuneLite's visible click-to-play/login widget only when the client is on a login screen.
 - `Refresh entities hotkey`: refreshes nearby player/NPC exports and forwards them to the webhook if configured.
 - `Nearest entity hotkey`: writes the nearest exported entity and preferred canvas `clickPoint` to in-game chat.
-- `Action 1-8 hotkeys`: each slot has an enabled toggle, keybind, target surface dropdown, editable target-label dropdown, refresh-choices button, invocation mode, click-after mode, optional return-to-previous-panel toggle, optional restore-mouse-to-original-position toggle, and a manual run button. The slot resolves the current exported target, converts its canvas point into a screen point, and clicks automatically when using physical clicks.
+- `Action 1-22 hotkeys`: each slot has an enabled toggle, keybind, target surface dropdown, editable target-label dropdown, refresh-choices button, sequence-memory reset, invocation mode, click-after mode, optional return-to-previous-panel toggle, optional restore-mouse-to-original-position toggle, and a manual run button. The slot resolves the current exported target, converts its canvas point into a screen point, and clicks automatically when using physical clicks.
+- Fresh profiles default the action grid to `1 2 3 4 5`, `q w e r t`, `a s d f g`, `z x c v`, backquote/tilde, caps lock, and tab. Saved user keybinds override these defaults.
 - Action timing controls are available in RuneLite config: panel-open delay, widget-target delay, selected-widget timeout, return-panel delay, and mouse-restore delay. These are deliberately configurable because targeted spells depend on client state becoming selected before the follow-up target click.
 - Side-panel key controls are available in RuneLite config as `Panel key: combat`, `Panel key: inventory`, `Panel key: equipment`, `Panel key: prayer`, and `Panel key: magic`. CV Helper uses these as the safe fallback for returning while a targeted spell/action is still unconsumed. Normal panel opens and safe returns prefer exported panel-tab geometry so RuneLite profile key remaps do not send actions to the wrong tab.
 - Clicks are randomized inside a safe circle around the exported target point. The circle is derived from the target bounds and capped to a small radius so repeated hotkeys do not click the exact same pixel while still staying inside the target.
@@ -275,6 +276,8 @@ RuneLite has existing hotkey primitives (`Keybind`, `HotkeyButton`, `KeyManager`
 - Action sequences are single-flight; repeated hotkeys while an action is executing are ignored.
 - All action delays are configurable, including panel open, target-resolve retry, mouse settle, widget-to-target, selected-widget timeout, return tab, and mouse restore.
 - Target dropdowns filter as the user types, and action target matching uses the same normalized semantic labels that are exported to the verifier.
+- Target labels can contain fallback lists separated by `|`, comma, semicolon, or newline. The resolver tries each candidate in order, which allows one spell hotkey to use `Bind | Ice Barrage` depending on the current spellbook/visible exports.
+- Target labels can contain memory sequences separated by `->`. On each successful action, the slot advances to the next candidate, enabling flows such as `food -> brew`. Inventory/equipment matching is dose-agnostic for potion names and prefers the lowest remaining dose before a fresh potion.
 - Hotkeys are suppressed while RuneLite chat/message-layer input is active or while a CV Helper side-panel text field has focus, so typing in chat/config does not fire action slots.
 - Robot clicks convert RuneLite real-canvas widget coordinates into displayed screen coordinates using stretched-mode dimensions when needed. This keeps action clicks aligned after resizing/fullscreening the client.
 - Return-to-previous-panel captures the active side panel when the command is issued. After the target-consuming part of the action finishes, it clicks that previous panel's exported tab target. If the action is still selected and unconsumed, it uses only the configured panel keybind or skips the return to avoid cancelling/casting into the UI.
@@ -303,7 +306,18 @@ The hotkey executor is the first local implementation of the broader Python-driv
 
 Sequences should fail closed: if a required state transition does not happen before timeout, skip unsafe downstream clicks rather than guessing.
 
-The CV Helper right-side panel includes a collapsible `Action hotkeys` section with eight full-width slots separated by dividers. Each slot exposes an enabled toggle, hotkey capture button, surface dropdown, editable target dropdown, refresh-choices button, invocation mode dropdown, click-after mode dropdown, `Return tab`, `Restore mouse`, and `Run action` button for manual testing. Slots 1-4 are also represented in RuneLite's native config under the `Action hotkeys` section; slots 5-8 are managed from the CV Helper panel to avoid making the native config page unwieldy.
+The CV Helper right-side panel includes a collapsible `Action hotkeys` section with compact action cards. Core controls are visible immediately; less-common invocation/click-after/return options are collapsed behind each card's `Advanced` toggle. Slots 1-4 are also represented in RuneLite's native config under the `Action hotkeys` section; slots 5-22 are managed from the CV Helper panel to avoid making the native config page unwieldy.
+
+### First Mob Farmer
+
+The first automation slice is a guarded mob-farmer controller, not a full unattended combat bot. It exposes:
+
+- `GET /automation/mob-farmer/status`
+- `POST/GET /automation/mob-farmer/step?target=cow&live=false`
+- `POST/GET /automation/mob-farmer/start?target=cow&live=false`
+- `POST/GET /automation/mob-farmer/stop`
+
+The farmer refuses to click unless the client is logged in, the local player exists, the local player is not already interacting with something, a matching player/NPC target is exported with a screen click point, and no other CV Helper action is currently running. Dry mode reports the chosen target/click point without clicking. Live mode performs the same guarded target click. Auto-eat, loot filters, highlighted-drop integration, pathing/exit tiles, and composable external action plans remain follow-up bricks.
 
 The verifier dashboard groups `/status` data into connection, vitals, wealth, and interface sections. It shows HP/prayer, run energy, special attack energy/enabled state, active prayers, current loot/equipment/total carried/risked-value approximation, selected widget state, and latest capture preview/path.
 

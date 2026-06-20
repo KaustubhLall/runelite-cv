@@ -25,6 +25,7 @@ This folder is the operating manual for AI-assisted work on this project. Keep i
 - When a task changes behavior across process boundaries, update `contracts.md`.
 - When a task changes how or why the project works, update `decisions.md`.
 - End every implementation response with three explicit parts: what changed, what the user should test, and next steps/why the agent could not autonomously continue. If live RuneLite login or in-game verification is needed, say that plainly instead of stopping without a checklist.
+- If the only blocker is a live RuneLite wait state, do not end vaguely. For this client, click `Play Now`, wait for the game login flow, then ask a concise follow-up for the user to confirm they have logged in before judging widget-dependent targets.
 
 ## Cheat Sheet
 
@@ -63,3 +64,4 @@ Keep this file and `memory/active.md` short enough to read at the start of every
 - Letting branch-specific context leak into another branch.
 - Forgetting to update contracts when an interface changes.
 - Ending a live RuneLite implementation turn without a test checklist and a clear reason if user login/manual verification is required.
+- Treating `LOGIN_SCREEN` as plugin failure instead of using `/login/click` or asking the user to complete `Play Now` and game login.

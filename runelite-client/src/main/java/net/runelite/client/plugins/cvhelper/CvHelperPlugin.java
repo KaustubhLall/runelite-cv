@@ -23,6 +23,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.Instant;
@@ -30,6 +31,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -104,8 +106,9 @@ public class CvHelperPlugin extends Plugin
 {
 	private static final String TOOLTIP = "CV Helper";
 	private static final int DEFAULT_LOCAL_PORT = 11777;
-	private static final int ACTION_SLOT_COUNT = 8;
+	private static final int ACTION_SLOT_COUNT = 22;
 	private static final int ACTION_RESOLVE_RETRIES = 4;
+	private static final int MOB_FARMER_LOOP_DELAY_MS = 1200;
 	private static final DateTimeFormatter CAPTURE_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
 	private static final int[] PRAYER_COMPONENTS = {
 		InterfaceID.Prayerbook.PRAYER1,
@@ -195,8 +198,13 @@ public class CvHelperPlugin extends Plugin
 	private final List<HotkeyListener> actionHotkeyListeners = new ArrayList<>();
 	private final Set<String> preDispatcherPressedKeys = new HashSet<>();
 	private final AtomicBoolean actionInProgress = new AtomicBoolean(false);
+	private final Map<Integer, Integer> actionSequenceIndexes = new HashMap<>();
+	private final AtomicBoolean mobFarmerRunning = new AtomicBoolean(false);
+	private final AtomicReference<String> mobFarmerStatus = new AtomicReference<>("idle");
 	private final KeyEventDispatcher cvHotkeyDispatcher = this::dispatchCvHotkey;
 	private volatile String lastStableSidePanel = "inventory";
+	private volatile String mobFarmerTarget = "cow";
+	private volatile boolean mobFarmerLiveMode;
 
 	private static final class PanelSwitchTarget
 	{
@@ -247,6 +255,7 @@ public class CvHelperPlugin extends Plugin
 	protected void shutDown()
 	{
 		log.info("CV Helper stopping");
+		stopMobFarmer();
 		KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(cvHotkeyDispatcher);
 		preDispatcherPressedKeys.clear();
 		unregisterHotkeys();
@@ -548,6 +557,7 @@ public class CvHelperPlugin extends Plugin
 		status.put("vitals", safeValue(this::vitalStatus, new LinkedHashMap<>()));
 		status.put("wealth", safeValue(this::wealthStatus, new LinkedHashMap<>()));
 		status.put("selectedWidget", safeValue(this::selectedWidgetStatus, new LinkedHashMap<>()));
+		status.put("automation", safeValue(this::automationStatus, new LinkedHashMap<>()));
 		return status;
 	}
 
@@ -861,6 +871,17 @@ public class CvHelperPlugin extends Plugin
 		updatePanelStatus("Action " + slot + " center-mouse setting saved");
 	}
 
+	int getActionSlotCount()
+	{
+		return ACTION_SLOT_COUNT;
+	}
+
+	void resetActionSequence(int slot)
+	{
+		actionSequenceIndexes.remove(slot);
+		updatePanelStatus("Action " + slot + " sequence memory reset");
+	}
+
 	Keybind getActionHotkey(int slot)
 	{
 		switch (slot)
@@ -875,7 +896,60 @@ public class CvHelperPlugin extends Plugin
 				return config.actionHotkey4();
 			default:
 				Keybind keybind = configManager.getConfiguration(CvHelperConfig.GROUP, "actionHotkey" + slot, Keybind.class);
-				return keybind == null ? Keybind.NOT_SET : keybind;
+				return keybind == null ? defaultActionHotkey(slot) : keybind;
+		}
+	}
+
+	private Keybind defaultActionHotkey(int slot)
+	{
+		switch (slot)
+		{
+			case 1:
+				return new Keybind(KeyEvent.VK_1, 0);
+			case 2:
+				return new Keybind(KeyEvent.VK_2, 0);
+			case 3:
+				return new Keybind(KeyEvent.VK_3, 0);
+			case 4:
+				return new Keybind(KeyEvent.VK_4, 0);
+			case 5:
+				return new Keybind(KeyEvent.VK_5, 0);
+			case 6:
+				return new Keybind(KeyEvent.VK_Q, 0);
+			case 7:
+				return new Keybind(KeyEvent.VK_W, 0);
+			case 8:
+				return new Keybind(KeyEvent.VK_E, 0);
+			case 9:
+				return new Keybind(KeyEvent.VK_R, 0);
+			case 10:
+				return new Keybind(KeyEvent.VK_T, 0);
+			case 11:
+				return new Keybind(KeyEvent.VK_A, 0);
+			case 12:
+				return new Keybind(KeyEvent.VK_S, 0);
+			case 13:
+				return new Keybind(KeyEvent.VK_D, 0);
+			case 14:
+				return new Keybind(KeyEvent.VK_F, 0);
+			case 15:
+				return new Keybind(KeyEvent.VK_G, 0);
+			case 16:
+				return new Keybind(KeyEvent.VK_Z, 0);
+			case 17:
+				return new Keybind(KeyEvent.VK_X, 0);
+			case 18:
+				return new Keybind(KeyEvent.VK_C, 0);
+			case 19:
+				return new Keybind(KeyEvent.VK_V, 0);
+			case 20:
+				return new Keybind(KeyEvent.VK_BACK_QUOTE, 0);
+			case 21:
+				return new Keybind(KeyEvent.VK_CAPS_LOCK, 0);
+			case 22:
+				return new Keybind(KeyEvent.VK_TAB, 0);
+			default:
+				return Keybind.NOT_SET;
 		}
 	}
 
@@ -1135,7 +1209,7 @@ public class CvHelperPlugin extends Plugin
 	{
 		clientThread.invokeLater(() ->
 		{
-			Map<String, Object> target = resolveActionTarget(surface, targetLabel);
+			Map<String, Object> target = resolveActionTarget(slot, surface, targetLabel);
 			if (target == null)
 			{
 				if (retriesRemaining > 0)
@@ -1250,6 +1324,7 @@ public class CvHelperPlugin extends Plugin
 					robot.delay(timing(config.actionMouseRestoreDelayMs(), 0, 3000));
 					robot.mouseMove(centerPoint.x, centerPoint.y);
 				}
+				advanceActionSequence(slot, target);
 				finishAction(slot, "CV Helper action " + slot + " | clicked " + surface + " " + targetLabelForMessage(target) + " at " + randomizedClickPoint + (mouseScreenPoint == null ? " | no mouse target click" : " | then mouse@" + mouseScreenPoint.x + "," + mouseScreenPoint.y));
 			}
 			catch (RuntimeException | java.awt.AWTException e)
@@ -1297,6 +1372,7 @@ public class CvHelperPlugin extends Plugin
 				String resultMessage = "CV Helper action " + slot + " | invoked " + surface + " " + targetLabelForMessage(target) + " via widget"
 					+ (usedPhysicalFallback ? " | physical fallback selected" : "")
 					+ (mouseScreenPoint == null ? " | no mouse target click" : " | then mouse@" + mouseScreenPoint.x + "," + mouseScreenPoint.y);
+				advanceActionSequence(slot, target);
 				finishAction(slot, resultMessage);
 			}
 			catch (RuntimeException | java.awt.AWTException e)
@@ -1711,33 +1787,183 @@ public class CvHelperPlugin extends Plugin
 		return pointMap(randomizedX, randomizedY);
 	}
 
-	private Map<String, Object> resolveActionTarget(CvHelperActionSurface surface, String targetLabel)
+	private Map<String, Object> resolveActionTarget(int slot, CvHelperActionSurface surface, String targetLabel)
 	{
+		List<String> candidates = actionTargetCandidates(targetLabel);
+		boolean sequenced = isSequencedActionTarget(targetLabel);
+		int candidateCount = Math.max(1, candidates.size());
+		int startIndex = sequenced ? Math.floorMod(actionSequenceIndexes.getOrDefault(slot, 0), candidateCount) : 0;
 		if (surface == CvHelperActionSurface.NEAREST_ENTITY)
 		{
 			lastEntities = collectEntities();
-			String needle = normalize(targetLabel);
-			return needle.isEmpty() || "nearestclickableentity".equals(needle) ? nearestClickableEntity(lastEntities) : findEntityByNameOrId(lastEntities, targetLabel);
+			for (int attempt = 0; attempt < candidateCount; attempt++)
+			{
+				int candidateIndex = sequenced ? (startIndex + attempt) % candidateCount : attempt;
+				String candidate = candidates.get(candidateIndex);
+				String needle = normalize(candidate);
+				Map<String, Object> target = needle.isEmpty() || "nearestclickableentity".equals(needle)
+					? nearestClickableEntity(lastEntities)
+					: findEntityByNameOrId(lastEntities, candidate);
+				if (target != null)
+				{
+					return actionResolvedTarget(target, candidate, candidateIndex, candidateCount, sequenced);
+				}
+			}
+			return null;
 		}
 
 		List<Map<String, Object>> targets = collectActionSurfaceTargets(surface);
-		String needle = normalize(targetLabel);
-		if (needle.isEmpty())
+		List<Map<String, Object>> cachedTargets = cachedActionSurfaceTargets(surface);
+		for (int attempt = 0; attempt < candidateCount; attempt++)
 		{
-			if (!targets.isEmpty())
+			int candidateIndex = sequenced ? (startIndex + attempt) % candidateCount : attempt;
+			String candidate = candidates.get(candidateIndex);
+			String needle = normalize(candidate);
+			Map<String, Object> target;
+			if (needle.isEmpty())
 			{
-				return targets.get(0);
+				target = !targets.isEmpty() ? targets.get(0) : (cachedTargets.isEmpty() ? null : cachedTargets.get(0));
 			}
-			List<Map<String, Object>> cachedTargets = cachedActionSurfaceTargets(surface);
-			return cachedTargets.isEmpty() ? null : cachedTargets.get(0);
+			else
+			{
+				target = findActionTargetByLabel(surface, targets, candidate);
+				if (target == null)
+				{
+					target = findActionTargetByLabel(surface, cachedTargets, candidate);
+				}
+			}
+			if (target != null)
+			{
+				return actionResolvedTarget(target, candidate, candidateIndex, candidateCount, sequenced);
+			}
+		}
+		return null;
+	}
+
+	private List<String> actionTargetCandidates(String targetLabel)
+	{
+		List<String> candidates = new ArrayList<>();
+		if (targetLabel == null || targetLabel.trim().isEmpty())
+		{
+			candidates.add("");
+			return candidates;
 		}
 
-		Map<String, Object> target = findTargetByLabel(targets, needle);
-		if (target != null)
+		String separator = isSequencedActionTarget(targetLabel) ? "\\s*->\\s*" : "\\s*(?:\\||;|,|\\r?\\n)\\s*";
+		for (String part : targetLabel.trim().split(separator))
 		{
-			return target;
+			String candidate = part.trim();
+			if (!candidate.isEmpty())
+			{
+				candidates.add(candidate);
+			}
 		}
-		return findTargetByLabel(cachedActionSurfaceTargets(surface), needle);
+		if (candidates.isEmpty())
+		{
+			candidates.add(targetLabel.trim());
+		}
+		return candidates;
+	}
+
+	private boolean isSequencedActionTarget(String targetLabel)
+	{
+		return targetLabel != null && targetLabel.contains("->");
+	}
+
+	private Map<String, Object> actionResolvedTarget(Map<String, Object> target, String candidate, int candidateIndex, int candidateCount, boolean sequenced)
+	{
+		Map<String, Object> copy = new LinkedHashMap<>(target);
+		copy.put("actionCandidate", candidate);
+		copy.put("actionCandidateIndex", candidateIndex);
+		copy.put("actionCandidateCount", candidateCount);
+		copy.put("actionSequence", sequenced);
+		return copy;
+	}
+
+	private Map<String, Object> findActionTargetByLabel(CvHelperActionSurface surface, List<Map<String, Object>> targets, String needle)
+	{
+		if (surface == CvHelperActionSurface.INVENTORY || surface == CvHelperActionSurface.EQUIPMENT)
+		{
+			Map<String, Object> doseAware = findDoseAwareTarget(targets, needle);
+			if (doseAware != null)
+			{
+				return doseAware;
+			}
+		}
+		return findTargetByLabel(targets, needle);
+	}
+
+	private Map<String, Object> findDoseAwareTarget(List<Map<String, Object>> targets, String needle)
+	{
+		String normalizedNeedle = normalizeDoseAgnostic(needle);
+		if (normalizedNeedle.isEmpty())
+		{
+			return null;
+		}
+
+		Map<String, Object> best = null;
+		int bestDose = Integer.MAX_VALUE;
+		for (Map<String, Object> target : targets)
+		{
+			String haystack = normalizedDoseAgnosticHaystack(target);
+			if (!haystack.contains(normalizedNeedle))
+			{
+				continue;
+			}
+			int dose = itemDose(target);
+			if (best == null || dose < bestDose)
+			{
+				best = target;
+				bestDose = dose;
+			}
+		}
+		return best;
+	}
+
+	private String normalizedDoseAgnosticHaystack(Map<String, Object> target)
+	{
+		return normalizeDoseAgnostic(targetLabelForMessage(target)
+			+ " " + target.get("name")
+			+ " " + target.get("text")
+			+ " " + target.get("itemName")
+			+ " " + target.get("itemId")
+			+ " " + actionsText(target.get("actions")));
+	}
+
+	private String normalizeDoseAgnostic(String value)
+	{
+		return normalize(value == null ? "" : value.replaceAll("\\(\\d+\\)", ""));
+	}
+
+	private int itemDose(Map<String, Object> target)
+	{
+		String text = targetLabelForMessage(target)
+			+ " " + target.get("name")
+			+ " " + target.get("text")
+			+ " " + target.get("itemName");
+		java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\((\\d+)\\)").matcher(text);
+		return matcher.find() ? Integer.parseInt(matcher.group(1)) : Integer.MAX_VALUE;
+	}
+
+	private void advanceActionSequence(int slot, Map<String, Object> target)
+	{
+		if (!Boolean.TRUE.equals(target.get("actionSequence")))
+		{
+			return;
+		}
+		Object candidateCountValue = target.get("actionCandidateCount");
+		Object candidateIndexValue = target.get("actionCandidateIndex");
+		if (!(candidateCountValue instanceof Number) || !(candidateIndexValue instanceof Number))
+		{
+			return;
+		}
+		int candidateCount = ((Number) candidateCountValue).intValue();
+		if (candidateCount <= 1)
+		{
+			return;
+		}
+		int candidateIndex = ((Number) candidateIndexValue).intValue();
+		actionSequenceIndexes.put(slot, Math.floorMod(candidateIndex + 1, candidateCount));
 	}
 
 	private Map<String, Object> findEntityByNameOrId(List<Map<String, Object>> entities, String targetLabel)
@@ -1950,6 +2176,158 @@ public class CvHelperPlugin extends Plugin
 			sendWebhook(eventPayload("entities", lastEntities));
 			updatePanelStatus("Entities: " + lastEntities.size());
 		});
+	}
+
+	String getMobFarmerTarget()
+	{
+		return mobFarmerTarget;
+	}
+
+	void setMobFarmerTarget(String target)
+	{
+		String cleaned = target == null ? "" : target.trim();
+		mobFarmerTarget = cleaned.isEmpty() ? "cow" : cleaned;
+		mobFarmerStatus.set("target@" + mobFarmerTarget);
+		updatePanelStatus("Mob farmer target: " + mobFarmerTarget);
+	}
+
+	Map<String, Object> getMobFarmerStatus()
+	{
+		Map<String, Object> status = new LinkedHashMap<>();
+		status.put("target", mobFarmerTarget);
+		status.put("running", mobFarmerRunning.get());
+		status.put("live", mobFarmerLiveMode);
+		status.put("status", mobFarmerStatus.get());
+		status.put("loopDelayMs", MOB_FARMER_LOOP_DELAY_MS);
+		return status;
+	}
+
+	void runMobFarmerStep(boolean live)
+	{
+		clientThread.invokeLater(() -> mobFarmerStep(live));
+	}
+
+	void startMobFarmer(boolean live)
+	{
+		if (!mobFarmerRunning.compareAndSet(false, true))
+		{
+			updatePanelStatus("Mob farmer already running");
+			return;
+		}
+		mobFarmerLiveMode = live;
+		mobFarmerStatus.set((live ? "live" : "dry") + "-loop-started");
+		Thread loopThread = new Thread(() ->
+		{
+			while (mobFarmerRunning.get())
+			{
+				runMobFarmerStep(live);
+				try
+				{
+					Thread.sleep(MOB_FARMER_LOOP_DELAY_MS);
+				}
+				catch (InterruptedException e)
+				{
+					Thread.currentThread().interrupt();
+					break;
+				}
+			}
+			mobFarmerStatus.set("stopped");
+		}, "cv-helper-mob-farmer");
+		loopThread.setDaemon(true);
+		loopThread.start();
+		updatePanelStatus("Mob farmer " + (live ? "live" : "dry-run") + " loop started");
+	}
+
+	void stopMobFarmer()
+	{
+		mobFarmerRunning.set(false);
+		mobFarmerLiveMode = false;
+		mobFarmerStatus.set("stopped");
+		updatePanelStatus("Mob farmer stopped");
+	}
+
+	private void mobFarmerStep(boolean live)
+	{
+		if (client.getGameState() != GameState.LOGGED_IN)
+		{
+			mobFarmerStatus.set("needs-login:" + client.getGameState());
+			updatePanelStatus("Mob farmer needs login: " + client.getGameState());
+			return;
+		}
+
+		Player localPlayer = client.getLocalPlayer();
+		if (localPlayer == null)
+		{
+			mobFarmerStatus.set("no-local-player");
+			updatePanelStatus("Mob farmer blocked: no local player");
+			return;
+		}
+
+		Actor interacting = localPlayer.getInteracting();
+		if (interacting != null)
+		{
+			mobFarmerStatus.set("already-interacting:" + interacting.getName());
+			updatePanelStatus("Mob farmer waiting: interacting with " + interacting.getName());
+			return;
+		}
+
+		lastEntities = collectEntities();
+		Map<String, Object> target = findEntityByNameOrId(lastEntities, mobFarmerTarget);
+		if (target == null)
+		{
+			mobFarmerStatus.set("no-target:" + mobFarmerTarget);
+			updatePanelStatus("Mob farmer found no target: " + mobFarmerTarget);
+			return;
+		}
+
+		Map<String, Object> clickPoint = firstPoint(target, "clickPoint", "center", "canvasTileCenter");
+		Point screenPoint = canvasPointToScreen(clickPoint);
+		if (screenPoint == null)
+		{
+			mobFarmerStatus.set("off-canvas:" + targetLabelForMessage(target));
+			updatePanelStatus("Mob farmer target off-canvas: " + targetLabelForMessage(target));
+			return;
+		}
+
+		if (!live)
+		{
+			mobFarmerStatus.set("dry-target:" + targetLabelForMessage(target) + "@" + clickPoint);
+			updatePanelStatus("Mob farmer dry target: " + targetLabelForMessage(target) + " @ " + clickPoint);
+			return;
+		}
+
+		if (!actionInProgress.compareAndSet(false, true))
+		{
+			mobFarmerStatus.set("skipped:action-running");
+			updatePanelStatus("Mob farmer skipped: action already running");
+			return;
+		}
+
+		Thread clickThread = new Thread(() ->
+		{
+			try
+			{
+				Robot robot = new Robot();
+				clickScreenPoint(robot, screenPoint);
+				String message = "Mob farmer attacked " + targetLabelForMessage(target) + " @ " + clickPoint;
+				mobFarmerStatus.set("clicked:" + targetLabelForMessage(target));
+				lastEvent.set("mob-farmer-click@" + targetLabelForMessage(target) + "@" + Instant.now());
+				updatePanelStatus(message);
+				clientThread.invokeLater(() -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, ""));
+			}
+			catch (RuntimeException | java.awt.AWTException e)
+			{
+				log.warn("CV Helper mob farmer click failed", e);
+				mobFarmerStatus.set("click-failed:" + e.getMessage());
+				updatePanelStatus("Mob farmer click failed: " + e.getMessage());
+			}
+			finally
+			{
+				actionInProgress.set(false);
+			}
+		}, "cv-helper-mob-farmer-click");
+		clickThread.setDaemon(true);
+		clickThread.start();
 	}
 
 	private void refreshTargets(String surface, java.util.function.Supplier<List<Map<String, Object>>> collector)
@@ -2193,6 +2571,10 @@ public class CvHelperPlugin extends Plugin
 			server.createContext("/targets", this::handleAllTargetsRequest);
 			server.createContext("/entities", this::handleEntitiesRequest);
 			server.createContext("/entities/nearest", this::handleNearestEntityRequest);
+			server.createContext("/automation/mob-farmer/status", this::handleMobFarmerStatusRequest);
+			server.createContext("/automation/mob-farmer/step", this::handleMobFarmerStepRequest);
+			server.createContext("/automation/mob-farmer/start", this::handleMobFarmerStartRequest);
+			server.createContext("/automation/mob-farmer/stop", this::handleMobFarmerStopRequest);
 			server.createContext("/login/click", exchange ->
 			{
 				clickLoginScreen();
@@ -2257,13 +2639,14 @@ public class CvHelperPlugin extends Plugin
 			body.put("status", lastEvent.get());
 			body.put("port", localPort());
 			body.put("preferredPort", config.localPort() > 0 ? config.localPort() : DEFAULT_LOCAL_PORT);
-			body.put("endpoints", new String[]{"/status", "/login/click", "/capture", "/capture/screen", "/capture/minimap", "/capture/latest/client-frame", "/capture/latest/screen", "/capture/latest/minimap", "/player/status", "/targets/prayer", "/targets/spell", "/targets/minimap", "/targets/inventory", "/targets/equipment", "/targets/panels", "/targets/combat", "/targets", "/entities", "/entities/nearest"});
+			body.put("endpoints", new String[]{"/status", "/login/click", "/capture", "/capture/screen", "/capture/minimap", "/capture/latest/client-frame", "/capture/latest/screen", "/capture/latest/minimap", "/player/status", "/targets/prayer", "/targets/spell", "/targets/minimap", "/targets/inventory", "/targets/equipment", "/targets/panels", "/targets/combat", "/targets", "/entities", "/entities/nearest", "/automation/mob-farmer/status", "/automation/mob-farmer/step", "/automation/mob-farmer/start", "/automation/mob-farmer/stop"});
 			Map<String, Object> playerStatus = getPlayerStatusOnClientThread();
 			body.put("player", playerStatus);
 			body.put("spellbook", playerStatus.get("spellbook"));
 			body.put("interfaces", playerStatus.get("interfaces"));
 			body.put("vitals", playerStatus.get("vitals"));
 			body.put("wealth", playerStatus.get("wealth"));
+			body.put("automation", playerStatus.get("automation"));
 			body.put("selectedWidget", playerStatus.get("selectedWidget"));
 			body.put("captures", captureStatuses());
 			body.put("prayerTargets", lastPrayerTargets.size());
@@ -2380,6 +2763,42 @@ public class CvHelperPlugin extends Plugin
 		{
 			Thread.currentThread().interrupt();
 			writeResponse(exchange, 503, "{\"error\":\"interrupted\"}");
+		}
+	}
+
+	private void handleMobFarmerStatusRequest(HttpExchange exchange) throws IOException
+	{
+		writeJson(exchange, 200, getMobFarmerStatus());
+	}
+
+	private void handleMobFarmerStepRequest(HttpExchange exchange) throws IOException
+	{
+		applyMobFarmerQuery(exchange);
+		boolean live = Boolean.parseBoolean(queryParam(exchange, "live"));
+		runMobFarmerStep(live);
+		writeJson(exchange, 202, getMobFarmerStatus());
+	}
+
+	private void handleMobFarmerStartRequest(HttpExchange exchange) throws IOException
+	{
+		applyMobFarmerQuery(exchange);
+		boolean live = Boolean.parseBoolean(queryParam(exchange, "live"));
+		startMobFarmer(live);
+		writeJson(exchange, 202, getMobFarmerStatus());
+	}
+
+	private void handleMobFarmerStopRequest(HttpExchange exchange) throws IOException
+	{
+		stopMobFarmer();
+		writeJson(exchange, 202, getMobFarmerStatus());
+	}
+
+	private void applyMobFarmerQuery(HttpExchange exchange)
+	{
+		String target = queryParam(exchange, "target");
+		if (target != null && !target.trim().isEmpty())
+		{
+			setMobFarmerTarget(target);
 		}
 	}
 
@@ -2867,6 +3286,7 @@ public class CvHelperPlugin extends Plugin
 		String[] actions = widget.getActions();
 		String name = cleanWidgetText(widget.getName());
 		String text = cleanWidgetText(widget.getText());
+		String itemName = itemName(widget.getItemId());
 		Map<String, Object> target = new LinkedHashMap<>();
 		target.put("surface", surface);
 		target.put("widgetId", widget.getId());
@@ -2875,6 +3295,7 @@ public class CvHelperPlugin extends Plugin
 		target.put("type", widget.getType());
 		target.put("name", name);
 		target.put("text", text);
+		target.put("itemName", itemName);
 		target.put("actions", actions == null ? new String[0] : actions);
 		target.put("itemId", widget.getItemId());
 		target.put("itemQuantity", widget.getItemQuantity());
@@ -2899,8 +3320,9 @@ public class CvHelperPlugin extends Plugin
 			String[] actions = widget.getActions();
 			String name = cleanWidgetText(widget.getName());
 			String text = cleanWidgetText(widget.getText());
+			String itemName = itemName(widget.getItemId());
 
-			boolean hasUsefulMetadata = surface.contains("spell") || !name.isEmpty() || !text.isEmpty() || hasActions(actions);
+			boolean hasUsefulMetadata = surface.contains("spell") || !name.isEmpty() || !text.isEmpty() || !itemName.isEmpty() || hasActions(actions);
 			boolean clickableShape = bounds.width >= 8 && bounds.height >= 8;
 			if (clickableShape && hasUsefulMetadata)
 			{
@@ -2916,7 +3338,10 @@ public class CvHelperPlugin extends Plugin
 				target.put("type", widget.getType());
 				target.put("name", name);
 				target.put("text", text);
+				target.put("itemName", itemName);
 				target.put("actions", actions == null ? new String[0] : actions);
+				target.put("itemId", widget.getItemId());
+				target.put("itemQuantity", widget.getItemQuantity());
 				target.put("spriteId", widget.getSpriteId());
 				target.put("bounds", boundsMap(bounds));
 				target.put("center", pointMap(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
@@ -3187,6 +3612,13 @@ public class CvHelperPlugin extends Plugin
 		wealth.put("riskedValueHaApprox", inventoryHa + equipmentHa);
 		wealth.put("riskModel", "coarse-total-carried");
 		return wealth;
+	}
+
+	private Map<String, Object> automationStatus()
+	{
+		Map<String, Object> automation = new LinkedHashMap<>();
+		automation.put("mobFarmer", getMobFarmerStatus());
+		return automation;
 	}
 
 	private Map<String, Object> containerValue(String name, InventoryID inventoryId)
@@ -3611,6 +4043,8 @@ public class CvHelperPlugin extends Plugin
 		return normalize(targetLabelForMessage(target)
 			+ " " + target.get("name")
 			+ " " + target.get("text")
+			+ " " + target.get("itemName")
+			+ " " + target.get("itemId")
 			+ " " + actionsText(target.get("actions")));
 	}
 
@@ -3651,6 +4085,13 @@ public class CvHelperPlugin extends Plugin
 
 	private String targetLabel(Map<String, Object> target, String fallback)
 	{
+		String itemName = String.valueOf(target.get("itemName"));
+		if (itemName != null && !itemName.isEmpty() && !"null".equals(itemName)
+			&& fallback != null && !fallback.isEmpty()
+			&& (fallback.startsWith("inventory") || fallback.contains("slot")))
+		{
+			return itemName + " (" + fallback + ")";
+		}
 		if (fallback != null && !fallback.isEmpty())
 		{
 			return fallback;
@@ -3665,7 +4106,22 @@ public class CvHelperPlugin extends Plugin
 		{
 			return text;
 		}
+		if (itemName != null && !itemName.isEmpty() && !"null".equals(itemName))
+		{
+			return itemName;
+		}
 		return target.get("surface") + "#" + target.get("index");
+	}
+
+	private String itemName(int itemId)
+	{
+		if (itemId <= 0)
+		{
+			return "";
+		}
+		ItemComposition composition = itemManager.getItemComposition(itemId);
+		String name = composition == null ? "" : cleanWidgetText(composition.getName());
+		return "null".equals(name) ? "" : name;
 	}
 
 	private Map<String, Object> capturePayload(String captureType, Rectangle crop)
@@ -3867,6 +4323,30 @@ public class CvHelperPlugin extends Plugin
 	private void writeJson(HttpExchange exchange, int code, Object body) throws IOException
 	{
 		writeResponse(exchange, code, gson.toJson(body));
+	}
+
+	private String queryParam(HttpExchange exchange, String key)
+	{
+		if (exchange == null || exchange.getRequestURI() == null || exchange.getRequestURI().getRawQuery() == null)
+		{
+			return "";
+		}
+		String rawQuery = exchange.getRequestURI().getRawQuery();
+		for (String pair : rawQuery.split("&"))
+		{
+			String[] parts = pair.split("=", 2);
+			String rawKey = decodeQuery(parts[0]);
+			if (key.equals(rawKey))
+			{
+				return parts.length > 1 ? decodeQuery(parts[1]) : "";
+			}
+		}
+		return "";
+	}
+
+	private String decodeQuery(String value)
+	{
+		return URLDecoder.decode(value == null ? "" : value, StandardCharsets.UTF_8);
 	}
 
 	private void writeResponse(HttpExchange exchange, int code, String body) throws IOException

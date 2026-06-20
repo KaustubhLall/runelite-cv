@@ -440,7 +440,7 @@ public interface CvHelperConfig extends Config
 	)
 	default Keybind actionHotkey1()
 	{
-		return Keybind.NOT_SET;
+		return new Keybind(java.awt.event.KeyEvent.VK_1, 0);
 	}
 
 	@ConfigItem(
@@ -540,7 +540,7 @@ public interface CvHelperConfig extends Config
 	)
 	default Keybind actionHotkey2()
 	{
-		return Keybind.NOT_SET;
+		return new Keybind(java.awt.event.KeyEvent.VK_2, 0);
 	}
 
 	@ConfigItem(
@@ -640,7 +640,7 @@ public interface CvHelperConfig extends Config
 	)
 	default Keybind actionHotkey3()
 	{
-		return Keybind.NOT_SET;
+		return new Keybind(java.awt.event.KeyEvent.VK_3, 0);
 	}
 
 	@ConfigItem(
@@ -740,7 +740,7 @@ public interface CvHelperConfig extends Config
 	)
 	default Keybind actionHotkey4()
 	{
-		return Keybind.NOT_SET;
+		return new Keybind(java.awt.event.KeyEvent.VK_4, 0);
 	}
 
 	@ConfigItem(

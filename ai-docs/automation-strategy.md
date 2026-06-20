@@ -21,12 +21,13 @@ Do not build the live automation loop on unstable primitives. Verify these first
 1. Dry-run automation state machine that only reports the next intended action.
 2. Mob target selection from `/entities` by partial name or NPC id.
 3. Safe click-to-attack using existing CV Helper action/click primitives.
-4. Combat-state monitor: not in combat, current target, target death/end condition.
-5. HP and food interrupt: eat above stop threshold, stop/report if no healing remains.
-6. Loot detection and pickup policy: specific allowlist, minimum value, low-value override allowlist.
-7. Optional highlighted-drop integration with plugins such as Ground Items if feasible.
-8. Exit policy: first stop/report, later marked safe tile or pathing integration.
-9. Verifier UI for automation state, last decision, interrupt reason, and next planned action.
+4. First implemented slice: CV Helper right-panel and `/automation/mob-farmer/*` endpoints expose dry/live step and dry/live loop controls. The loop only clicks a matching entity when logged in, not already interacting, and no CV action is running.
+5. Combat-state monitor: not in combat, current target, target death/end condition.
+6. HP and food interrupt: eat above stop threshold, stop/report if no healing remains.
+7. Loot detection and pickup policy: specific allowlist, minimum value, low-value override allowlist.
+8. Optional highlighted-drop integration with plugins such as Ground Items if feasible.
+9. Exit policy: first stop/report, later marked safe tile or pathing integration.
+10. Verifier UI for automation state, last decision, interrupt reason, and next planned action.
 
 ## First Live Scenario
 
