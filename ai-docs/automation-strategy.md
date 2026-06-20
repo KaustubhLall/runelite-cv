@@ -24,11 +24,11 @@ Do not build the live automation loop on unstable primitives. Verify these first
 4. First implemented slice: CV Helper right-panel and `/automation/mob-farmer/*` endpoints expose dry/live step and dry/live loop controls. The loop only clicks a matching entity when logged in, not already interacting, and no CV action is running.
 5. Panic stop: always provide a sidebar button, hotkey, and localhost endpoint before expanding longer loops.
 6. Combat-state monitor: not in combat, current target, target death/end condition. First pass is implemented in CV Helper with NPC attackability/dead/engaged filters, single-vs-multi policy, and candidate diagnostics.
-7. Survival and direct loot first pass: implemented in CV Helper with auto-eat threshold/food matching/no-food stop, loot allowlist/min-value/blacklist/ownership/radius checks, inventory-full guards, and candidate diagnostics.
+7. Survival and loot policy: implemented in CV Helper with auto-eat threshold/food matching/no-food stop-or-continue behavior, loot allowlist/min-value/blacklist/ownership/radius checks, Ground Items highlighted/hidden list reuse, inventory-full guards, and candidate diagnostics.
 8. Real pathing: replace line-of-sight/straight-distance heuristics with route distance or path existence using collision maps or a pathing plugin integration.
-9. Click reliability: add a right-click/menu-option path so `Attack <npc>` and `Take <item>` can be selected when drops/players/overlap obstruct the left-click point.
-10. Inventory processing: automatic low-value dropping, item priority tiers, and protected never-drop enforcement. Current implementation reports the drop candidate but does not drop automatically.
-11. Optional highlighted-drop integration with plugins such as Ground Items if feasible.
+9. Click reliability: implemented first-pass RuneLite menu-action primitives for `Attack <npc>` and `Take <item>` so hidden/deprioritized drops and obstructed NPCs do not depend on left-click geometry. Keep direct-click mode as a fallback for debugging.
+10. Inventory processing: first-pass optional intermediate actions can use matching bones/ashes from inventory. Automatic low-value dropping, item priority tiers, and protected never-drop enforcement remain follow-up work. Current implementation reports the drop candidate but does not drop automatically.
+11. Ground Items integration: implemented first-pass import/reuse of highlighted and hidden item lists. Highlighted Ground Items can supplement CV Helper always-loot; hidden items are reported and only block pickup when the CV Helper setting explicitly respects hidden items.
 12. Login/reconnect/world recovery: click play/login safely, wait until in-game, then resume only if loop policy allows.
 13. Exit policy: first stop/report, later marked safe tile or pathing integration.
 14. Verifier UI for automation state, last decision, interrupt reason, and next planned action.
@@ -38,8 +38,8 @@ Do not build the live automation loop on unstable primitives. Verify these first
 - Location: Lumbridge cow area.
 - Target: cow by partial name or NPC id.
 - Loop: if not in combat, click nearest matching cow, monitor until combat ends, repeat.
-- Safety: if HP is below threshold, open inventory, eat matching food, and stop/report if no food is available.
-- Loot: start with explicit item names and minimum-value filters. Default flow attacks first when idle, then picks allowed drops during combat windows or when no valid target exists.
+- Safety: if HP is below threshold, open inventory, eat matching food, and either stop/report or warn/continue based on `Stop if no food`.
+- Loot: start with explicit item names, Ground Items highlighted-list imports, and minimum-value filters. Default flow attacks first when idle, then picks allowed drops during combat windows or when no valid target exists.
 
 ## Design Rules
 

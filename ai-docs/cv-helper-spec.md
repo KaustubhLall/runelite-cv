@@ -336,23 +336,27 @@ Current target-validity checks include:
 
 `/automation/mob-farmer/status` reports the latest decision plus candidate diagnostics, including per-NPC selectability, reasons, health/death state, attackability, engaged-by-other state, line-of-sight state, score, click point, and world location. Use this report before trusting live clicks in crowded or obstructed areas.
 
-First-pass survival and loot processing is implemented:
+First-pass survival, menu interaction, and loot processing is implemented:
 
-- Auto-eat runs before loot or attack decisions. If current HP is at or below the configured percent threshold, the farmer opens inventory if needed, finds a matching food item with an `Eat`, `Drink`, or `Consume` action, and clicks it. If no food is found, the loop can stop automatically.
-- Loot pickup scans visible scene ground items and reports every candidate in `/automation/mob-farmer/status`. Selection uses explicit always-loot names/ids, minimum GE value, blacklist, ownership policy, loot radius, inventory capacity, stackability, screen click point, and score.
+- Auto-eat runs before loot or attack decisions. If current HP is at or below the configured percent threshold, the farmer opens inventory if needed, finds a matching food item with an `Eat`, `Drink`, or `Consume` action, and clicks it. If no food is found, the loop either stops automatically or records `warning:no-food-continue` and keeps farming based on `Stop if no food`.
+- Loot pickup scans visible scene ground items and reports every candidate in `/automation/mob-farmer/status`. Selection uses explicit always-loot names/ids, Ground Items highlighted/hidden list metadata, minimum GE value, blacklist, ownership policy, loot radius, inventory capacity, stackability, interaction mode, and score.
+- Attack and loot interaction modes default to `MENU_ACTION`. NPC attacks use the exact `Attack` action index exported from NPC composition metadata, and loot uses `GROUND_ITEM_FIRST_OPTION`/`Take` with scene coordinates. `DIRECT_CLICK` remains available as a debug/fallback path.
+- Ground Items list reuse is first-pass implemented. `SUPPLEMENT` treats Ground Items highlighted entries as additional always-loot candidates. Hidden-list matches are reported on candidates; they block pickup only if `Respect hidden Ground Items` is enabled and the item is not explicitly listed by CV Helper.
+- Optional intermediate inventory actions can use matching items such as bones or ashes with `Bury`, `Scatter`, or `Use` actions during safe loop windows. This is intentionally smaller than a full inventory manager.
 - Default loot flow prioritizes attacking first when idle, then collecting allowed drops during combat windows or when no valid target is available. This supports the desired "attack next mob first, then loot after the drop appears" rhythm.
 - Inventory status reports occupied/free slots, protected never-drop list, and the lowest-value unprotected drop candidate for future drop-processing work. The first pass does not drop inventory items automatically.
 
-Highlighted-drop integration, real pathing/exit tiles, right-click/menu option selection, automatic dropping, and composable external action plans remain follow-up bricks.
+Real pathing/exit tiles, emergency teleport, automatic dropping, config profiles/presets, and composable external action plans remain follow-up bricks.
 
 Dry mob-farmer steps also print the selected target/click point to in-game chat so the user can verify targeting without watching the localhost response.
 
 Known farmer follow-ups:
 
-- Prefer attack actions through the correct menu option when left-click geometry is obstructed by drops, players, or other overlays.
-- Replace direct tile/item clicks with menu-option pickup and highlighted-drop integration.
+- Validate menu-action attack and pickup in crowded/hidden-drop cases and keep direct-click fallback available for debugging.
+- Expand Ground Items integration beyond first-pass highlighted/hidden reuse if needed, including stronger parity with Ground Items value tiers or ownership display settings.
 - Add automatic low-value dropping, item priority tiers, and safe pathing/exit strategies before longer unattended loops.
 - Replace conservative line-of-sight filtering with real route/path distance using collision maps or a pathing plugin integration.
+- Add emergency teleport and configuration profiles/presets after the loop primitives are stable.
 - Add login/reconnect/world-recovery flow after the core combat loop is stable.
 
 The verifier dashboard groups `/status` data into connection, vitals, wealth, and interface sections. It shows HP/prayer, run energy, special attack energy/enabled state, active prayers, current loot/equipment/total carried/risked-value approximation, selected widget state, and latest capture preview/path.

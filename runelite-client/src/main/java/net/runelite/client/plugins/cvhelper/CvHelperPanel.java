@@ -470,6 +470,9 @@ class CvHelperPanel extends PluginPanel
 		requireLineOfSight.addActionListener(e -> plugin.setMobFarmerRequireLineOfSight(requireLineOfSight.isSelected()));
 		JTextField maxDistance = new JTextField(String.valueOf(plugin.getMobFarmerMaxDistance()));
 		maxDistance.setToolTipText("0 disables the distance guard.");
+		JComboBox<CvHelperMobInteractionMode> attackInteraction = new JComboBox<>(CvHelperMobInteractionMode.values());
+		attackInteraction.setSelectedItem(plugin.getMobFarmerAttackInteractionMode());
+		attackInteraction.addActionListener(e -> plugin.setMobFarmerAttackInteractionMode((CvHelperMobInteractionMode) attackInteraction.getSelectedItem()));
 
 		JCheckBox autoEatEnabled = new JCheckBox("Auto-eat", plugin.getMobFarmerAutoEatEnabled());
 		styleCheckbox(autoEatEnabled);
@@ -502,6 +505,20 @@ class CvHelperPanel extends PluginPanel
 		JComboBox<CvHelperLootOwnershipMode> lootOwnership = new JComboBox<>(CvHelperLootOwnershipMode.values());
 		lootOwnership.setSelectedItem(plugin.getMobFarmerLootOwnershipMode());
 		lootOwnership.addActionListener(e -> plugin.setMobFarmerLootOwnershipMode((CvHelperLootOwnershipMode) lootOwnership.getSelectedItem()));
+		JComboBox<CvHelperMobInteractionMode> lootInteraction = new JComboBox<>(CvHelperMobInteractionMode.values());
+		lootInteraction.setSelectedItem(plugin.getMobFarmerLootInteractionMode());
+		lootInteraction.addActionListener(e -> plugin.setMobFarmerLootInteractionMode((CvHelperMobInteractionMode) lootInteraction.getSelectedItem()));
+		JComboBox<CvHelperGroundItemsMode> groundItemsMode = new JComboBox<>(CvHelperGroundItemsMode.values());
+		groundItemsMode.setSelectedItem(plugin.getMobFarmerGroundItemsMode());
+		groundItemsMode.addActionListener(e -> plugin.setMobFarmerGroundItemsMode((CvHelperGroundItemsMode) groundItemsMode.getSelectedItem()));
+		JCheckBox respectGroundItemsHidden = new JCheckBox("Respect hidden Ground Items", plugin.getMobFarmerRespectGroundItemsHidden());
+		styleCheckbox(respectGroundItemsHidden);
+		respectGroundItemsHidden.addActionListener(e -> plugin.setMobFarmerRespectGroundItemsHidden(respectGroundItemsHidden.isSelected()));
+		JCheckBox intermediateActions = new JCheckBox("Use bones/ashes", plugin.getMobFarmerIntermediateActionsEnabled());
+		styleCheckbox(intermediateActions);
+		intermediateActions.addActionListener(e -> plugin.setMobFarmerIntermediateActionsEnabled(intermediateActions.isSelected()));
+		JTextField intermediateItems = new JTextField(plugin.getMobFarmerIntermediateItems());
+		intermediateItems.setToolTipText("Items to use during farming, such as bones or ashes.");
 		JTextField neverDrop = new JTextField(plugin.getMobFarmerNeverDropItems());
 		neverDrop.setToolTipText("Inventory items that future drop processing must never drop.");
 
@@ -509,13 +526,28 @@ class CvHelperPanel extends PluginPanel
 		saveGuards.addActionListener(e ->
 		{
 			plugin.setMobFarmerTarget(target.getText());
+			plugin.setMobFarmerEngagedMode((CvHelperMobEngagedMode) engagedMode.getSelectedItem());
+			plugin.setMobFarmerAggroResponse((CvHelperMobAggroResponse) aggroResponse.getSelectedItem());
+			plugin.setMobFarmerRequireLineOfSight(requireLineOfSight.isSelected());
 			plugin.setMobFarmerMaxDistance(parseNonNegativeInt(maxDistance.getText(), plugin.getMobFarmerMaxDistance()));
+			plugin.setMobFarmerAttackInteractionMode((CvHelperMobInteractionMode) attackInteraction.getSelectedItem());
+			plugin.setMobFarmerAutoEatEnabled(autoEatEnabled.isSelected());
 			plugin.setMobFarmerEatHitpointPercent(parseNonNegativeInt(eatThreshold.getText(), plugin.getMobFarmerEatHitpointPercent()));
 			plugin.setMobFarmerFoodItems(foodItems.getText());
+			plugin.setMobFarmerStopIfNoFood(stopIfNoFood.isSelected());
+			plugin.setMobFarmerLootEnabled(lootEnabled.isSelected());
+			plugin.setMobFarmerLootDuringCombat(lootDuringCombat.isSelected());
+			plugin.setMobFarmerAttackBeforeLoot(attackBeforeLoot.isSelected());
 			plugin.setMobFarmerLootMinValueGe(parseNonNegativeInt(lootMinValue.getText(), plugin.getMobFarmerLootMinValueGe()));
 			plugin.setMobFarmerLootRadius(parseNonNegativeInt(lootRadius.getText(), plugin.getMobFarmerLootRadius()));
 			plugin.setMobFarmerLootItems(lootItems.getText());
 			plugin.setMobFarmerLootBlacklist(lootBlacklist.getText());
+			plugin.setMobFarmerLootOwnershipMode((CvHelperLootOwnershipMode) lootOwnership.getSelectedItem());
+			plugin.setMobFarmerLootInteractionMode((CvHelperMobInteractionMode) lootInteraction.getSelectedItem());
+			plugin.setMobFarmerGroundItemsMode((CvHelperGroundItemsMode) groundItemsMode.getSelectedItem());
+			plugin.setMobFarmerRespectGroundItemsHidden(respectGroundItemsHidden.isSelected());
+			plugin.setMobFarmerIntermediateActionsEnabled(intermediateActions.isSelected());
+			plugin.setMobFarmerIntermediateItems(intermediateItems.getText());
 			plugin.setMobFarmerNeverDropItems(neverDrop.getText());
 			updateStatus("Mob farmer guards saved");
 		});
@@ -548,7 +580,7 @@ class CvHelperPanel extends PluginPanel
 		JButton stop = new JButton("Stop loop");
 		stop.addActionListener(e -> plugin.stopMobFarmer());
 
-		JLabel help = new JLabel("<html>Farmer loop: survival guard, optional loot processing, then guarded attack selection. Right-click/pathing stay follow-up bricks.</html>");
+		JLabel help = new JLabel("<html>Farmer loop: survival guard, optional intermediate inventory actions, loot processing, then guarded attack selection. Use mob targets like goblin|spider or id:1234.</html>");
 		help.setForeground(Color.LIGHT_GRAY);
 
 		for (JComponent component : new JComponent[]{
@@ -562,6 +594,8 @@ class CvHelperPanel extends PluginPanel
 			requireLineOfSight,
 			label("Max target distance"),
 			maxDistance,
+			label("Attack interaction"),
+			attackInteraction,
 			label("Survival"),
 			autoEatEnabled,
 			label("Eat below HP %"),
@@ -583,6 +617,15 @@ class CvHelperPanel extends PluginPanel
 			lootBlacklist,
 			label("Loot ownership"),
 			lootOwnership,
+			label("Loot interaction"),
+			lootInteraction,
+			label("Ground Items lists"),
+			groundItemsMode,
+			respectGroundItemsHidden,
+			label("Intermediate actions"),
+			intermediateActions,
+			label("Intermediate items"),
+			intermediateItems,
 			label("Protected inventory"),
 			neverDrop,
 			saveGuards,

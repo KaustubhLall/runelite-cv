@@ -119,6 +119,12 @@ public interface CvHelperConfig extends Config
 	String MOB_FARMER_LOOT_BLACKLIST = "mobFarmerLootBlacklist";
 	String MOB_FARMER_LOOT_OWNERSHIP_MODE = "mobFarmerLootOwnershipMode";
 	String MOB_FARMER_NEVER_DROP_ITEMS = "mobFarmerNeverDropItems";
+	String MOB_FARMER_ATTACK_INTERACTION_MODE = "mobFarmerAttackInteractionMode";
+	String MOB_FARMER_LOOT_INTERACTION_MODE = "mobFarmerLootInteractionMode";
+	String MOB_FARMER_GROUND_ITEMS_MODE = "mobFarmerGroundItemsMode";
+	String MOB_FARMER_RESPECT_GROUND_ITEMS_HIDDEN = "mobFarmerRespectGroundItemsHidden";
+	String MOB_FARMER_INTERMEDIATE_ACTIONS_ENABLED = "mobFarmerIntermediateActionsEnabled";
+	String MOB_FARMER_INTERMEDIATE_ITEMS = "mobFarmerIntermediateItems";
 
 	@ConfigSection(
 		name = "Action hotkeys",
@@ -652,6 +658,72 @@ public interface CvHelperConfig extends Config
 	default CvHelperLootOwnershipMode mobFarmerLootOwnershipMode()
 	{
 		return CvHelperLootOwnershipMode.OWN_OR_PUBLIC;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_ATTACK_INTERACTION_MODE,
+		name = "Attack interaction",
+		description = "How the farmer invokes NPC attacks. MENU_ACTION uses the RuneLite menu-entry path; DIRECT_CLICK physically clicks canvas coordinates.",
+		section = mobFarmerSection
+	)
+	default CvHelperMobInteractionMode mobFarmerAttackInteractionMode()
+	{
+		return CvHelperMobInteractionMode.MENU_ACTION;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_INTERACTION_MODE,
+		name = "Loot interaction",
+		description = "How the farmer takes ground items. MENU_ACTION can take hidden or deprioritized Ground Items entries without relying on left-click visibility.",
+		section = mobFarmerSection
+	)
+	default CvHelperMobInteractionMode mobFarmerLootInteractionMode()
+	{
+		return CvHelperMobInteractionMode.MENU_ACTION;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_GROUND_ITEMS_MODE,
+		name = "Ground Items lists",
+		description = "OFF ignores Ground Items plugin lists. SUPPLEMENT treats highlighted Ground Items as always-loot candidates.",
+		section = mobFarmerSection
+	)
+	default CvHelperGroundItemsMode mobFarmerGroundItemsMode()
+	{
+		return CvHelperGroundItemsMode.SUPPLEMENT;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_RESPECT_GROUND_ITEMS_HIDDEN,
+		name = "Respect hidden Ground Items",
+		description = "When enabled, Ground Items hidden-list matches are treated as never-loot unless also explicitly listed in CV Helper's always-loot list.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerRespectGroundItemsHidden()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_INTERMEDIATE_ACTIONS_ENABLED,
+		name = "Use bones/ashes",
+		description = "During safe loop windows, open inventory and use matching intermediate items such as bones or ashes.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerIntermediateActionsEnabled()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_INTERMEDIATE_ITEMS,
+		name = "Intermediate items",
+		description = "Items to use from inventory during farming, such as bones or ashes. Supports names or id:<item id>, separated by |, comma, semicolon, or newlines.",
+		section = mobFarmerSection
+	)
+	default String mobFarmerIntermediateItems()
+	{
+		return "bones|big bones|ashes";
 	}
 
 	@ConfigItem(

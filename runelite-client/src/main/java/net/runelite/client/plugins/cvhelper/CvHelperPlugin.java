@@ -95,6 +95,7 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.HotkeyListener;
 import net.runelite.client.util.ImageUtil;
+import net.runelite.client.util.WildcardMatcher;
 import net.runelite.http.api.RuneLiteAPI;
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -117,6 +118,9 @@ public class CvHelperPlugin extends Plugin
 	private static final int ACTION_SLOT_COUNT = 22;
 	private static final int ACTION_RESOLVE_RETRIES = 4;
 	private static final int MOB_FARMER_LOOP_DELAY_MS = 1200;
+	private static final String GROUND_ITEMS_CONFIG_GROUP = "grounditems";
+	private static final String GROUND_ITEMS_HIGHLIGHTED_ITEMS = "highlightedItems";
+	private static final String GROUND_ITEMS_HIDDEN_ITEMS = "hiddenItems";
 	private static final DateTimeFormatter CAPTURE_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
 	private static final int[] PRAYER_COMPONENTS = {
 		InterfaceID.Prayerbook.PRAYER1,
@@ -215,6 +219,7 @@ public class CvHelperPlugin extends Plugin
 	private volatile List<Map<String, Object>> lastMobFarmerLootCandidates = new ArrayList<>();
 	private volatile Map<String, Object> lastMobFarmerLootDecision = new LinkedHashMap<>();
 	private volatile Map<String, Object> lastMobFarmerSurvivalDecision = new LinkedHashMap<>();
+	private volatile Map<String, Object> lastMobFarmerIntermediateDecision = new LinkedHashMap<>();
 	private volatile Map<String, Object> lastMobFarmerInventoryStatus = new LinkedHashMap<>();
 	private volatile boolean lastMobFarmerMultiCombat;
 	private final KeyEventDispatcher cvHotkeyDispatcher = this::dispatchCvHotkey;
@@ -2597,6 +2602,69 @@ public class CvHelperPlugin extends Plugin
 		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_LOOT_OWNERSHIP_MODE, mode == null ? CvHelperLootOwnershipMode.OWN_OR_PUBLIC : mode);
 	}
 
+	CvHelperMobInteractionMode getMobFarmerAttackInteractionMode()
+	{
+		CvHelperMobInteractionMode mode = config.mobFarmerAttackInteractionMode();
+		return mode == null ? CvHelperMobInteractionMode.MENU_ACTION : mode;
+	}
+
+	void setMobFarmerAttackInteractionMode(CvHelperMobInteractionMode mode)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_ATTACK_INTERACTION_MODE, mode == null ? CvHelperMobInteractionMode.MENU_ACTION : mode);
+	}
+
+	CvHelperMobInteractionMode getMobFarmerLootInteractionMode()
+	{
+		CvHelperMobInteractionMode mode = config.mobFarmerLootInteractionMode();
+		return mode == null ? CvHelperMobInteractionMode.MENU_ACTION : mode;
+	}
+
+	void setMobFarmerLootInteractionMode(CvHelperMobInteractionMode mode)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_LOOT_INTERACTION_MODE, mode == null ? CvHelperMobInteractionMode.MENU_ACTION : mode);
+	}
+
+	CvHelperGroundItemsMode getMobFarmerGroundItemsMode()
+	{
+		CvHelperGroundItemsMode mode = config.mobFarmerGroundItemsMode();
+		return mode == null ? CvHelperGroundItemsMode.SUPPLEMENT : mode;
+	}
+
+	void setMobFarmerGroundItemsMode(CvHelperGroundItemsMode mode)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_GROUND_ITEMS_MODE, mode == null ? CvHelperGroundItemsMode.SUPPLEMENT : mode);
+	}
+
+	boolean getMobFarmerRespectGroundItemsHidden()
+	{
+		return config.mobFarmerRespectGroundItemsHidden();
+	}
+
+	void setMobFarmerRespectGroundItemsHidden(boolean respectHidden)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_RESPECT_GROUND_ITEMS_HIDDEN, respectHidden);
+	}
+
+	boolean getMobFarmerIntermediateActionsEnabled()
+	{
+		return config.mobFarmerIntermediateActionsEnabled();
+	}
+
+	void setMobFarmerIntermediateActionsEnabled(boolean enabled)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_INTERMEDIATE_ACTIONS_ENABLED, enabled);
+	}
+
+	String getMobFarmerIntermediateItems()
+	{
+		return config.mobFarmerIntermediateItems() == null ? "" : config.mobFarmerIntermediateItems();
+	}
+
+	void setMobFarmerIntermediateItems(String items)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_INTERMEDIATE_ITEMS, items == null ? "" : items.trim());
+	}
+
 	String getMobFarmerNeverDropItems()
 	{
 		return config.mobFarmerNeverDropItems() == null ? "" : config.mobFarmerNeverDropItems();
@@ -2617,6 +2685,7 @@ public class CvHelperPlugin extends Plugin
 	{
 		Map<String, Object> status = new LinkedHashMap<>();
 		status.put("target", mobFarmerTarget);
+		status.put("targetCandidates", actionTargetCandidates(mobFarmerTarget));
 		status.put("running", mobFarmerRunning.get());
 		status.put("live", mobFarmerLiveMode);
 		status.put("status", mobFarmerStatus.get());
@@ -2630,6 +2699,7 @@ public class CvHelperPlugin extends Plugin
 		status.put("loot", mobFarmerLootConfigStatus());
 		status.put("decision", lastMobFarmerDecision);
 		status.put("survivalDecision", lastMobFarmerSurvivalDecision);
+		status.put("intermediateDecision", lastMobFarmerIntermediateDecision);
 		status.put("lootDecision", lastMobFarmerLootDecision);
 		status.put("inventory", lastMobFarmerInventoryStatus);
 		status.put("candidates", lastMobFarmerCandidates);
@@ -2658,6 +2728,13 @@ public class CvHelperPlugin extends Plugin
 		out.put("items", getMobFarmerLootItems());
 		out.put("blacklist", getMobFarmerLootBlacklist());
 		out.put("ownershipMode", getMobFarmerLootOwnershipMode().name());
+		out.put("attackInteractionMode", getMobFarmerAttackInteractionMode().name());
+		out.put("lootInteractionMode", getMobFarmerLootInteractionMode().name());
+		out.put("groundItemsMode", getMobFarmerGroundItemsMode().name());
+		out.put("respectGroundItemsHidden", getMobFarmerRespectGroundItemsHidden());
+		out.put("groundItems", groundItemsConfigStatus());
+		out.put("intermediateActionsEnabled", getMobFarmerIntermediateActionsEnabled());
+		out.put("intermediateItems", getMobFarmerIntermediateItems());
 		out.put("neverDropItems", getMobFarmerNeverDropItems());
 		return out;
 	}
@@ -2789,12 +2866,20 @@ public class CvHelperPlugin extends Plugin
 		{
 			return;
 		}
+		if (tryMobFarmerIntermediateAction(localPlayer, live, generation, "pre-combat"))
+		{
+			return;
+		}
 
 		Actor interacting = localPlayer.getInteracting();
 		if (interacting != null && !isEffectivelyDead(interacting))
 		{
 			if (interacting instanceof NPC && matchesAnyMobTarget((NPC) interacting, mobFarmerTarget))
 			{
+				if (tryMobFarmerIntermediateAction(localPlayer, live, generation, "combat-window"))
+				{
+					return;
+				}
 				if (getMobFarmerLootDuringCombat() && tryMobFarmerLoot(localPlayer, live, generation, "combat-window"))
 				{
 					return;
@@ -2807,6 +2892,10 @@ public class CvHelperPlugin extends Plugin
 			CvHelperMobAggroResponse aggroResponse = getMobFarmerAggroResponse();
 			if (aggroResponse == CvHelperMobAggroResponse.CONTINUE_ANY_ATTACKER || (!lastMobFarmerMultiCombat && aggroResponse == CvHelperMobAggroResponse.IGNORE_IN_MULTI))
 			{
+				if (tryMobFarmerIntermediateAction(localPlayer, live, generation, "combat-window-undesired"))
+				{
+					return;
+				}
 				if (getMobFarmerLootDuringCombat() && tryMobFarmerLoot(localPlayer, live, generation, "combat-window-undesired"))
 				{
 					return;
@@ -2848,8 +2937,7 @@ public class CvHelperPlugin extends Plugin
 		}
 
 		Map<String, Object> clickPoint = firstPoint(target, "clickPoint", "center", "canvasTileCenter");
-		Point screenPoint = canvasPointToScreen(clickPoint);
-		if (screenPoint == null)
+		if (getMobFarmerAttackInteractionMode() == CvHelperMobInteractionMode.DIRECT_CLICK && canvasPointToScreen(clickPoint) == null)
 		{
 			mobFarmerStatus.set("off-canvas:" + targetLabelForMessage(target));
 			updatePanelStatus("Mob farmer target off-canvas: " + targetLabelForMessage(target));
@@ -2865,46 +2953,7 @@ public class CvHelperPlugin extends Plugin
 			return;
 		}
 
-		if (!actionInProgress.compareAndSet(false, true))
-		{
-			mobFarmerStatus.set("skipped:action-running");
-			updatePanelStatus("Mob farmer skipped: action already running");
-			return;
-		}
-
-		Thread clickThread = new Thread(() ->
-		{
-			try
-			{
-				if (isStaleMobFarmerLoop(generation))
-				{
-					return;
-				}
-				Robot robot = new Robot();
-				clickScreenPoint(robot, screenPoint);
-				if (isStaleMobFarmerLoop(generation))
-				{
-					return;
-				}
-				String message = "Mob farmer attacked " + targetLabelForMessage(target) + " @ " + clickPoint;
-				mobFarmerStatus.set("clicked:" + targetLabelForMessage(target));
-				lastEvent.set("mob-farmer-click@" + targetLabelForMessage(target) + "@" + Instant.now());
-				updatePanelStatus(message);
-				clientThread.invokeLater(() -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, ""));
-			}
-			catch (RuntimeException | java.awt.AWTException e)
-			{
-				log.warn("CV Helper mob farmer click failed", e);
-				mobFarmerStatus.set("click-failed:" + e.getMessage());
-				updatePanelStatus("Mob farmer click failed: " + e.getMessage());
-			}
-			finally
-			{
-				actionInProgress.set(false);
-			}
-		}, "cv-helper-mob-farmer-click");
-		clickThread.setDaemon(true);
-		clickThread.start();
+		invokeMobFarmerAttack(target, clickPoint, live, generation);
 	}
 
 	private boolean tryMobFarmerAutoEat(Player localPlayer, boolean live, int generation)
@@ -2951,13 +3000,16 @@ public class CvHelperPlugin extends Plugin
 			}
 
 			setMobFarmerSurvivalDecision("no-food", hp);
-			mobFarmerStatus.set("blocked:no-food");
-			updatePanelStatus("Mob farmer auto-eat blocked: no matching food");
 			if (getMobFarmerStopIfNoFood())
 			{
+				mobFarmerStatus.set("blocked:no-food");
+				updatePanelStatus("Mob farmer auto-eat blocked: no matching food");
 				stopMobFarmer();
+				return true;
 			}
-			return true;
+			mobFarmerStatus.set("warning:no-food-continue");
+			updatePanelStatus("Mob farmer auto-eat warning: no matching food, continuing because stop-if-no-food is off");
+			return false;
 		}
 
 		Map<String, Object> decision = new LinkedHashMap<>(hp);
@@ -2972,16 +3024,79 @@ public class CvHelperPlugin extends Plugin
 		{
 			String name = String.valueOf(target.get("itemName"));
 			int itemId = intValue(target.get("itemId"), -1);
+			int quantity = intValue(target.get("quantity"), 1);
 			if (name.trim().isEmpty() || "null".equals(name))
 			{
 				continue;
 			}
-			if (!matchesItemPolicy(name, itemId, getMobFarmerFoodItems()))
+			if (!matchesItemPolicy(name, itemId, quantity, getMobFarmerFoodItems()))
 			{
 				continue;
 			}
 			String[] actions = targetActions(target);
 			if (hasActionNamed(actions, "Eat") || hasActionNamed(actions, "Drink") || hasActionNamed(actions, "Consume"))
+			{
+				return target;
+			}
+		}
+		return null;
+	}
+
+	private boolean tryMobFarmerIntermediateAction(Player localPlayer, boolean live, int generation, String phase)
+	{
+		if (!getMobFarmerIntermediateActionsEnabled())
+		{
+			setMobFarmerIntermediateDecision("disabled:" + phase, null);
+			return false;
+		}
+		lastInventoryTargets = collectInventoryTargets();
+		lastMobFarmerInventoryStatus = inventoryPolicyStatus();
+		Map<String, Object> item = findIntermediateInventoryTarget(lastInventoryTargets);
+		if (item == null)
+		{
+			if (!isInventoryVisible())
+			{
+				setMobFarmerIntermediateDecision("opening-inventory:" + phase, null);
+				mobFarmerStatus.set("opening-inventory-for-intermediate");
+				updatePanelStatus("Mob farmer intermediate action: opening inventory");
+				if (live)
+				{
+					openAutomationPanel("inventory", "intermediate", generation);
+				}
+				else
+				{
+					client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "Mob farmer dry intermediate: would open inventory", "");
+				}
+				return true;
+			}
+			setMobFarmerIntermediateDecision("none:" + phase, null);
+			return false;
+		}
+
+		Map<String, Object> decision = new LinkedHashMap<>();
+		decision.put("phase", phase);
+		decision.put("target", item);
+		setMobFarmerIntermediateDecision("use", decision);
+		return clickMobFarmerAutomationTarget("intermediate", item, live, generation);
+	}
+
+	private Map<String, Object> findIntermediateInventoryTarget(List<Map<String, Object>> inventoryTargets)
+	{
+		for (Map<String, Object> target : inventoryTargets)
+		{
+			String name = String.valueOf(target.get("itemName"));
+			int itemId = intValue(target.get("itemId"), -1);
+			int quantity = intValue(target.get("quantity"), 1);
+			if (name.trim().isEmpty() || "null".equals(name))
+			{
+				continue;
+			}
+			if (!matchesItemPolicy(name, itemId, quantity, getMobFarmerIntermediateItems()))
+			{
+				continue;
+			}
+			String[] actions = targetActions(target);
+			if (hasActionNamed(actions, "Bury") || hasActionNamed(actions, "Scatter") || hasActionNamed(actions, "Use"))
 			{
 				return target;
 			}
@@ -3045,18 +3160,36 @@ public class CvHelperPlugin extends Plugin
 
 		String name = String.valueOf(item.get("name"));
 		int itemId = intValue(item.get("itemId"), -1);
-		if (matchesItemPolicy(name, itemId, getMobFarmerLootBlacklist()))
+		int quantity = intValue(item.get("quantity"), 1);
+		boolean cvAllowlist = matchesItemPolicy(name, itemId, quantity, getMobFarmerLootItems());
+		boolean cvBlacklist = matchesItemPolicy(name, itemId, quantity, getMobFarmerLootBlacklist());
+		boolean groundItemsHighlighted = Boolean.TRUE.equals(item.get("groundItemsHighlighted"));
+		boolean groundItemsHidden = Boolean.TRUE.equals(item.get("groundItemsHidden"));
+		boolean groundItemsSupplements = getMobFarmerGroundItemsMode() == CvHelperGroundItemsMode.SUPPLEMENT;
+		if (cvBlacklist)
 		{
 			candidate.reject("blacklisted");
 		}
-		boolean explicitlyAllowed = matchesItemPolicy(name, itemId, getMobFarmerLootItems());
+		if (groundItemsHidden)
+		{
+			candidate.note("ground-items-hidden");
+			if (getMobFarmerRespectGroundItemsHidden() && !cvAllowlist)
+			{
+				candidate.reject("ground-items-hidden");
+			}
+		}
+		boolean explicitlyAllowed = cvAllowlist || (groundItemsSupplements && groundItemsHighlighted);
 		if (!explicitlyAllowed && value < getMobFarmerLootMinValueGe())
 		{
 			candidate.reject("below-value:" + value + "<" + getMobFarmerLootMinValueGe());
 		}
-		if (explicitlyAllowed)
+		if (cvAllowlist)
 		{
 			candidate.note("allowlist");
+		}
+		if (groundItemsSupplements && groundItemsHighlighted)
+		{
+			candidate.note("ground-items-highlighted");
 		}
 		if (!lootOwnershipAccepted(item))
 		{
@@ -3067,7 +3200,14 @@ public class CvHelperPlugin extends Plugin
 		{
 			candidate.reject("too-far:" + distance + ">" + radius);
 		}
-		if (!(item.get("clickPoint") instanceof Map))
+		if (getMobFarmerLootInteractionMode() == CvHelperMobInteractionMode.MENU_ACTION)
+		{
+			if (intValue(item.get("sceneX"), Integer.MIN_VALUE) == Integer.MIN_VALUE || intValue(item.get("sceneY"), Integer.MIN_VALUE) == Integer.MIN_VALUE)
+			{
+				candidate.reject("no-menu-scene-point");
+			}
+		}
+		else if (!(item.get("clickPoint") instanceof Map))
 		{
 			candidate.reject("no-click-point");
 		}
@@ -3145,6 +3285,7 @@ public class CvHelperPlugin extends Plugin
 		int haEach = composition == null ? 0 : composition.getHaPrice();
 		long ge = (long) geEach * Math.max(1, item.getQuantity());
 		long ha = (long) haEach * Math.max(1, item.getQuantity());
+		net.runelite.api.Point scenePoint = tile.getSceneLocation();
 		Map<String, Object> target = new LinkedHashMap<>();
 		target.put("surface", "loot");
 		target.put("label", name + (item.getQuantity() > 1 ? " x" + item.getQuantity() : ""));
@@ -3161,6 +3302,16 @@ public class CvHelperPlugin extends Plugin
 		target.put("private", item.isPrivate());
 		target.put("visibleInTicks", item.getVisibleTime() - client.getTickCount());
 		target.put("despawnInTicks", item.getDespawnTime() - client.getTickCount());
+		target.put("groundItemsHighlighted", matchesGroundItemsHighlighted(name, item.getQuantity()));
+		target.put("groundItemsHidden", matchesGroundItemsHidden(name, item.getQuantity()));
+		if (scenePoint != null)
+		{
+			target.put("sceneX", scenePoint.getX());
+			target.put("sceneY", scenePoint.getY());
+		}
+		target.put("menuAction", MenuAction.GROUND_ITEM_FIRST_OPTION.name());
+		target.put("menuOption", "Take");
+		target.put("menuTarget", name);
 		target.put("worldLocation", pointValue(tile.getWorldLocation()));
 		target.put("localLocation", pointValue(tile.getLocalLocation()));
 		target.put("sceneLocation", pointValue(tile.getSceneLocation()));
@@ -3202,6 +3353,10 @@ public class CvHelperPlugin extends Plugin
 	{
 		Map<String, Object> baseClickPoint = firstPoint(target, "clickPoint", "center", "canvasTileCenter");
 		Map<String, Object> clickPoint = randomizedClickPoint(target, baseClickPoint);
+		if ("loot".equals(action) && getMobFarmerLootInteractionMode() == CvHelperMobInteractionMode.MENU_ACTION)
+		{
+			return invokeMobFarmerLootTake(target, clickPoint, live, generation);
+		}
 		Point screenPoint = canvasPointToScreen(clickPoint);
 		if (screenPoint == null)
 		{
@@ -3260,6 +3415,119 @@ public class CvHelperPlugin extends Plugin
 		}, "cv-helper-mob-farmer-" + action);
 		clickThread.setDaemon(true);
 		clickThread.start();
+		return true;
+	}
+
+	private void invokeMobFarmerAttack(Map<String, Object> target, Map<String, Object> clickPoint, boolean live, int generation)
+	{
+		if (getMobFarmerAttackInteractionMode() == CvHelperMobInteractionMode.MENU_ACTION)
+		{
+			invokeMobFarmerNpcMenuAction(target, clickPoint, live, generation);
+			return;
+		}
+		clickMobFarmerAutomationTarget("attack", target, live, generation);
+	}
+
+	private boolean invokeMobFarmerNpcMenuAction(Map<String, Object> target, Map<String, Object> clickPoint, boolean live, int generation)
+	{
+		String label = targetLabelForMessage(target);
+		if (!live)
+		{
+			String message = "Mob farmer dry attack menu: " + label + " @ " + clickPoint;
+			mobFarmerStatus.set("dry-attack-menu:" + label + "@" + clickPoint);
+			updatePanelStatus(message);
+			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, "");
+			return true;
+		}
+		if (isStaleMobFarmerLoop(generation))
+		{
+			return true;
+		}
+		if (!actionInProgress.compareAndSet(false, true))
+		{
+			mobFarmerStatus.set("skipped:attack:action-running");
+			updatePanelStatus("Mob farmer attack skipped: action already running");
+			return true;
+		}
+		try
+		{
+			int index = intValue(target.get("index"), -1);
+			MenuAction menuAction = npcMenuActionForIndex(intValue(target.get("attackActionIndex"), -1));
+			if (index < 0 || menuAction == null)
+			{
+				mobFarmerStatus.set("attack-menu-missing:" + label);
+				updatePanelStatus("Mob farmer attack menu missing: " + label);
+				return true;
+			}
+			client.menuAction(0, 0, menuAction, index, -1, "Attack", label);
+			String message = "Mob farmer menu-attacked " + label + " via " + menuAction;
+			mobFarmerStatus.set("menu-attack:" + label);
+			lastEvent.set("mob-farmer-menu-attack@" + label + "@" + Instant.now());
+			updatePanelStatus(message);
+			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, "");
+		}
+		catch (RuntimeException e)
+		{
+			log.warn("CV Helper mob farmer menu attack failed", e);
+			mobFarmerStatus.set("attack-menu-failed:" + e.getMessage());
+			updatePanelStatus("Mob farmer attack menu failed: " + e.getMessage());
+		}
+		finally
+		{
+			actionInProgress.set(false);
+		}
+		return true;
+	}
+
+	private boolean invokeMobFarmerLootTake(Map<String, Object> target, Map<String, Object> clickPoint, boolean live, int generation)
+	{
+		String label = targetLabelForMessage(target);
+		if (!live)
+		{
+			String message = "Mob farmer dry loot menu: " + label + " @ " + clickPoint;
+			mobFarmerStatus.set("dry-loot-menu:" + label + "@" + clickPoint);
+			updatePanelStatus(message);
+			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, "");
+			return true;
+		}
+		if (isStaleMobFarmerLoop(generation))
+		{
+			return true;
+		}
+		if (!actionInProgress.compareAndSet(false, true))
+		{
+			mobFarmerStatus.set("skipped:loot:action-running");
+			updatePanelStatus("Mob farmer loot skipped: action already running");
+			return true;
+		}
+		try
+		{
+			int itemId = intValue(target.get("itemId"), -1);
+			int sceneX = intValue(target.get("sceneX"), Integer.MIN_VALUE);
+			int sceneY = intValue(target.get("sceneY"), Integer.MIN_VALUE);
+			if (itemId <= 0 || sceneX == Integer.MIN_VALUE || sceneY == Integer.MIN_VALUE)
+			{
+				mobFarmerStatus.set("loot-menu-missing:" + label);
+				updatePanelStatus("Mob farmer loot menu missing: " + label);
+				return true;
+			}
+			client.menuAction(sceneX, sceneY, MenuAction.GROUND_ITEM_FIRST_OPTION, itemId, itemId, "Take", label);
+			String message = "Mob farmer menu-took " + label + " @ scene " + sceneX + "," + sceneY;
+			mobFarmerStatus.set("menu-loot:" + label);
+			lastEvent.set("mob-farmer-menu-loot@" + label + "@" + Instant.now());
+			updatePanelStatus(message);
+			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, "");
+		}
+		catch (RuntimeException e)
+		{
+			log.warn("CV Helper mob farmer menu loot failed", e);
+			mobFarmerStatus.set("loot-menu-failed:" + e.getMessage());
+			updatePanelStatus("Mob farmer loot menu failed: " + e.getMessage());
+		}
+		finally
+		{
+			actionInProgress.set(false);
+		}
 		return true;
 	}
 
@@ -3331,7 +3599,8 @@ public class CvHelperPlugin extends Plugin
 			Map<String, Object> item = (Map<String, Object>) itemValue;
 			String name = String.valueOf(item.get("name"));
 			int itemId = intValue(item.get("id"), -1);
-			if (matchesItemPolicy(name, itemId, getMobFarmerNeverDropItems()))
+			int quantity = intValue(item.get("quantity"), 1);
+			if (matchesItemPolicy(name, itemId, quantity, getMobFarmerNeverDropItems()))
 			{
 				continue;
 			}
@@ -3404,13 +3673,18 @@ public class CvHelperPlugin extends Plugin
 
 	private boolean matchesItemPolicy(String itemName, int itemId, String policy)
 	{
+		return matchesItemPolicy(itemName, itemId, 1, policy);
+	}
+
+	private boolean matchesItemPolicy(String itemName, int itemId, int quantity, String policy)
+	{
 		if (policy == null || policy.trim().isEmpty())
 		{
 			return false;
 		}
 		for (String candidate : actionTargetCandidates(policy))
 		{
-			if (matchesItemTarget(itemName, itemId, candidate))
+			if (matchesItemTarget(itemName, itemId, quantity, candidate))
 			{
 				return true;
 			}
@@ -3418,9 +3692,14 @@ public class CvHelperPlugin extends Plugin
 		return false;
 	}
 
-	private boolean matchesItemTarget(String itemName, int itemId, String target)
+	private boolean matchesItemTarget(String itemName, int itemId, int quantity, String target)
 	{
-		String needle = normalize(target);
+		if (!itemQuantityMatches(target, quantity))
+		{
+			return false;
+		}
+		String nameTarget = itemPolicyName(target);
+		String needle = normalize(nameTarget);
 		if (needle.isEmpty())
 		{
 			return false;
@@ -3430,7 +3709,115 @@ public class CvHelperPlugin extends Plugin
 		{
 			return true;
 		}
+		if (nameTarget.contains("*"))
+		{
+			return WildcardMatcher.matches(nameTarget, itemName);
+		}
 		return normalize(itemName).contains(needle);
+	}
+
+	private boolean matchesGroundItemsHighlighted(String itemName, int quantity)
+	{
+		return matchesGroundItemsList(itemName, quantity, groundItemsHighlightedItems());
+	}
+
+	private boolean matchesGroundItemsHidden(String itemName, int quantity)
+	{
+		return matchesGroundItemsList(itemName, quantity, groundItemsHiddenItems());
+	}
+
+	private boolean matchesGroundItemsList(String itemName, int quantity, String policy)
+	{
+		if (policy == null || policy.trim().isEmpty())
+		{
+			return false;
+		}
+		for (String candidate : actionTargetCandidates(policy))
+		{
+			if (!itemQuantityMatches(candidate, quantity))
+			{
+				continue;
+			}
+			String nameTarget = itemPolicyName(candidate);
+			if (nameTarget.trim().isEmpty())
+			{
+				continue;
+			}
+			if (nameTarget.contains("*") ? WildcardMatcher.matches(nameTarget, itemName) : normalize(itemName).equals(normalize(nameTarget)))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private boolean itemQuantityMatches(String target, int quantity)
+	{
+		int operatorIndex = itemQuantityOperatorIndex(target);
+		if (operatorIndex < 0 || target == null || operatorIndex + 1 >= target.length())
+		{
+			return true;
+		}
+		int threshold;
+		try
+		{
+			threshold = Integer.parseInt(target.substring(operatorIndex + 1).trim());
+		}
+		catch (NumberFormatException e)
+		{
+			return true;
+		}
+		return target.charAt(operatorIndex) == '<' ? quantity < threshold : quantity > threshold;
+	}
+
+	private String itemPolicyName(String target)
+	{
+		if (target == null)
+		{
+			return "";
+		}
+		int operatorIndex = itemQuantityOperatorIndex(target);
+		return (operatorIndex < 0 ? target : target.substring(0, operatorIndex)).trim();
+	}
+
+	private int itemQuantityOperatorIndex(String target)
+	{
+		if (target == null)
+		{
+			return -1;
+		}
+		for (int i = target.length() - 1; i >= 0; i--)
+		{
+			char c = target.charAt(i);
+			if ((c >= '0' && c <= '9') || Character.isWhitespace(c))
+			{
+				continue;
+			}
+			return c == '<' || c == '>' ? i : -1;
+		}
+		return -1;
+	}
+
+	private String groundItemsHighlightedItems()
+	{
+		String value = configManager.getConfiguration(GROUND_ITEMS_CONFIG_GROUP, GROUND_ITEMS_HIGHLIGHTED_ITEMS);
+		return value == null ? "" : value;
+	}
+
+	private String groundItemsHiddenItems()
+	{
+		String value = configManager.getConfiguration(GROUND_ITEMS_CONFIG_GROUP, GROUND_ITEMS_HIDDEN_ITEMS);
+		return value == null ? "" : value;
+	}
+
+	private Map<String, Object> groundItemsConfigStatus()
+	{
+		Map<String, Object> out = new LinkedHashMap<>();
+		out.put("highlightedItems", groundItemsHighlightedItems());
+		out.put("hiddenItems", groundItemsHiddenItems());
+		out.put("mode", getMobFarmerGroundItemsMode().name());
+		out.put("respectHidden", getMobFarmerRespectGroundItemsHidden());
+		return out;
 	}
 
 	private String[] targetActions(Map<String, Object> target)
@@ -3475,6 +3862,18 @@ public class CvHelperPlugin extends Plugin
 			payload.put("details", details);
 		}
 		lastMobFarmerSurvivalDecision = payload;
+	}
+
+	private void setMobFarmerIntermediateDecision(String decision, Map<String, Object> details)
+	{
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("decision", decision);
+		payload.put("at", Instant.now().toString());
+		if (details != null)
+		{
+			payload.put("details", details);
+		}
+		lastMobFarmerIntermediateDecision = payload;
 	}
 
 	private MobFarmerSelection selectMobFarmerTarget(Player localPlayer)
@@ -3529,7 +3928,14 @@ public class CvHelperPlugin extends Plugin
 		{
 			candidate.reject("dead-or-zero-hp");
 		}
-		if (!(entity.get("clickPoint") instanceof Map))
+		if (getMobFarmerAttackInteractionMode() == CvHelperMobInteractionMode.MENU_ACTION)
+		{
+			if (intValue(entity.get("attackActionIndex"), -1) < 0)
+			{
+				candidate.reject("no-attack-menu-action");
+			}
+		}
+		else if (!(entity.get("clickPoint") instanceof Map))
 		{
 			candidate.reject("no-click-point");
 		}
@@ -3611,6 +4017,8 @@ public class CvHelperPlugin extends Plugin
 		report.put("engagedByOther", candidate.entity.get("engagedByOther"));
 		report.put("engagedWithLocalPlayer", candidate.entity.get("engagedWithLocalPlayer"));
 		report.put("lineOfSightToLocalPlayer", candidate.entity.get("lineOfSightToLocalPlayer"));
+		report.put("attackActionIndex", candidate.entity.get("attackActionIndex"));
+		report.put("attackMenuAction", candidate.entity.get("attackMenuAction"));
 		report.put("clickPoint", candidate.entity.get("clickPoint"));
 		report.put("worldLocation", candidate.entity.get("worldLocation"));
 		return report;
@@ -3658,16 +4066,48 @@ public class CvHelperPlugin extends Plugin
 
 	private boolean isNpcAttackable(NPC npc)
 	{
-		NPCComposition composition = npc.getTransformedComposition();
-		if (composition == null)
+		return npcAttackActionIndex(npc) >= 0;
+	}
+
+	private int npcAttackActionIndex(NPC npc)
+	{
+		NPCComposition composition = npc == null ? null : npc.getTransformedComposition();
+		if (composition == null && npc != null)
 		{
 			composition = npc.getComposition();
 		}
-		if (composition == null || !composition.isInteractible())
+		if (composition == null || !composition.isInteractible() || composition.getActions() == null)
 		{
-			return false;
+			return -1;
 		}
-		return hasActionNamed(composition.getActions(), "Attack");
+		String[] actions = composition.getActions();
+		for (int i = 0; i < actions.length; i++)
+		{
+			if ("Attack".equalsIgnoreCase(actions[i]))
+			{
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	private MenuAction npcMenuActionForIndex(int actionIndex)
+	{
+		switch (actionIndex)
+		{
+			case 0:
+				return MenuAction.NPC_FIRST_OPTION;
+			case 1:
+				return MenuAction.NPC_SECOND_OPTION;
+			case 2:
+				return MenuAction.NPC_THIRD_OPTION;
+			case 3:
+				return MenuAction.NPC_FOURTH_OPTION;
+			case 4:
+				return MenuAction.NPC_FIFTH_OPTION;
+			default:
+				return null;
+		}
 	}
 
 	private boolean isEffectivelyDead(Actor actor)
@@ -5221,9 +5661,13 @@ public class CvHelperPlugin extends Plugin
 		if (actor instanceof NPC)
 		{
 			NPC npc = (NPC) actor;
+			int attackActionIndex = npcAttackActionIndex(npc);
 			entity.put("id", npc.getId());
 			entity.put("index", npc.getIndex());
-			entity.put("attackable", isNpcAttackable(npc));
+			entity.put("attackable", attackActionIndex >= 0);
+			entity.put("attackActionIndex", attackActionIndex);
+			MenuAction attackMenuAction = npcMenuActionForIndex(attackActionIndex);
+			entity.put("attackMenuAction", attackMenuAction == null ? null : attackMenuAction.name());
 			NPCComposition composition = npc.getTransformedComposition();
 			if (composition == null)
 			{
