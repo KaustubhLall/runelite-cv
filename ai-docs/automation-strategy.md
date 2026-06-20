@@ -23,14 +23,16 @@ Do not build the live automation loop on unstable primitives. Verify these first
 3. Safe click-to-attack using existing CV Helper action/click primitives.
 4. First implemented slice: CV Helper right-panel and `/automation/mob-farmer/*` endpoints expose dry/live step and dry/live loop controls. The loop only clicks a matching entity when logged in, not already interacting, and no CV action is running.
 5. Panic stop: always provide a sidebar button, hotkey, and localhost endpoint before expanding longer loops.
-6. Combat-state monitor: not in combat, current target, target death/end condition.
-7. Click reliability: add a right-click/menu-option path so `Attack <npc>` can be selected when drops/players/overlap obstruct the left-click point.
-8. Loot loop: attack the next mob first, wait for drops to spawn, then pick up allowed/highlighted/minimum-value drops.
-9. HP and food interrupt: eat above stop threshold, stop/report if no healing remains.
-10. Inventory fullness and potion/food matching, including dose-agnostic potion use.
-11. Optional highlighted-drop integration with plugins such as Ground Items if feasible.
-12. Exit policy: first stop/report, later marked safe tile or pathing integration.
-13. Verifier UI for automation state, last decision, interrupt reason, and next planned action.
+6. Combat-state monitor: not in combat, current target, target death/end condition. First pass is implemented in CV Helper with NPC attackability/dead/engaged filters, single-vs-multi policy, and candidate diagnostics.
+7. Real pathing: replace line-of-sight/straight-distance heuristics with route distance or path existence using collision maps or a pathing plugin integration.
+8. Click reliability: add a right-click/menu-option path so `Attack <npc>` can be selected when drops/players/overlap obstruct the left-click point.
+9. Loot loop: attack the next mob first, wait for drops to spawn, then pick up allowed/highlighted/minimum-value drops.
+10. HP and food interrupt: eat above stop threshold, stop/report if no healing remains.
+11. Inventory fullness and potion/food matching, including dose-agnostic potion use and never-drop protected items.
+12. Optional highlighted-drop integration with plugins such as Ground Items if feasible.
+13. Login/reconnect/world recovery: click play/login safely, wait until in-game, then resume only if loop policy allows.
+14. Exit policy: first stop/report, later marked safe tile or pathing integration.
+15. Verifier UI for automation state, last decision, interrupt reason, and next planned action.
 
 ## First Live Scenario
 

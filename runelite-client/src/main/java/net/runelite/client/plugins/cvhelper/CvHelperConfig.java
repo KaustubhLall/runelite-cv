@@ -24,6 +24,7 @@ public interface CvHelperConfig extends Config
 {
 	String GROUP = "cvhelper";
 	String ACTION_SECTION = "actionSection";
+	String MOB_FARMER_SECTION = "mobFarmerSection";
 	String SHOW_HOVER_OVERLAY = "showHoverOverlay";
 	String SHOW_WIDGET_INFO = "showWidgetInfo";
 	String SHOW_PRAYER_TARGETS = "showPrayerTargets";
@@ -100,6 +101,11 @@ public interface CvHelperConfig extends Config
 	String ACTION_RETURN_EQUIPMENT_HOTKEY = "actionReturnEquipmentHotkey";
 	String ACTION_RETURN_PRAYER_HOTKEY = "actionReturnPrayerHotkey";
 	String ACTION_RETURN_SPELLBOOK_HOTKEY = "actionReturnSpellbookHotkey";
+	String MOB_FARMER_TARGET = "mobFarmerTarget";
+	String MOB_FARMER_ENGAGED_MODE = "mobFarmerEngagedMode";
+	String MOB_FARMER_AGGRO_RESPONSE = "mobFarmerAggroResponse";
+	String MOB_FARMER_REQUIRE_LINE_OF_SIGHT = "mobFarmerRequireLineOfSight";
+	String MOB_FARMER_MAX_DISTANCE = "mobFarmerMaxDistance";
 
 	@ConfigSection(
 		name = "Action hotkeys",
@@ -107,6 +113,13 @@ public interface CvHelperConfig extends Config
 		position = 100
 	)
 	String actionSection = ACTION_SECTION;
+
+	@ConfigSection(
+		name = "Mob farmer",
+		description = "Combat automation guardrails, target selection, and farmer safety options.",
+		position = 110
+	)
+	String mobFarmerSection = MOB_FARMER_SECTION;
 
 	@ConfigItem(
 		keyName = SHOW_HOVER_OVERLAY,
@@ -439,6 +452,61 @@ public interface CvHelperConfig extends Config
 	default Keybind actionReturnSpellbookHotkey()
 	{
 		return new Keybind(java.awt.event.KeyEvent.VK_F7, 0);
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_TARGET,
+		name = "Mob target",
+		description = "Partial NPC name, id:<npc id>, or a list separated by |, comma, semicolon, or newlines.",
+		section = mobFarmerSection
+	)
+	default String mobFarmerTarget()
+	{
+		return "cow";
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_ENGAGED_MODE,
+		name = "Already-engaged mobs",
+		description = "Controls whether multi-combat can target mobs already being fought by someone else. Single-combat always skips them.",
+		section = mobFarmerSection
+	)
+	default CvHelperMobEngagedMode mobFarmerEngagedMode()
+	{
+		return CvHelperMobEngagedMode.PREFER_FREE;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_AGGRO_RESPONSE,
+		name = "Undesired attacker",
+		description = "What to do when an aggressive non-target mob is already attacking the player.",
+		section = mobFarmerSection
+	)
+	default CvHelperMobAggroResponse mobFarmerAggroResponse()
+	{
+		return CvHelperMobAggroResponse.WAIT;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_REQUIRE_LINE_OF_SIGHT,
+		name = "Require line of sight",
+		description = "Skip mobs without a RuneLite line-of-sight path from the local player. This is a conservative first reachability guard, not full pathfinding.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerRequireLineOfSight()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_MAX_DISTANCE,
+		name = "Max target distance",
+		description = "Maximum tile distance for auto-targeting. Use 0 to disable the distance guard.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerMaxDistance()
+	{
+		return 20;
 	}
 
 	@ConfigItem(

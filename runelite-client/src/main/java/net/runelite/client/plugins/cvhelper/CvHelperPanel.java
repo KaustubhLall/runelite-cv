@@ -459,6 +459,24 @@ class CvHelperPanel extends PluginPanel
 
 		JTextField target = new JTextField(plugin.getMobFarmerTarget());
 		target.setToolTipText("Partial name or id:<npc id>, for example cow or id:2790");
+		JComboBox<CvHelperMobEngagedMode> engagedMode = new JComboBox<>(CvHelperMobEngagedMode.values());
+		engagedMode.setSelectedItem(plugin.getMobFarmerEngagedMode());
+		engagedMode.addActionListener(e -> plugin.setMobFarmerEngagedMode((CvHelperMobEngagedMode) engagedMode.getSelectedItem()));
+		JComboBox<CvHelperMobAggroResponse> aggroResponse = new JComboBox<>(CvHelperMobAggroResponse.values());
+		aggroResponse.setSelectedItem(plugin.getMobFarmerAggroResponse());
+		aggroResponse.addActionListener(e -> plugin.setMobFarmerAggroResponse((CvHelperMobAggroResponse) aggroResponse.getSelectedItem()));
+		JCheckBox requireLineOfSight = new JCheckBox("Require line of sight", plugin.getMobFarmerRequireLineOfSight());
+		styleCheckbox(requireLineOfSight);
+		requireLineOfSight.addActionListener(e -> plugin.setMobFarmerRequireLineOfSight(requireLineOfSight.isSelected()));
+		JTextField maxDistance = new JTextField(String.valueOf(plugin.getMobFarmerMaxDistance()));
+		maxDistance.setToolTipText("0 disables the distance guard.");
+		JButton saveGuards = new JButton("Save farmer guards");
+		saveGuards.addActionListener(e ->
+		{
+			plugin.setMobFarmerTarget(target.getText());
+			plugin.setMobFarmerMaxDistance(parseNonNegativeInt(maxDistance.getText(), plugin.getMobFarmerMaxDistance()));
+			updateStatus("Mob farmer guards saved");
+		});
 		JButton saveTarget = new JButton("Save mob target");
 		saveTarget.addActionListener(e -> plugin.setMobFarmerTarget(target.getText()));
 		JButton dryStep = new JButton("Dry step");
@@ -495,6 +513,14 @@ class CvHelperPanel extends PluginPanel
 			help,
 			label("Mob target"),
 			target,
+			label("Already-engaged mobs"),
+			engagedMode,
+			label("Undesired attacker"),
+			aggroResponse,
+			requireLineOfSight,
+			label("Max target distance"),
+			maxDistance,
+			saveGuards,
 			saveTarget,
 			dryStep,
 			liveStep,
@@ -524,6 +550,18 @@ class CvHelperPanel extends PluginPanel
 		section.add(body, BorderLayout.CENTER);
 		setCompact(section);
 		return section;
+	}
+
+	private int parseNonNegativeInt(String value, int fallback)
+	{
+		try
+		{
+			return Math.max(0, Integer.parseInt(value.trim()));
+		}
+		catch (RuntimeException e)
+		{
+			return fallback;
+		}
 	}
 
 	private void populateTargetChoices(JComboBox<String> target, CvHelperActionSurface surface, String selected)

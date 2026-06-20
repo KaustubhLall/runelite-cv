@@ -60,12 +60,15 @@ import net.runelite.api.ItemComposition;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.MenuAction;
 import net.runelite.api.NPC;
+import net.runelite.api.NPCComposition;
 import net.runelite.api.Perspective;
 import net.runelite.api.Player;
 import net.runelite.api.Prayer;
 import net.runelite.api.Skill;
 import net.runelite.api.VarPlayer;
+import net.runelite.api.WorldView;
 import net.runelite.api.coords.LocalPoint;
+import net.runelite.api.coords.WorldArea;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.VarClientID;
@@ -203,6 +206,9 @@ public class CvHelperPlugin extends Plugin
 	private final AtomicBoolean mobFarmerRunning = new AtomicBoolean(false);
 	private final AtomicInteger mobFarmerGeneration = new AtomicInteger();
 	private final AtomicReference<String> mobFarmerStatus = new AtomicReference<>("idle");
+	private volatile List<Map<String, Object>> lastMobFarmerCandidates = new ArrayList<>();
+	private volatile Map<String, Object> lastMobFarmerDecision = new LinkedHashMap<>();
+	private volatile boolean lastMobFarmerMultiCombat;
 	private final KeyEventDispatcher cvHotkeyDispatcher = this::dispatchCvHotkey;
 	private volatile String lastStableSidePanel = "inventory";
 	private volatile String mobFarmerTarget = "cow";
@@ -228,6 +234,42 @@ public class CvHelperPlugin extends Plugin
 		}
 	}
 
+	private static final class MobFarmerCandidate
+	{
+		private final NPC npc;
+		private final Map<String, Object> entity;
+		private final List<String> reasons = new ArrayList<>();
+		private int score;
+		private boolean selectable = true;
+		private boolean engagedByOther;
+		private boolean engagedWithLocalPlayer;
+
+		private MobFarmerCandidate(NPC npc, Map<String, Object> entity)
+		{
+			this.npc = npc;
+			this.entity = entity;
+		}
+
+		private void reject(String reason)
+		{
+			selectable = false;
+			reasons.add(reason);
+		}
+
+		private void note(String reason)
+		{
+			reasons.add(reason);
+		}
+	}
+
+	private static final class MobFarmerSelection
+	{
+		private Map<String, Object> target;
+		private List<Map<String, Object>> reports = new ArrayList<>();
+		private String decision = "none";
+		private boolean multiCombat;
+	}
+
 	@Provides
 	CvHelperConfig provideConfig(ConfigManager configManager)
 	{
@@ -238,6 +280,7 @@ public class CvHelperPlugin extends Plugin
 	protected void startUp()
 	{
 		log.info("CV Helper starting");
+		mobFarmerTarget = normalizedMobFarmerTarget(config.mobFarmerTarget());
 		enabledPrayers.addAll(getPrayerNames());
 		enabledSpellbooks.addAll(getSpellbookNames());
 		overlayManager.add(overlay);
@@ -2346,10 +2389,58 @@ public class CvHelperPlugin extends Plugin
 
 	void setMobFarmerTarget(String target)
 	{
-		String cleaned = target == null ? "" : target.trim();
-		mobFarmerTarget = cleaned.isEmpty() ? "cow" : cleaned;
+		mobFarmerTarget = normalizedMobFarmerTarget(target);
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_TARGET, mobFarmerTarget);
 		mobFarmerStatus.set("target@" + mobFarmerTarget);
 		updatePanelStatus("Mob farmer target: " + mobFarmerTarget);
+	}
+
+	CvHelperMobEngagedMode getMobFarmerEngagedMode()
+	{
+		CvHelperMobEngagedMode mode = config.mobFarmerEngagedMode();
+		return mode == null ? CvHelperMobEngagedMode.PREFER_FREE : mode;
+	}
+
+	void setMobFarmerEngagedMode(CvHelperMobEngagedMode mode)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_ENGAGED_MODE, mode == null ? CvHelperMobEngagedMode.PREFER_FREE : mode);
+	}
+
+	CvHelperMobAggroResponse getMobFarmerAggroResponse()
+	{
+		CvHelperMobAggroResponse response = config.mobFarmerAggroResponse();
+		return response == null ? CvHelperMobAggroResponse.WAIT : response;
+	}
+
+	void setMobFarmerAggroResponse(CvHelperMobAggroResponse response)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_AGGRO_RESPONSE, response == null ? CvHelperMobAggroResponse.WAIT : response);
+	}
+
+	boolean getMobFarmerRequireLineOfSight()
+	{
+		return config.mobFarmerRequireLineOfSight();
+	}
+
+	void setMobFarmerRequireLineOfSight(boolean requireLineOfSight)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_REQUIRE_LINE_OF_SIGHT, requireLineOfSight);
+	}
+
+	int getMobFarmerMaxDistance()
+	{
+		return Math.max(0, config.mobFarmerMaxDistance());
+	}
+
+	void setMobFarmerMaxDistance(int maxDistance)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_MAX_DISTANCE, Math.max(0, maxDistance));
+	}
+
+	private String normalizedMobFarmerTarget(String target)
+	{
+		String cleaned = target == null ? "" : target.trim();
+		return cleaned.isEmpty() ? "cow" : cleaned;
 	}
 
 	Map<String, Object> getMobFarmerStatus()
@@ -2360,6 +2451,13 @@ public class CvHelperPlugin extends Plugin
 		status.put("live", mobFarmerLiveMode);
 		status.put("status", mobFarmerStatus.get());
 		status.put("loopDelayMs", MOB_FARMER_LOOP_DELAY_MS);
+		status.put("multiCombat", lastMobFarmerMultiCombat);
+		status.put("engagedMode", getMobFarmerEngagedMode().name());
+		status.put("aggroResponse", getMobFarmerAggroResponse().name());
+		status.put("requireLineOfSight", getMobFarmerRequireLineOfSight());
+		status.put("maxDistance", getMobFarmerMaxDistance());
+		status.put("decision", lastMobFarmerDecision);
+		status.put("candidates", lastMobFarmerCandidates);
 		return status;
 	}
 
@@ -2467,9 +2565,11 @@ public class CvHelperPlugin extends Plugin
 		{
 			return;
 		}
+		lastMobFarmerMultiCombat = isMultiCombat();
 		if (client.getGameState() != GameState.LOGGED_IN)
 		{
 			mobFarmerStatus.set("needs-login:" + client.getGameState());
+			setMobFarmerDecision("needs-login", null);
 			updatePanelStatus("Mob farmer needs login: " + client.getGameState());
 			return;
 		}
@@ -2478,24 +2578,48 @@ public class CvHelperPlugin extends Plugin
 		if (localPlayer == null)
 		{
 			mobFarmerStatus.set("no-local-player");
+			setMobFarmerDecision("no-local-player", null);
 			updatePanelStatus("Mob farmer blocked: no local player");
 			return;
 		}
 
 		Actor interacting = localPlayer.getInteracting();
-		if (interacting != null)
+		if (interacting != null && !isEffectivelyDead(interacting))
 		{
-			mobFarmerStatus.set("already-interacting:" + interacting.getName());
-			updatePanelStatus("Mob farmer waiting: interacting with " + interacting.getName());
-			return;
+			if (interacting instanceof NPC && matchesAnyMobTarget((NPC) interacting, mobFarmerTarget))
+			{
+				mobFarmerStatus.set("continuing-target:" + interacting.getName());
+				setMobFarmerDecision("continuing-target", actorSummary(interacting));
+				updatePanelStatus("Mob farmer continuing target: " + interacting.getName());
+				return;
+			}
+			CvHelperMobAggroResponse aggroResponse = getMobFarmerAggroResponse();
+			if (aggroResponse == CvHelperMobAggroResponse.CONTINUE_ANY_ATTACKER || (!lastMobFarmerMultiCombat && aggroResponse == CvHelperMobAggroResponse.IGNORE_IN_MULTI))
+			{
+				mobFarmerStatus.set("continuing-undesired:" + interacting.getName());
+				setMobFarmerDecision("continuing-undesired", actorSummary(interacting));
+				updatePanelStatus("Mob farmer continuing undesired attacker: " + interacting.getName());
+				return;
+			}
+			if (!lastMobFarmerMultiCombat || aggroResponse == CvHelperMobAggroResponse.WAIT)
+			{
+				mobFarmerStatus.set("blocked-undesired-combat:" + interacting.getName());
+				setMobFarmerDecision("blocked-undesired-combat", actorSummary(interacting));
+				updatePanelStatus("Mob farmer blocked by undesired combat: " + interacting.getName());
+				return;
+			}
 		}
 
 		lastEntities = collectEntities();
-		Map<String, Object> target = findMobFarmerEntity(lastEntities, mobFarmerTarget);
+		MobFarmerSelection selection = selectMobFarmerTarget(localPlayer);
+		lastMobFarmerCandidates = selection.reports;
+		lastMobFarmerMultiCombat = selection.multiCombat;
+		setMobFarmerDecision(selection.decision, selection.target);
+		Map<String, Object> target = selection.target;
 		if (target == null)
 		{
-			mobFarmerStatus.set("no-target:" + mobFarmerTarget);
-			updatePanelStatus("Mob farmer found no target: " + mobFarmerTarget);
+			mobFarmerStatus.set(selection.decision + ":" + mobFarmerTarget);
+			updatePanelStatus("Mob farmer found no valid target: " + mobFarmerTarget + " | " + selection.decision);
 			return;
 		}
 
@@ -2557,6 +2681,232 @@ public class CvHelperPlugin extends Plugin
 		}, "cv-helper-mob-farmer-click");
 		clickThread.setDaemon(true);
 		clickThread.start();
+	}
+
+	private MobFarmerSelection selectMobFarmerTarget(Player localPlayer)
+	{
+		MobFarmerSelection selection = new MobFarmerSelection();
+		selection.multiCombat = isMultiCombat();
+		lastMobFarmerMultiCombat = selection.multiCombat;
+
+		MobFarmerCandidate best = null;
+		for (NPC npc : client.getNpcs())
+		{
+			MobFarmerCandidate candidate = evaluateMobFarmerCandidate(localPlayer, npc, selection.multiCombat);
+			selection.reports.add(candidateReport(candidate));
+			if (!candidate.selectable)
+			{
+				continue;
+			}
+			if (best == null || candidate.score < best.score)
+			{
+				best = candidate;
+			}
+		}
+
+		if (best == null)
+		{
+			selection.decision = selection.reports.isEmpty() ? "no-candidates" : "no-valid-candidates";
+			return selection;
+		}
+
+		selection.target = best.entity;
+		selection.decision = "selected:" + targetLabelForMessage(best.entity);
+		return selection;
+	}
+
+	private MobFarmerCandidate evaluateMobFarmerCandidate(Player localPlayer, NPC npc, boolean multiCombat)
+	{
+		Map<String, Object> entity = actorEntity("npc", npc, localPlayer);
+		MobFarmerCandidate candidate = new MobFarmerCandidate(npc, entity);
+		int distance = entity.get("distance") instanceof Number ? ((Number) entity.get("distance")).intValue() : Integer.MAX_VALUE;
+		candidate.score = distance;
+
+		if (!matchesAnyMobTarget(npc, mobFarmerTarget))
+		{
+			candidate.reject("target-mismatch");
+			return candidate;
+		}
+		if (!isNpcAttackable(npc))
+		{
+			candidate.reject("not-attackable");
+		}
+		if (isEffectivelyDead(npc))
+		{
+			candidate.reject("dead-or-zero-hp");
+		}
+		if (!(entity.get("clickPoint") instanceof Map))
+		{
+			candidate.reject("no-click-point");
+		}
+
+		int maxDistance = getMobFarmerMaxDistance();
+		if (maxDistance > 0 && distance > maxDistance)
+		{
+			candidate.reject("too-far:" + distance + ">" + maxDistance);
+		}
+
+		boolean lineOfSight = hasLineOfSight(localPlayer, npc);
+		entity.put("lineOfSightToLocalPlayer", lineOfSight);
+		if (getMobFarmerRequireLineOfSight() && !lineOfSight)
+		{
+			candidate.reject("no-line-of-sight");
+		}
+
+		Actor npcInteracting = npc.getInteracting();
+		candidate.engagedWithLocalPlayer = npcInteracting == localPlayer;
+		candidate.engagedByOther = npcInteracting != null && npcInteracting != localPlayer;
+		entity.put("engagedWithLocalPlayer", candidate.engagedWithLocalPlayer);
+		entity.put("engagedByOther", candidate.engagedByOther);
+
+		if (candidate.engagedWithLocalPlayer)
+		{
+			candidate.note("already-fighting-us");
+			candidate.score -= 1000;
+		}
+		else if (candidate.engagedByOther)
+		{
+			applyEngagedMobPolicy(candidate, multiCombat);
+		}
+
+		entity.put("mobFarmerSelectable", candidate.selectable);
+		entity.put("mobFarmerReasons", new ArrayList<>(candidate.reasons));
+		entity.put("mobFarmerScore", candidate.score);
+		return candidate;
+	}
+
+	private void applyEngagedMobPolicy(MobFarmerCandidate candidate, boolean multiCombat)
+	{
+		if (!multiCombat)
+		{
+			candidate.reject("engaged-by-other-single-combat");
+			return;
+		}
+
+		CvHelperMobEngagedMode mode = getMobFarmerEngagedMode();
+		if (mode == CvHelperMobEngagedMode.FREE_ONLY)
+		{
+			candidate.reject("engaged-by-other-free-only");
+		}
+		else if (mode == CvHelperMobEngagedMode.PREFER_FREE)
+		{
+			candidate.note("engaged-by-other-deprioritized");
+			candidate.score += 1000;
+		}
+		else
+		{
+			candidate.note("engaged-by-other-allowed");
+			candidate.score += 50;
+		}
+	}
+
+	private Map<String, Object> candidateReport(MobFarmerCandidate candidate)
+	{
+		Map<String, Object> report = new LinkedHashMap<>();
+		report.put("name", candidate.entity.get("name"));
+		report.put("id", candidate.entity.get("id"));
+		report.put("distance", candidate.entity.get("distance"));
+		report.put("selectable", candidate.selectable);
+		report.put("score", candidate.score);
+		report.put("reasons", new ArrayList<>(candidate.reasons));
+		report.put("healthRatio", candidate.entity.get("healthRatio"));
+		report.put("healthScale", candidate.entity.get("healthScale"));
+		report.put("dead", candidate.entity.get("dead"));
+		report.put("attackable", candidate.entity.get("attackable"));
+		report.put("interacting", candidate.entity.get("interacting"));
+		report.put("engagedByOther", candidate.entity.get("engagedByOther"));
+		report.put("engagedWithLocalPlayer", candidate.entity.get("engagedWithLocalPlayer"));
+		report.put("lineOfSightToLocalPlayer", candidate.entity.get("lineOfSightToLocalPlayer"));
+		report.put("clickPoint", candidate.entity.get("clickPoint"));
+		report.put("worldLocation", candidate.entity.get("worldLocation"));
+		return report;
+	}
+
+	private void setMobFarmerDecision(String decision, Map<String, Object> target)
+	{
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("decision", decision);
+		payload.put("at", Instant.now().toString());
+		if (target != null)
+		{
+			payload.put("target", target);
+		}
+		lastMobFarmerDecision = payload;
+	}
+
+	private boolean matchesAnyMobTarget(NPC npc, String targetLabel)
+	{
+		for (String candidate : actionTargetCandidates(targetLabel))
+		{
+			if (matchesNpcTarget(npc, candidate))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private boolean matchesNpcTarget(NPC npc, String targetLabel)
+	{
+		String needle = normalize(targetLabel);
+		if (needle.isEmpty())
+		{
+			return true;
+		}
+		String idNeedle = needle.startsWith("id") ? normalize(needle.substring(2)) : needle;
+		String id = String.valueOf(npc.getId());
+		if (id.equals(idNeedle) || id.equals(needle))
+		{
+			return true;
+		}
+		return normalize(npc.getName()).contains(needle);
+	}
+
+	private boolean isNpcAttackable(NPC npc)
+	{
+		NPCComposition composition = npc.getTransformedComposition();
+		if (composition == null)
+		{
+			composition = npc.getComposition();
+		}
+		if (composition == null || !composition.isInteractible())
+		{
+			return false;
+		}
+		return hasActionNamed(composition.getActions(), "Attack");
+	}
+
+	private boolean isEffectivelyDead(Actor actor)
+	{
+		return actor == null || actor.isDead() || actor.getHealthRatio() == 0;
+	}
+
+	private boolean isMultiCombat()
+	{
+		return safeValue(() -> client.getVarbitValue(VarbitID.MULTIWAY_INDICATOR) == 1, false);
+	}
+
+	private boolean hasLineOfSight(Player localPlayer, Actor target)
+	{
+		if (localPlayer == null || target == null)
+		{
+			return false;
+		}
+		WorldArea localArea = localPlayer.getWorldArea();
+		WorldArea targetArea = target.getWorldArea();
+		if (localArea == null || targetArea == null)
+		{
+			return false;
+		}
+		try
+		{
+			WorldView worldView = localPlayer.getWorldView();
+			return localArea.hasLineOfSightTo(worldView == null ? client.getTopLevelWorldView() : worldView, targetArea);
+		}
+		catch (RuntimeException e)
+		{
+			return false;
+		}
 	}
 
 	private Map<String, Object> findMobFarmerEntity(List<Map<String, Object>> entities, String targetLabel)
@@ -4016,24 +4366,33 @@ public class CvHelperPlugin extends Plugin
 	{
 		List<Map<String, Object>> entities = new ArrayList<>();
 		Player localPlayer = client.getLocalPlayer();
-		WorldPoint origin = localPlayer == null ? null : localPlayer.getWorldLocation();
 		for (Player player : client.getPlayers())
 		{
-			addActorEntity(entities, "player", player, origin);
+			addActorEntity(entities, "player", player, localPlayer);
 		}
 		for (NPC npc : client.getNpcs())
 		{
-			addActorEntity(entities, "npc", npc, origin);
+			addActorEntity(entities, "npc", npc, localPlayer);
 		}
 		return entities;
 	}
 
-	private void addActorEntity(List<Map<String, Object>> entities, String type, Actor actor, WorldPoint origin)
+	private void addActorEntity(List<Map<String, Object>> entities, String type, Actor actor, Player localPlayer)
+	{
+		Map<String, Object> entity = actorEntity(type, actor, localPlayer);
+		if (entity != null)
+		{
+			entities.add(entity);
+		}
+	}
+
+	private Map<String, Object> actorEntity(String type, Actor actor, Player localPlayer)
 	{
 		if (actor == null || actor.getName() == null)
 		{
-			return;
+			return null;
 		}
+		WorldPoint origin = localPlayer == null ? null : localPlayer.getWorldLocation();
 		Map<String, Object> canvasBounds = actorBounds(actor);
 		Map<String, Object> boundsCenter = centerFromBounds(canvasBounds);
 		Map<String, Object> tileCenter = canvasTileCenter(actor);
@@ -4042,8 +4401,16 @@ public class CvHelperPlugin extends Plugin
 		entity.put("name", actor.getName());
 		entity.put("combatLevel", actor.getCombatLevel());
 		entity.put("animation", actor.getAnimation());
+		entity.put("poseAnimation", actor.getPoseAnimation());
+		entity.put("healthRatio", actor.getHealthRatio());
+		entity.put("healthScale", actor.getHealthScale());
+		entity.put("dead", actor.isDead());
+		entity.put("effectivelyDead", isEffectivelyDead(actor));
+		entity.put("inCombat", actor.getInteracting() != null || actor.isInteracting());
+		entity.put("interacting", actorSummary(actor.getInteracting()));
 		entity.put("worldLocation", pointValue(actor.getWorldLocation()));
 		entity.put("localLocation", pointValue(actor.getLocalLocation()));
+		entity.put("worldArea", worldAreaMap(actor.getWorldArea()));
 		entity.put("canvasBounds", canvasBounds);
 		entity.put("center", boundsCenter);
 		entity.put("canvasTileCenter", tileCenter);
@@ -4056,8 +4423,18 @@ public class CvHelperPlugin extends Plugin
 		{
 			NPC npc = (NPC) actor;
 			entity.put("id", npc.getId());
+			entity.put("index", npc.getIndex());
+			entity.put("attackable", isNpcAttackable(npc));
+			NPCComposition composition = npc.getTransformedComposition();
+			if (composition == null)
+			{
+				composition = npc.getComposition();
+			}
+			entity.put("actions", composition == null || composition.getActions() == null ? new String[0] : composition.getActions());
+			entity.put("interactible", composition != null && composition.isInteractible());
+			entity.put("compositionId", composition == null ? npc.getId() : composition.getId());
 		}
-		entities.add(entity);
+		return entity;
 	}
 
 	private Map<String, Object> actorBounds(Actor actor)
@@ -4072,6 +4449,44 @@ public class CvHelperPlugin extends Plugin
 			return null;
 		}
 		return boundsMap(hull.getBounds());
+	}
+
+	private Map<String, Object> actorSummary(Actor actor)
+	{
+		if (actor == null)
+		{
+			return null;
+		}
+		Map<String, Object> out = new LinkedHashMap<>();
+		out.put("type", actor instanceof NPC ? "npc" : actor instanceof Player ? "player" : "actor");
+		out.put("name", actor.getName());
+		out.put("combatLevel", actor.getCombatLevel());
+		out.put("healthRatio", actor.getHealthRatio());
+		out.put("healthScale", actor.getHealthScale());
+		out.put("dead", actor.isDead());
+		out.put("worldLocation", pointValue(actor.getWorldLocation()));
+		if (actor instanceof NPC)
+		{
+			NPC npc = (NPC) actor;
+			out.put("id", npc.getId());
+			out.put("index", npc.getIndex());
+		}
+		return out;
+	}
+
+	private Map<String, Object> worldAreaMap(WorldArea area)
+	{
+		if (area == null)
+		{
+			return null;
+		}
+		Map<String, Object> out = new LinkedHashMap<>();
+		out.put("x", area.getX());
+		out.put("y", area.getY());
+		out.put("width", area.getWidth());
+		out.put("height", area.getHeight());
+		out.put("plane", area.getPlane());
+		return out;
 	}
 
 	private Map<String, Object> canvasTileCenter(Actor actor)

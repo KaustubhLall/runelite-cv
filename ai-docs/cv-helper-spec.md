@@ -322,7 +322,21 @@ The first automation slice is a guarded mob-farmer controller, not a full unatte
 - `POST/GET /automation/mob-farmer/stop`
 - `POST/GET /automation/panic-stop`
 
-The farmer refuses to click unless the client is logged in, the local player exists, the local player is not already interacting with something, a matching NPC target is exported with a screen click point, and no other CV Helper action is currently running. Dry mode reports the chosen target/click point without clicking. Live mode performs the same guarded target click. Auto-eat, loot filters, highlighted-drop integration, pathing/exit tiles, and composable external action plans remain follow-up bricks.
+The farmer refuses to click unless the client is logged in, the local player exists, a matching NPC target passes the target-validity filter, the target has a screen click point, and no other CV Helper action is currently running. Dry mode reports the chosen target/click point without clicking. Live mode performs the same guarded target click.
+
+Current target-validity checks include:
+
+- NPC target list matching by partial name or `id:<npc id>`, including list separators already used by action targets.
+- NPC composition has an `Attack` action and is interactible.
+- NPC is not dead and does not have visible health ratio `0`.
+- Local-player combat is handled separately: continue a desired current target; configurable response for undesired aggressive attackers.
+- Single-combat skips mobs already engaged by someone else. Multi-combat uses the configured engaged-mob policy: `FREE_ONLY`, `PREFER_FREE`, or `ALLOW_ENGAGED`.
+- Optional line-of-sight guard, enabled by default, as a conservative first reachability filter. This is not full route/path distance and does not replace the future real pathing brick.
+- Optional max-distance guard, default `20` tiles.
+
+`/automation/mob-farmer/status` reports the latest decision plus candidate diagnostics, including per-NPC selectability, reasons, health/death state, attackability, engaged-by-other state, line-of-sight state, score, click point, and world location. Use this report before trusting live clicks in crowded or obstructed areas.
+
+Auto-eat, loot filters, highlighted-drop integration, real pathing/exit tiles, right-click/menu option selection, and composable external action plans remain follow-up bricks.
 
 Dry mob-farmer steps also print the selected target/click point to in-game chat so the user can verify targeting without watching the localhost response.
 
@@ -331,7 +345,9 @@ Known farmer follow-ups:
 - Prefer attack actions through the correct menu option when left-click geometry is obstructed by drops, players, or other overlays.
 - Support loot timing as a second loop: attack the next mob first, then pick up allowed/highlighted/valuable drops after they spawn.
 - Add configurable health thresholds, food/potion recognition, and no-food stop/report behavior.
-- Track inventory fullness and pathing/exit strategies before longer unattended loops.
+- Track inventory fullness, never-drop protected items, item priority tiers, and pathing/exit strategies before longer unattended loops.
+- Replace conservative line-of-sight filtering with real route/path distance using collision maps or a pathing plugin integration.
+- Add login/reconnect/world-recovery flow after the core combat loop is stable.
 
 The verifier dashboard groups `/status` data into connection, vitals, wealth, and interface sections. It shows HP/prayer, run energy, special attack energy/enabled state, active prayers, current loot/equipment/total carried/risked-value approximation, selected widget state, and latest capture preview/path.
 
