@@ -106,6 +106,19 @@ public interface CvHelperConfig extends Config
 	String MOB_FARMER_AGGRO_RESPONSE = "mobFarmerAggroResponse";
 	String MOB_FARMER_REQUIRE_LINE_OF_SIGHT = "mobFarmerRequireLineOfSight";
 	String MOB_FARMER_MAX_DISTANCE = "mobFarmerMaxDistance";
+	String MOB_FARMER_AUTO_EAT_ENABLED = "mobFarmerAutoEatEnabled";
+	String MOB_FARMER_EAT_HITPOINT_PERCENT = "mobFarmerEatHitpointPercent";
+	String MOB_FARMER_FOOD_ITEMS = "mobFarmerFoodItems";
+	String MOB_FARMER_STOP_IF_NO_FOOD = "mobFarmerStopIfNoFood";
+	String MOB_FARMER_LOOT_ENABLED = "mobFarmerLootEnabled";
+	String MOB_FARMER_LOOT_DURING_COMBAT = "mobFarmerLootDuringCombat";
+	String MOB_FARMER_ATTACK_BEFORE_LOOT = "mobFarmerAttackBeforeLoot";
+	String MOB_FARMER_LOOT_MIN_VALUE_GE = "mobFarmerLootMinValueGe";
+	String MOB_FARMER_LOOT_RADIUS = "mobFarmerLootRadius";
+	String MOB_FARMER_LOOT_ITEMS = "mobFarmerLootItems";
+	String MOB_FARMER_LOOT_BLACKLIST = "mobFarmerLootBlacklist";
+	String MOB_FARMER_LOOT_OWNERSHIP_MODE = "mobFarmerLootOwnershipMode";
+	String MOB_FARMER_NEVER_DROP_ITEMS = "mobFarmerNeverDropItems";
 
 	@ConfigSection(
 		name = "Action hotkeys",
@@ -507,6 +520,149 @@ public interface CvHelperConfig extends Config
 	default int mobFarmerMaxDistance()
 	{
 		return 20;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_AUTO_EAT_ENABLED,
+		name = "Auto-eat enabled",
+		description = "Before combat or loot actions, eat a matching inventory item when HP drops below the configured threshold.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerAutoEatEnabled()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_EAT_HITPOINT_PERCENT,
+		name = "Eat below HP %",
+		description = "Auto-eat when current hitpoints are at or below this percent of real hitpoints.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerEatHitpointPercent()
+	{
+		return 50;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_FOOD_ITEMS,
+		name = "Food items",
+		description = "Food item names or id:<item id>, separated by |, comma, semicolon, or newlines.",
+		section = mobFarmerSection
+	)
+	default String mobFarmerFoodItems()
+	{
+		return "shrimp|trout|salmon|tuna|lobster|swordfish|monkfish|shark|manta ray|anglerfish|cake|jug of wine|karambwan|meat|chicken|bread|pizza|pie";
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_STOP_IF_NO_FOOD,
+		name = "Stop if no food",
+		description = "Stop the farmer loop when HP is below the auto-eat threshold and no matching food is available.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerStopIfNoFood()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_ENABLED,
+		name = "Loot pickup enabled",
+		description = "Allow the farmer loop to pick up matching or valuable ground items.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerLootEnabled()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_DURING_COMBAT,
+		name = "Loot during combat",
+		description = "Allow pickup attempts while already fighting. This supports attacking the next mob first, then collecting drops during combat windows.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerLootDuringCombat()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_ATTACK_BEFORE_LOOT,
+		name = "Attack before loot",
+		description = "When not in combat and both a target and loot are available, attack first and leave loot for later loop steps.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerAttackBeforeLoot()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_MIN_VALUE_GE,
+		name = "Loot min GE value",
+		description = "Minimum total GE value to pick up when an item is not explicitly listed. Use 0 to allow all non-blacklisted items.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerLootMinValueGe()
+	{
+		return 100;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_RADIUS,
+		name = "Loot radius",
+		description = "Maximum tile distance for loot pickup. Use 0 to disable the radius guard.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerLootRadius()
+	{
+		return 8;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_ITEMS,
+		name = "Always-loot items",
+		description = "Items to loot even below the value threshold, separated by |, comma, semicolon, or newlines.",
+		section = mobFarmerSection
+	)
+	default String mobFarmerLootItems()
+	{
+		return "bones|cowhide|coins|goblin mail";
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_BLACKLIST,
+		name = "Never-loot items",
+		description = "Items to never pick up, separated by |, comma, semicolon, or newlines.",
+		section = mobFarmerSection
+	)
+	default String mobFarmerLootBlacklist()
+	{
+		return "";
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_OWNERSHIP_MODE,
+		name = "Loot ownership",
+		description = "Which ground-item ownership categories the farmer may pick up.",
+		section = mobFarmerSection
+	)
+	default CvHelperLootOwnershipMode mobFarmerLootOwnershipMode()
+	{
+		return CvHelperLootOwnershipMode.OWN_OR_PUBLIC;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_NEVER_DROP_ITEMS,
+		name = "Protected inventory",
+		description = "Inventory items that future drop-processing must never drop. Current implementation reports protected/drop candidates but does not drop items yet.",
+		section = mobFarmerSection
+	)
+	default String mobFarmerNeverDropItems()
+	{
+		return "rune pouch|coins";
 	}
 
 	@ConfigItem(

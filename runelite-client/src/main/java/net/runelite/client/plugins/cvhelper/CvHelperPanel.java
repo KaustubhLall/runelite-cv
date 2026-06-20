@@ -470,11 +470,53 @@ class CvHelperPanel extends PluginPanel
 		requireLineOfSight.addActionListener(e -> plugin.setMobFarmerRequireLineOfSight(requireLineOfSight.isSelected()));
 		JTextField maxDistance = new JTextField(String.valueOf(plugin.getMobFarmerMaxDistance()));
 		maxDistance.setToolTipText("0 disables the distance guard.");
+
+		JCheckBox autoEatEnabled = new JCheckBox("Auto-eat", plugin.getMobFarmerAutoEatEnabled());
+		styleCheckbox(autoEatEnabled);
+		autoEatEnabled.addActionListener(e -> plugin.setMobFarmerAutoEatEnabled(autoEatEnabled.isSelected()));
+		JTextField eatThreshold = new JTextField(String.valueOf(plugin.getMobFarmerEatHitpointPercent()));
+		eatThreshold.setToolTipText("Eat when HP percent is at or below this value.");
+		JTextField foodItems = new JTextField(plugin.getMobFarmerFoodItems());
+		foodItems.setToolTipText("Food names or id:<item id>, separated by |, comma, semicolon, or newlines.");
+		JCheckBox stopIfNoFood = new JCheckBox("Stop if no food", plugin.getMobFarmerStopIfNoFood());
+		styleCheckbox(stopIfNoFood);
+		stopIfNoFood.addActionListener(e -> plugin.setMobFarmerStopIfNoFood(stopIfNoFood.isSelected()));
+
+		JCheckBox lootEnabled = new JCheckBox("Loot pickup", plugin.getMobFarmerLootEnabled());
+		styleCheckbox(lootEnabled);
+		lootEnabled.addActionListener(e -> plugin.setMobFarmerLootEnabled(lootEnabled.isSelected()));
+		JCheckBox lootDuringCombat = new JCheckBox("Loot during combat", plugin.getMobFarmerLootDuringCombat());
+		styleCheckbox(lootDuringCombat);
+		lootDuringCombat.addActionListener(e -> plugin.setMobFarmerLootDuringCombat(lootDuringCombat.isSelected()));
+		JCheckBox attackBeforeLoot = new JCheckBox("Attack before loot", plugin.getMobFarmerAttackBeforeLoot());
+		styleCheckbox(attackBeforeLoot);
+		attackBeforeLoot.addActionListener(e -> plugin.setMobFarmerAttackBeforeLoot(attackBeforeLoot.isSelected()));
+		JTextField lootMinValue = new JTextField(String.valueOf(plugin.getMobFarmerLootMinValueGe()));
+		lootMinValue.setToolTipText("Minimum total GE value for items not in the always-loot list.");
+		JTextField lootRadius = new JTextField(String.valueOf(plugin.getMobFarmerLootRadius()));
+		lootRadius.setToolTipText("0 disables the loot radius guard.");
+		JTextField lootItems = new JTextField(plugin.getMobFarmerLootItems());
+		lootItems.setToolTipText("Items to always loot even below the value threshold.");
+		JTextField lootBlacklist = new JTextField(plugin.getMobFarmerLootBlacklist());
+		lootBlacklist.setToolTipText("Items to never loot.");
+		JComboBox<CvHelperLootOwnershipMode> lootOwnership = new JComboBox<>(CvHelperLootOwnershipMode.values());
+		lootOwnership.setSelectedItem(plugin.getMobFarmerLootOwnershipMode());
+		lootOwnership.addActionListener(e -> plugin.setMobFarmerLootOwnershipMode((CvHelperLootOwnershipMode) lootOwnership.getSelectedItem()));
+		JTextField neverDrop = new JTextField(plugin.getMobFarmerNeverDropItems());
+		neverDrop.setToolTipText("Inventory items that future drop processing must never drop.");
+
 		JButton saveGuards = new JButton("Save farmer guards");
 		saveGuards.addActionListener(e ->
 		{
 			plugin.setMobFarmerTarget(target.getText());
 			plugin.setMobFarmerMaxDistance(parseNonNegativeInt(maxDistance.getText(), plugin.getMobFarmerMaxDistance()));
+			plugin.setMobFarmerEatHitpointPercent(parseNonNegativeInt(eatThreshold.getText(), plugin.getMobFarmerEatHitpointPercent()));
+			plugin.setMobFarmerFoodItems(foodItems.getText());
+			plugin.setMobFarmerLootMinValueGe(parseNonNegativeInt(lootMinValue.getText(), plugin.getMobFarmerLootMinValueGe()));
+			plugin.setMobFarmerLootRadius(parseNonNegativeInt(lootRadius.getText(), plugin.getMobFarmerLootRadius()));
+			plugin.setMobFarmerLootItems(lootItems.getText());
+			plugin.setMobFarmerLootBlacklist(lootBlacklist.getText());
+			plugin.setMobFarmerNeverDropItems(neverDrop.getText());
 			updateStatus("Mob farmer guards saved");
 		});
 		JButton saveTarget = new JButton("Save mob target");
@@ -506,7 +548,7 @@ class CvHelperPanel extends PluginPanel
 		JButton stop = new JButton("Stop loop");
 		stop.addActionListener(e -> plugin.stopMobFarmer());
 
-		JLabel help = new JLabel("<html>First farmer pass: if not interacting, find nearest matching NPC target and optionally click it. Loot/eat/pathing stay follow-ups.</html>");
+		JLabel help = new JLabel("<html>Farmer loop: survival guard, optional loot processing, then guarded attack selection. Right-click/pathing stay follow-up bricks.</html>");
 		help.setForeground(Color.LIGHT_GRAY);
 
 		for (JComponent component : new JComponent[]{
@@ -520,6 +562,29 @@ class CvHelperPanel extends PluginPanel
 			requireLineOfSight,
 			label("Max target distance"),
 			maxDistance,
+			label("Survival"),
+			autoEatEnabled,
+			label("Eat below HP %"),
+			eatThreshold,
+			label("Food items"),
+			foodItems,
+			stopIfNoFood,
+			label("Loot"),
+			lootEnabled,
+			lootDuringCombat,
+			attackBeforeLoot,
+			label("Loot min GE value"),
+			lootMinValue,
+			label("Loot radius"),
+			lootRadius,
+			label("Always-loot items"),
+			lootItems,
+			label("Never-loot items"),
+			lootBlacklist,
+			label("Loot ownership"),
+			lootOwnership,
+			label("Protected inventory"),
+			neverDrop,
 			saveGuards,
 			saveTarget,
 			dryStep,

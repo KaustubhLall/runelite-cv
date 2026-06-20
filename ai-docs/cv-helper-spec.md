@@ -336,16 +336,22 @@ Current target-validity checks include:
 
 `/automation/mob-farmer/status` reports the latest decision plus candidate diagnostics, including per-NPC selectability, reasons, health/death state, attackability, engaged-by-other state, line-of-sight state, score, click point, and world location. Use this report before trusting live clicks in crowded or obstructed areas.
 
-Auto-eat, loot filters, highlighted-drop integration, real pathing/exit tiles, right-click/menu option selection, and composable external action plans remain follow-up bricks.
+First-pass survival and loot processing is implemented:
+
+- Auto-eat runs before loot or attack decisions. If current HP is at or below the configured percent threshold, the farmer opens inventory if needed, finds a matching food item with an `Eat`, `Drink`, or `Consume` action, and clicks it. If no food is found, the loop can stop automatically.
+- Loot pickup scans visible scene ground items and reports every candidate in `/automation/mob-farmer/status`. Selection uses explicit always-loot names/ids, minimum GE value, blacklist, ownership policy, loot radius, inventory capacity, stackability, screen click point, and score.
+- Default loot flow prioritizes attacking first when idle, then collecting allowed drops during combat windows or when no valid target is available. This supports the desired "attack next mob first, then loot after the drop appears" rhythm.
+- Inventory status reports occupied/free slots, protected never-drop list, and the lowest-value unprotected drop candidate for future drop-processing work. The first pass does not drop inventory items automatically.
+
+Highlighted-drop integration, real pathing/exit tiles, right-click/menu option selection, automatic dropping, and composable external action plans remain follow-up bricks.
 
 Dry mob-farmer steps also print the selected target/click point to in-game chat so the user can verify targeting without watching the localhost response.
 
 Known farmer follow-ups:
 
 - Prefer attack actions through the correct menu option when left-click geometry is obstructed by drops, players, or other overlays.
-- Support loot timing as a second loop: attack the next mob first, then pick up allowed/highlighted/valuable drops after they spawn.
-- Add configurable health thresholds, food/potion recognition, and no-food stop/report behavior.
-- Track inventory fullness, never-drop protected items, item priority tiers, and pathing/exit strategies before longer unattended loops.
+- Replace direct tile/item clicks with menu-option pickup and highlighted-drop integration.
+- Add automatic low-value dropping, item priority tiers, and safe pathing/exit strategies before longer unattended loops.
 - Replace conservative line-of-sight filtering with real route/path distance using collision maps or a pathing plugin integration.
 - Add login/reconnect/world-recovery flow after the core combat loop is stable.
 

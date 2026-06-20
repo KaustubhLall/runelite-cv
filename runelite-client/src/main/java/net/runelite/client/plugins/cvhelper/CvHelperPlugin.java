@@ -13,6 +13,7 @@ import java.awt.KeyEventDispatcher;
 import java.awt.KeyboardFocusManager;
 import java.awt.MouseInfo;
 import java.awt.Point;
+import java.awt.Polygon;
 import java.awt.Rectangle;
 import java.awt.Robot;
 import java.awt.Shape;
@@ -65,6 +66,9 @@ import net.runelite.api.Perspective;
 import net.runelite.api.Player;
 import net.runelite.api.Prayer;
 import net.runelite.api.Skill;
+import net.runelite.api.Scene;
+import net.runelite.api.Tile;
+import net.runelite.api.TileItem;
 import net.runelite.api.VarPlayer;
 import net.runelite.api.WorldView;
 import net.runelite.api.coords.LocalPoint;
@@ -208,6 +212,10 @@ public class CvHelperPlugin extends Plugin
 	private final AtomicReference<String> mobFarmerStatus = new AtomicReference<>("idle");
 	private volatile List<Map<String, Object>> lastMobFarmerCandidates = new ArrayList<>();
 	private volatile Map<String, Object> lastMobFarmerDecision = new LinkedHashMap<>();
+	private volatile List<Map<String, Object>> lastMobFarmerLootCandidates = new ArrayList<>();
+	private volatile Map<String, Object> lastMobFarmerLootDecision = new LinkedHashMap<>();
+	private volatile Map<String, Object> lastMobFarmerSurvivalDecision = new LinkedHashMap<>();
+	private volatile Map<String, Object> lastMobFarmerInventoryStatus = new LinkedHashMap<>();
 	private volatile boolean lastMobFarmerMultiCombat;
 	private final KeyEventDispatcher cvHotkeyDispatcher = this::dispatchCvHotkey;
 	private volatile String lastStableSidePanel = "inventory";
@@ -268,6 +276,37 @@ public class CvHelperPlugin extends Plugin
 		private List<Map<String, Object>> reports = new ArrayList<>();
 		private String decision = "none";
 		private boolean multiCombat;
+	}
+
+	private static final class MobFarmerLootCandidate
+	{
+		private final Map<String, Object> item;
+		private final List<String> reasons = new ArrayList<>();
+		private int score;
+		private boolean selectable = true;
+
+		private MobFarmerLootCandidate(Map<String, Object> item)
+		{
+			this.item = item;
+		}
+
+		private void reject(String reason)
+		{
+			selectable = false;
+			reasons.add(reason);
+		}
+
+		private void note(String reason)
+		{
+			reasons.add(reason);
+		}
+	}
+
+	private static final class MobFarmerLootSelection
+	{
+		private Map<String, Object> target;
+		private List<Map<String, Object>> reports = new ArrayList<>();
+		private String decision = "none";
 	}
 
 	@Provides
@@ -2437,6 +2476,137 @@ public class CvHelperPlugin extends Plugin
 		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_MAX_DISTANCE, Math.max(0, maxDistance));
 	}
 
+	boolean getMobFarmerAutoEatEnabled()
+	{
+		return config.mobFarmerAutoEatEnabled();
+	}
+
+	void setMobFarmerAutoEatEnabled(boolean enabled)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_AUTO_EAT_ENABLED, enabled);
+	}
+
+	int getMobFarmerEatHitpointPercent()
+	{
+		return Math.max(1, Math.min(99, config.mobFarmerEatHitpointPercent()));
+	}
+
+	void setMobFarmerEatHitpointPercent(int percent)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_EAT_HITPOINT_PERCENT, Math.max(1, Math.min(99, percent)));
+	}
+
+	String getMobFarmerFoodItems()
+	{
+		return config.mobFarmerFoodItems() == null ? "" : config.mobFarmerFoodItems();
+	}
+
+	void setMobFarmerFoodItems(String items)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_FOOD_ITEMS, items == null ? "" : items.trim());
+	}
+
+	boolean getMobFarmerStopIfNoFood()
+	{
+		return config.mobFarmerStopIfNoFood();
+	}
+
+	void setMobFarmerStopIfNoFood(boolean stop)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_STOP_IF_NO_FOOD, stop);
+	}
+
+	boolean getMobFarmerLootEnabled()
+	{
+		return config.mobFarmerLootEnabled();
+	}
+
+	void setMobFarmerLootEnabled(boolean enabled)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_LOOT_ENABLED, enabled);
+	}
+
+	boolean getMobFarmerLootDuringCombat()
+	{
+		return config.mobFarmerLootDuringCombat();
+	}
+
+	void setMobFarmerLootDuringCombat(boolean enabled)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_LOOT_DURING_COMBAT, enabled);
+	}
+
+	boolean getMobFarmerAttackBeforeLoot()
+	{
+		return config.mobFarmerAttackBeforeLoot();
+	}
+
+	void setMobFarmerAttackBeforeLoot(boolean enabled)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_ATTACK_BEFORE_LOOT, enabled);
+	}
+
+	int getMobFarmerLootMinValueGe()
+	{
+		return Math.max(0, config.mobFarmerLootMinValueGe());
+	}
+
+	void setMobFarmerLootMinValueGe(int value)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_LOOT_MIN_VALUE_GE, Math.max(0, value));
+	}
+
+	int getMobFarmerLootRadius()
+	{
+		return Math.max(0, config.mobFarmerLootRadius());
+	}
+
+	void setMobFarmerLootRadius(int radius)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_LOOT_RADIUS, Math.max(0, radius));
+	}
+
+	String getMobFarmerLootItems()
+	{
+		return config.mobFarmerLootItems() == null ? "" : config.mobFarmerLootItems();
+	}
+
+	void setMobFarmerLootItems(String items)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_LOOT_ITEMS, items == null ? "" : items.trim());
+	}
+
+	String getMobFarmerLootBlacklist()
+	{
+		return config.mobFarmerLootBlacklist() == null ? "" : config.mobFarmerLootBlacklist();
+	}
+
+	void setMobFarmerLootBlacklist(String items)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_LOOT_BLACKLIST, items == null ? "" : items.trim());
+	}
+
+	CvHelperLootOwnershipMode getMobFarmerLootOwnershipMode()
+	{
+		CvHelperLootOwnershipMode mode = config.mobFarmerLootOwnershipMode();
+		return mode == null ? CvHelperLootOwnershipMode.OWN_OR_PUBLIC : mode;
+	}
+
+	void setMobFarmerLootOwnershipMode(CvHelperLootOwnershipMode mode)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_LOOT_OWNERSHIP_MODE, mode == null ? CvHelperLootOwnershipMode.OWN_OR_PUBLIC : mode);
+	}
+
+	String getMobFarmerNeverDropItems()
+	{
+		return config.mobFarmerNeverDropItems() == null ? "" : config.mobFarmerNeverDropItems();
+	}
+
+	void setMobFarmerNeverDropItems(String items)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_NEVER_DROP_ITEMS, items == null ? "" : items.trim());
+	}
+
 	private String normalizedMobFarmerTarget(String target)
 	{
 		String cleaned = target == null ? "" : target.trim();
@@ -2456,9 +2626,40 @@ public class CvHelperPlugin extends Plugin
 		status.put("aggroResponse", getMobFarmerAggroResponse().name());
 		status.put("requireLineOfSight", getMobFarmerRequireLineOfSight());
 		status.put("maxDistance", getMobFarmerMaxDistance());
+		status.put("autoEat", mobFarmerAutoEatConfigStatus());
+		status.put("loot", mobFarmerLootConfigStatus());
 		status.put("decision", lastMobFarmerDecision);
+		status.put("survivalDecision", lastMobFarmerSurvivalDecision);
+		status.put("lootDecision", lastMobFarmerLootDecision);
+		status.put("inventory", lastMobFarmerInventoryStatus);
 		status.put("candidates", lastMobFarmerCandidates);
+		status.put("lootCandidates", lastMobFarmerLootCandidates);
 		return status;
+	}
+
+	private Map<String, Object> mobFarmerAutoEatConfigStatus()
+	{
+		Map<String, Object> out = new LinkedHashMap<>();
+		out.put("enabled", getMobFarmerAutoEatEnabled());
+		out.put("hitpointPercent", getMobFarmerEatHitpointPercent());
+		out.put("foodItems", getMobFarmerFoodItems());
+		out.put("stopIfNoFood", getMobFarmerStopIfNoFood());
+		return out;
+	}
+
+	private Map<String, Object> mobFarmerLootConfigStatus()
+	{
+		Map<String, Object> out = new LinkedHashMap<>();
+		out.put("enabled", getMobFarmerLootEnabled());
+		out.put("duringCombat", getMobFarmerLootDuringCombat());
+		out.put("attackBeforeLoot", getMobFarmerAttackBeforeLoot());
+		out.put("minValueGe", getMobFarmerLootMinValueGe());
+		out.put("radius", getMobFarmerLootRadius());
+		out.put("items", getMobFarmerLootItems());
+		out.put("blacklist", getMobFarmerLootBlacklist());
+		out.put("ownershipMode", getMobFarmerLootOwnershipMode().name());
+		out.put("neverDropItems", getMobFarmerNeverDropItems());
+		return out;
 	}
 
 	void runMobFarmerStep(boolean live)
@@ -2583,11 +2784,21 @@ public class CvHelperPlugin extends Plugin
 			return;
 		}
 
+		lastMobFarmerInventoryStatus = inventoryPolicyStatus();
+		if (tryMobFarmerAutoEat(localPlayer, live, generation))
+		{
+			return;
+		}
+
 		Actor interacting = localPlayer.getInteracting();
 		if (interacting != null && !isEffectivelyDead(interacting))
 		{
 			if (interacting instanceof NPC && matchesAnyMobTarget((NPC) interacting, mobFarmerTarget))
 			{
+				if (getMobFarmerLootDuringCombat() && tryMobFarmerLoot(localPlayer, live, generation, "combat-window"))
+				{
+					return;
+				}
 				mobFarmerStatus.set("continuing-target:" + interacting.getName());
 				setMobFarmerDecision("continuing-target", actorSummary(interacting));
 				updatePanelStatus("Mob farmer continuing target: " + interacting.getName());
@@ -2596,6 +2807,10 @@ public class CvHelperPlugin extends Plugin
 			CvHelperMobAggroResponse aggroResponse = getMobFarmerAggroResponse();
 			if (aggroResponse == CvHelperMobAggroResponse.CONTINUE_ANY_ATTACKER || (!lastMobFarmerMultiCombat && aggroResponse == CvHelperMobAggroResponse.IGNORE_IN_MULTI))
 			{
+				if (getMobFarmerLootDuringCombat() && tryMobFarmerLoot(localPlayer, live, generation, "combat-window-undesired"))
+				{
+					return;
+				}
 				mobFarmerStatus.set("continuing-undesired:" + interacting.getName());
 				setMobFarmerDecision("continuing-undesired", actorSummary(interacting));
 				updatePanelStatus("Mob farmer continuing undesired attacker: " + interacting.getName());
@@ -2610,6 +2825,11 @@ public class CvHelperPlugin extends Plugin
 			}
 		}
 
+		if (!getMobFarmerAttackBeforeLoot() && tryMobFarmerLoot(localPlayer, live, generation, "idle-before-attack"))
+		{
+			return;
+		}
+
 		lastEntities = collectEntities();
 		MobFarmerSelection selection = selectMobFarmerTarget(localPlayer);
 		lastMobFarmerCandidates = selection.reports;
@@ -2618,6 +2838,10 @@ public class CvHelperPlugin extends Plugin
 		Map<String, Object> target = selection.target;
 		if (target == null)
 		{
+			if (tryMobFarmerLoot(localPlayer, live, generation, "idle-no-target"))
+			{
+				return;
+			}
 			mobFarmerStatus.set(selection.decision + ":" + mobFarmerTarget);
 			updatePanelStatus("Mob farmer found no valid target: " + mobFarmerTarget + " | " + selection.decision);
 			return;
@@ -2681,6 +2905,576 @@ public class CvHelperPlugin extends Plugin
 		}, "cv-helper-mob-farmer-click");
 		clickThread.setDaemon(true);
 		clickThread.start();
+	}
+
+	private boolean tryMobFarmerAutoEat(Player localPlayer, boolean live, int generation)
+	{
+		if (!getMobFarmerAutoEatEnabled())
+		{
+			setMobFarmerSurvivalDecision("auto-eat-disabled", null);
+			return false;
+		}
+
+		int currentHp = Math.max(0, client.getBoostedSkillLevel(Skill.HITPOINTS));
+		int realHp = Math.max(1, client.getRealSkillLevel(Skill.HITPOINTS));
+		double percent = currentHp * 100.0 / realHp;
+		Map<String, Object> hp = new LinkedHashMap<>();
+		hp.put("current", currentHp);
+		hp.put("real", realHp);
+		hp.put("percent", percent);
+		hp.put("thresholdPercent", getMobFarmerEatHitpointPercent());
+		if (percent > getMobFarmerEatHitpointPercent())
+		{
+			setMobFarmerSurvivalDecision("hp-ok", hp);
+			return false;
+		}
+
+		lastInventoryTargets = collectInventoryTargets();
+		lastMobFarmerInventoryStatus = inventoryPolicyStatus();
+		Map<String, Object> food = findFoodInventoryTarget(lastInventoryTargets);
+		if (food == null)
+		{
+			if (!isInventoryVisible())
+			{
+				setMobFarmerSurvivalDecision("opening-inventory-for-food", hp);
+				mobFarmerStatus.set("opening-inventory-for-food");
+				updatePanelStatus("Mob farmer auto-eat: opening inventory");
+				if (live)
+				{
+					openAutomationPanel("inventory", "auto-eat", generation);
+				}
+				else
+				{
+					client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "Mob farmer dry auto-eat: would open inventory", "");
+				}
+				return true;
+			}
+
+			setMobFarmerSurvivalDecision("no-food", hp);
+			mobFarmerStatus.set("blocked:no-food");
+			updatePanelStatus("Mob farmer auto-eat blocked: no matching food");
+			if (getMobFarmerStopIfNoFood())
+			{
+				stopMobFarmer();
+			}
+			return true;
+		}
+
+		Map<String, Object> decision = new LinkedHashMap<>(hp);
+		decision.put("target", food);
+		setMobFarmerSurvivalDecision("eat", decision);
+		return clickMobFarmerAutomationTarget("auto-eat", food, live, generation);
+	}
+
+	private Map<String, Object> findFoodInventoryTarget(List<Map<String, Object>> inventoryTargets)
+	{
+		for (Map<String, Object> target : inventoryTargets)
+		{
+			String name = String.valueOf(target.get("itemName"));
+			int itemId = intValue(target.get("itemId"), -1);
+			if (name.trim().isEmpty() || "null".equals(name))
+			{
+				continue;
+			}
+			if (!matchesItemPolicy(name, itemId, getMobFarmerFoodItems()))
+			{
+				continue;
+			}
+			String[] actions = targetActions(target);
+			if (hasActionNamed(actions, "Eat") || hasActionNamed(actions, "Drink") || hasActionNamed(actions, "Consume"))
+			{
+				return target;
+			}
+		}
+		return null;
+	}
+
+	private boolean tryMobFarmerLoot(Player localPlayer, boolean live, int generation, String phase)
+	{
+		if (!getMobFarmerLootEnabled())
+		{
+			setMobFarmerLootDecision("loot-disabled:" + phase, null);
+			return false;
+		}
+
+		MobFarmerLootSelection selection = selectMobFarmerLoot(localPlayer);
+		lastMobFarmerLootCandidates = selection.reports;
+		setMobFarmerLootDecision(selection.decision + ":" + phase, selection.target);
+		if (selection.target == null)
+		{
+			return false;
+		}
+		return clickMobFarmerAutomationTarget("loot", selection.target, live, generation);
+	}
+
+	private MobFarmerLootSelection selectMobFarmerLoot(Player localPlayer)
+	{
+		MobFarmerLootSelection selection = new MobFarmerLootSelection();
+		MobFarmerLootCandidate best = null;
+		for (Map<String, Object> item : collectGroundItemTargets(localPlayer))
+		{
+			MobFarmerLootCandidate candidate = evaluateMobFarmerLootCandidate(item);
+			selection.reports.add(lootCandidateReport(candidate));
+			if (!candidate.selectable)
+			{
+				continue;
+			}
+			if (best == null || candidate.score < best.score)
+			{
+				best = candidate;
+			}
+		}
+
+		if (best == null)
+		{
+			selection.decision = selection.reports.isEmpty() ? "no-loot-candidates" : "no-valid-loot";
+			return selection;
+		}
+
+		selection.target = best.item;
+		selection.decision = "selected-loot:" + targetLabelForMessage(best.item);
+		return selection;
+	}
+
+	private MobFarmerLootCandidate evaluateMobFarmerLootCandidate(Map<String, Object> item)
+	{
+		MobFarmerLootCandidate candidate = new MobFarmerLootCandidate(item);
+		int distance = intValue(item.get("distance"), Integer.MAX_VALUE);
+		long value = longValue(item.get("gePrice"));
+		candidate.score = distance * 1000 - (int) Math.min(5000, value / 10);
+
+		String name = String.valueOf(item.get("name"));
+		int itemId = intValue(item.get("itemId"), -1);
+		if (matchesItemPolicy(name, itemId, getMobFarmerLootBlacklist()))
+		{
+			candidate.reject("blacklisted");
+		}
+		boolean explicitlyAllowed = matchesItemPolicy(name, itemId, getMobFarmerLootItems());
+		if (!explicitlyAllowed && value < getMobFarmerLootMinValueGe())
+		{
+			candidate.reject("below-value:" + value + "<" + getMobFarmerLootMinValueGe());
+		}
+		if (explicitlyAllowed)
+		{
+			candidate.note("allowlist");
+		}
+		if (!lootOwnershipAccepted(item))
+		{
+			candidate.reject("ownership:" + item.get("ownership"));
+		}
+		int radius = getMobFarmerLootRadius();
+		if (radius > 0 && distance > radius)
+		{
+			candidate.reject("too-far:" + distance + ">" + radius);
+		}
+		if (!(item.get("clickPoint") instanceof Map))
+		{
+			candidate.reject("no-click-point");
+		}
+		if (!inventoryCanAcceptItem(itemId, Boolean.TRUE.equals(item.get("stackable"))))
+		{
+			candidate.reject("inventory-full");
+		}
+
+		item.put("mobFarmerSelectable", candidate.selectable);
+		item.put("mobFarmerReasons", new ArrayList<>(candidate.reasons));
+		item.put("mobFarmerScore", candidate.score);
+		return candidate;
+	}
+
+	private List<Map<String, Object>> collectGroundItemTargets(Player localPlayer)
+	{
+		List<Map<String, Object>> items = new ArrayList<>();
+		WorldView worldView = localPlayer == null ? client.getTopLevelWorldView() : localPlayer.getWorldView();
+		if (worldView == null || worldView.getScene() == null)
+		{
+			return items;
+		}
+		Scene scene = worldView.getScene();
+		Tile[][][] tiles = scene.getTiles();
+		int plane = Math.max(0, Math.min(worldView.getPlane(), tiles.length - 1));
+		if (tiles.length == 0 || tiles[plane] == null)
+		{
+			return items;
+		}
+		int maxX = Math.min(worldView.getSizeX(), tiles[plane].length);
+		for (int x = 0; x < maxX; x++)
+		{
+			if (tiles[plane][x] == null)
+			{
+				continue;
+			}
+			int maxY = Math.min(worldView.getSizeY(), tiles[plane][x].length);
+			for (int y = 0; y < maxY; y++)
+			{
+				addTileGroundItems(items, tiles[plane][x][y], localPlayer);
+			}
+		}
+		return items;
+	}
+
+	private void addTileGroundItems(List<Map<String, Object>> items, Tile tile, Player localPlayer)
+	{
+		if (tile == null || tile.getGroundItems() == null || tile.getGroundItems().isEmpty())
+		{
+			return;
+		}
+		for (TileItem item : tile.getGroundItems())
+		{
+			Map<String, Object> target = groundItemTarget(tile, item, localPlayer);
+			if (target != null)
+			{
+				items.add(target);
+			}
+		}
+	}
+
+	private Map<String, Object> groundItemTarget(Tile tile, TileItem item, Player localPlayer)
+	{
+		if (tile == null || item == null || item.getId() <= 0)
+		{
+			return null;
+		}
+		ItemComposition composition = itemManager.getItemComposition(item.getId());
+		String name = composition == null ? "" : cleanWidgetText(composition.getName());
+		if (name.isEmpty() || "null".equals(name))
+		{
+			return null;
+		}
+		int geEach = itemManager.getItemPrice(item.getId());
+		int haEach = composition == null ? 0 : composition.getHaPrice();
+		long ge = (long) geEach * Math.max(1, item.getQuantity());
+		long ha = (long) haEach * Math.max(1, item.getQuantity());
+		Map<String, Object> target = new LinkedHashMap<>();
+		target.put("surface", "loot");
+		target.put("label", name + (item.getQuantity() > 1 ? " x" + item.getQuantity() : ""));
+		target.put("name", name);
+		target.put("itemId", item.getId());
+		target.put("quantity", item.getQuantity());
+		target.put("gePriceEach", geEach);
+		target.put("haPriceEach", haEach);
+		target.put("gePrice", ge);
+		target.put("haPrice", ha);
+		target.put("stackable", composition != null && composition.isStackable());
+		target.put("ownership", ownershipName(item.getOwnership()));
+		target.put("ownershipId", item.getOwnership());
+		target.put("private", item.isPrivate());
+		target.put("visibleInTicks", item.getVisibleTime() - client.getTickCount());
+		target.put("despawnInTicks", item.getDespawnTime() - client.getTickCount());
+		target.put("worldLocation", pointValue(tile.getWorldLocation()));
+		target.put("localLocation", pointValue(tile.getLocalLocation()));
+		target.put("sceneLocation", pointValue(tile.getSceneLocation()));
+		target.put("clickPoint", pointValue(Perspective.localToCanvas(client, tile.getLocalLocation(), tile.getPlane())));
+		Polygon tilePoly = Perspective.getCanvasTilePoly(client, tile.getLocalLocation());
+		if (tilePoly != null)
+		{
+			target.put("bounds", boundsMap(tilePoly.getBounds()));
+			if (!(target.get("clickPoint") instanceof Map))
+			{
+				target.put("clickPoint", centerFromBounds(boundsMap(tilePoly.getBounds())));
+			}
+		}
+		if (localPlayer != null && localPlayer.getWorldLocation() != null && tile.getWorldLocation() != null)
+		{
+			target.put("distance", localPlayer.getWorldLocation().distanceTo(tile.getWorldLocation()));
+		}
+		return target;
+	}
+
+	private Map<String, Object> lootCandidateReport(MobFarmerLootCandidate candidate)
+	{
+		Map<String, Object> report = new LinkedHashMap<>();
+		report.put("name", candidate.item.get("name"));
+		report.put("itemId", candidate.item.get("itemId"));
+		report.put("quantity", candidate.item.get("quantity"));
+		report.put("distance", candidate.item.get("distance"));
+		report.put("gePrice", candidate.item.get("gePrice"));
+		report.put("ownership", candidate.item.get("ownership"));
+		report.put("selectable", candidate.selectable);
+		report.put("score", candidate.score);
+		report.put("reasons", new ArrayList<>(candidate.reasons));
+		report.put("clickPoint", candidate.item.get("clickPoint"));
+		report.put("worldLocation", candidate.item.get("worldLocation"));
+		return report;
+	}
+
+	private boolean clickMobFarmerAutomationTarget(String action, Map<String, Object> target, boolean live, int generation)
+	{
+		Map<String, Object> baseClickPoint = firstPoint(target, "clickPoint", "center", "canvasTileCenter");
+		Map<String, Object> clickPoint = randomizedClickPoint(target, baseClickPoint);
+		Point screenPoint = canvasPointToScreen(clickPoint);
+		if (screenPoint == null)
+		{
+			mobFarmerStatus.set(action + "-off-canvas:" + targetLabelForMessage(target));
+			updatePanelStatus("Mob farmer " + action + " target off-canvas: " + targetLabelForMessage(target));
+			return true;
+		}
+
+		String label = targetLabelForMessage(target);
+		if (!live)
+		{
+			String message = "Mob farmer dry " + action + ": " + label + " @ " + clickPoint;
+			mobFarmerStatus.set("dry-" + action + ":" + label + "@" + clickPoint);
+			updatePanelStatus(message);
+			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, "");
+			return true;
+		}
+
+		if (!actionInProgress.compareAndSet(false, true))
+		{
+			mobFarmerStatus.set("skipped:" + action + ":action-running");
+			updatePanelStatus("Mob farmer " + action + " skipped: action already running");
+			return true;
+		}
+
+		Thread clickThread = new Thread(() ->
+		{
+			try
+			{
+				if (isStaleMobFarmerLoop(generation))
+				{
+					return;
+				}
+				Robot robot = new Robot();
+				clickScreenPoint(robot, screenPoint);
+				if (isStaleMobFarmerLoop(generation))
+				{
+					return;
+				}
+				String message = "Mob farmer " + action + " clicked " + label + " @ " + clickPoint;
+				mobFarmerStatus.set(action + "-clicked:" + label);
+				lastEvent.set("mob-farmer-" + action + "@" + label + "@" + Instant.now());
+				updatePanelStatus(message);
+				clientThread.invokeLater(() -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, ""));
+			}
+			catch (RuntimeException | java.awt.AWTException e)
+			{
+				log.warn("CV Helper mob farmer {} click failed", action, e);
+				mobFarmerStatus.set(action + "-click-failed:" + e.getMessage());
+				updatePanelStatus("Mob farmer " + action + " click failed: " + e.getMessage());
+			}
+			finally
+			{
+				actionInProgress.set(false);
+			}
+		}, "cv-helper-mob-farmer-" + action);
+		clickThread.setDaemon(true);
+		clickThread.start();
+		return true;
+	}
+
+	private boolean openAutomationPanel(String panelName, String reason, int generation)
+	{
+		PanelSwitchTarget panelTarget = panelSwitchTarget(panelName, true);
+		if (panelTarget == null)
+		{
+			return false;
+		}
+		if (!actionInProgress.compareAndSet(false, true))
+		{
+			return true;
+		}
+		Thread openThread = new Thread(() ->
+		{
+			try
+			{
+				if (isStaleMobFarmerLoop(generation))
+				{
+					return;
+				}
+				Robot robot = new Robot();
+				activatePanel(robot, panelTarget, true);
+				lastEvent.set("mob-farmer-open-panel@" + panelName + "@" + reason + "@" + Instant.now());
+			}
+			catch (RuntimeException | java.awt.AWTException e)
+			{
+				log.warn("CV Helper mob farmer panel open failed", e);
+				mobFarmerStatus.set("panel-open-failed:" + panelName + ":" + e.getMessage());
+			}
+			finally
+			{
+				actionInProgress.set(false);
+			}
+		}, "cv-helper-mob-farmer-open-panel");
+		openThread.setDaemon(true);
+		openThread.start();
+		return true;
+	}
+
+	private Map<String, Object> inventoryPolicyStatus()
+	{
+		Map<String, Object> inventory = containerValue("inventory", InventoryID.INVENTORY);
+		int slotCount = intValue(inventory.get("slotCount"), 28);
+		int occupied = intValue(inventory.get("occupiedSlots"), 0);
+		inventory.put("freeSlots", Math.max(0, slotCount - occupied));
+		inventory.put("full", occupied >= slotCount && slotCount > 0);
+		inventory.put("neverDropItems", getMobFarmerNeverDropItems());
+		inventory.put("dropCandidate", lowestSafeDropCandidate(inventory));
+		return inventory;
+	}
+
+	private Map<String, Object> lowestSafeDropCandidate(Map<String, Object> inventory)
+	{
+		Object itemsValue = inventory.get("items");
+		if (!(itemsValue instanceof List))
+		{
+			return null;
+		}
+		Map<String, Object> best = null;
+		long bestValue = Long.MAX_VALUE;
+		for (Object itemValue : (List<?>) itemsValue)
+		{
+			if (!(itemValue instanceof Map))
+			{
+				continue;
+			}
+			Map<String, Object> item = (Map<String, Object>) itemValue;
+			String name = String.valueOf(item.get("name"));
+			int itemId = intValue(item.get("id"), -1);
+			if (matchesItemPolicy(name, itemId, getMobFarmerNeverDropItems()))
+			{
+				continue;
+			}
+			long value = longValue(item.get("gePrice"));
+			if (best == null || value < bestValue)
+			{
+				best = item;
+				bestValue = value;
+			}
+		}
+		return best;
+	}
+
+	private boolean inventoryCanAcceptItem(int itemId, boolean stackable)
+	{
+		ItemContainer container = client.getItemContainer(InventoryID.INVENTORY);
+		Item[] items = container == null ? new Item[0] : container.getItems();
+		int occupied = 0;
+		for (Item item : items)
+		{
+			if (item == null || item.getId() <= 0 || item.getQuantity() <= 0)
+			{
+				continue;
+			}
+			occupied++;
+			if (stackable && item.getId() == itemId)
+			{
+				return true;
+			}
+		}
+		return items.length <= 0 || occupied < items.length;
+	}
+
+	private boolean isInventoryVisible()
+	{
+		Widget inventory = client.getWidget(ComponentID.INVENTORY_CONTAINER);
+		return inventory != null && !inventory.isHidden();
+	}
+
+	private boolean lootOwnershipAccepted(Map<String, Object> item)
+	{
+		CvHelperLootOwnershipMode mode = getMobFarmerLootOwnershipMode();
+		if (mode == CvHelperLootOwnershipMode.ANY)
+		{
+			return true;
+		}
+		int ownership = intValue(item.get("ownershipId"), TileItem.OWNERSHIP_NONE);
+		boolean own = ownership == TileItem.OWNERSHIP_SELF || ownership == TileItem.OWNERSHIP_GROUP;
+		if (mode == CvHelperLootOwnershipMode.OWN_ONLY)
+		{
+			return own;
+		}
+		return own || ownership == TileItem.OWNERSHIP_NONE;
+	}
+
+	private String ownershipName(int ownership)
+	{
+		switch (ownership)
+		{
+			case TileItem.OWNERSHIP_SELF:
+				return "self";
+			case TileItem.OWNERSHIP_OTHER:
+				return "other";
+			case TileItem.OWNERSHIP_GROUP:
+				return "group";
+			default:
+				return "public";
+		}
+	}
+
+	private boolean matchesItemPolicy(String itemName, int itemId, String policy)
+	{
+		if (policy == null || policy.trim().isEmpty())
+		{
+			return false;
+		}
+		for (String candidate : actionTargetCandidates(policy))
+		{
+			if (matchesItemTarget(itemName, itemId, candidate))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private boolean matchesItemTarget(String itemName, int itemId, String target)
+	{
+		String needle = normalize(target);
+		if (needle.isEmpty())
+		{
+			return false;
+		}
+		String idNeedle = needle.startsWith("id") ? normalize(needle.substring(2)) : needle;
+		if (String.valueOf(itemId).equals(idNeedle) || String.valueOf(itemId).equals(needle))
+		{
+			return true;
+		}
+		return normalize(itemName).contains(needle);
+	}
+
+	private String[] targetActions(Map<String, Object> target)
+	{
+		Object actions = target.get("actions");
+		if (actions instanceof String[])
+		{
+			return (String[]) actions;
+		}
+		if (actions instanceof List)
+		{
+			List<?> actionList = (List<?>) actions;
+			String[] out = new String[actionList.size()];
+			for (int i = 0; i < actionList.size(); i++)
+			{
+				out[i] = actionList.get(i) == null ? "" : String.valueOf(actionList.get(i));
+			}
+			return out;
+		}
+		return new String[0];
+	}
+
+	private void setMobFarmerLootDecision(String decision, Map<String, Object> target)
+	{
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("decision", decision);
+		payload.put("at", Instant.now().toString());
+		if (target != null)
+		{
+			payload.put("target", target);
+		}
+		lastMobFarmerLootDecision = payload;
+	}
+
+	private void setMobFarmerSurvivalDecision(String decision, Map<String, Object> details)
+	{
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("decision", decision);
+		payload.put("at", Instant.now().toString());
+		if (details != null)
+		{
+			payload.put("details", details);
+		}
+		lastMobFarmerSurvivalDecision = payload;
 	}
 
 	private MobFarmerSelection selectMobFarmerTarget(Player localPlayer)
@@ -4323,6 +5117,11 @@ public class CvHelperPlugin extends Plugin
 	private long longValue(Object value)
 	{
 		return value instanceof Number ? ((Number) value).longValue() : 0L;
+	}
+
+	private int intValue(Object value, int fallback)
+	{
+		return value instanceof Number ? ((Number) value).intValue() : fallback;
 	}
 
 	private String activeSidePanelName(Map<String, Object> interfaces)
