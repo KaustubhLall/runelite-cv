@@ -317,7 +317,7 @@ The first automation slice is a guarded mob-farmer controller, not a full unatte
 - `POST/GET /automation/mob-farmer/start?target=cow&live=false`
 - `POST/GET /automation/mob-farmer/stop`
 
-The farmer refuses to click unless the client is logged in, the local player exists, the local player is not already interacting with something, a matching player/NPC target is exported with a screen click point, and no other CV Helper action is currently running. Dry mode reports the chosen target/click point without clicking. Live mode performs the same guarded target click. Auto-eat, loot filters, highlighted-drop integration, pathing/exit tiles, and composable external action plans remain follow-up bricks.
+The farmer refuses to click unless the client is logged in, the local player exists, the local player is not already interacting with something, a matching NPC target is exported with a screen click point, and no other CV Helper action is currently running. Dry mode reports the chosen target/click point without clicking. Live mode performs the same guarded target click. Auto-eat, loot filters, highlighted-drop integration, pathing/exit tiles, and composable external action plans remain follow-up bricks.
 
 The verifier dashboard groups `/status` data into connection, vitals, wealth, and interface sections. It shows HP/prayer, run energy, special attack energy/enabled state, active prayers, current loot/equipment/total carried/risked-value approximation, selected widget state, and latest capture preview/path.
 

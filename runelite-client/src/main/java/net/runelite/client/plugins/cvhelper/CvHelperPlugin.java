@@ -2272,7 +2272,7 @@ public class CvHelperPlugin extends Plugin
 		}
 
 		lastEntities = collectEntities();
-		Map<String, Object> target = findEntityByNameOrId(lastEntities, mobFarmerTarget);
+		Map<String, Object> target = findMobFarmerEntity(lastEntities, mobFarmerTarget);
 		if (target == null)
 		{
 			mobFarmerStatus.set("no-target:" + mobFarmerTarget);
@@ -2328,6 +2328,19 @@ public class CvHelperPlugin extends Plugin
 		}, "cv-helper-mob-farmer-click");
 		clickThread.setDaemon(true);
 		clickThread.start();
+	}
+
+	private Map<String, Object> findMobFarmerEntity(List<Map<String, Object>> entities, String targetLabel)
+	{
+		List<Map<String, Object>> npcs = new ArrayList<>();
+		for (Map<String, Object> entity : entities)
+		{
+			if ("npc".equals(entity.get("type")))
+			{
+				npcs.add(entity);
+			}
+		}
+		return findEntityByNameOrId(npcs, targetLabel);
 	}
 
 	private void refreshTargets(String surface, java.util.function.Supplier<List<Map<String, Object>>> collector)
