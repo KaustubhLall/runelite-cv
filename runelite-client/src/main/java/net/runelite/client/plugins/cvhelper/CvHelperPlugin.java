@@ -30,6 +30,7 @@ import java.nio.file.Files;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -126,6 +127,18 @@ public class CvHelperPlugin extends Plugin
 	private static final long MOB_FARMER_LOGIN_CLICK_COOLDOWN_MS = 5000L;
 	private static final int MOB_FARMER_PROGRESS_WINDOW_TICKS = 8;
 	private static final int MOB_FARMER_LOOT_SPAWN_GRACE_TICKS = 3;
+	private static final int MOB_FARMER_PATHING_SLACK_TILES = 8;
+	private static final int MOB_FARMER_PATHING_MAX_SEARCH_TILES = 64;
+	private static final int[][] MOB_FARMER_PATH_DIRECTIONS = {
+		{1, 0},
+		{-1, 0},
+		{0, 1},
+		{0, -1},
+		{1, 1},
+		{1, -1},
+		{-1, 1},
+		{-1, -1}
+	};
 	private static final String GROUND_ITEMS_CONFIG_GROUP = "grounditems";
 	private static final String GROUND_ITEMS_HIGHLIGHTED_ITEMS = "highlightedItems";
 	private static final String GROUND_ITEMS_HIDDEN_ITEMS = "hiddenItems";
@@ -315,6 +328,34 @@ public class CvHelperPlugin extends Plugin
 		private List<Map<String, Object>> reports = new ArrayList<>();
 		private String decision = "none";
 		private boolean multiCombat;
+	}
+
+	private static final class PathingResult
+	{
+		private final boolean reachable;
+		private final int pathDistance;
+		private final int searchLimit;
+		private final int visited;
+		private final String failureReason;
+
+		private PathingResult(boolean reachable, int pathDistance, int searchLimit, int visited, String failureReason)
+		{
+			this.reachable = reachable;
+			this.pathDistance = pathDistance;
+			this.searchLimit = searchLimit;
+			this.visited = visited;
+			this.failureReason = failureReason;
+		}
+
+		private static PathingResult reachable(int pathDistance, int searchLimit, int visited)
+		{
+			return new PathingResult(true, pathDistance, searchLimit, visited, null);
+		}
+
+		private static PathingResult unreachable(String failureReason, int searchLimit, int visited)
+		{
+			return new PathingResult(false, Integer.MAX_VALUE, searchLimit, visited, failureReason);
+		}
 	}
 
 	private static final class MobFarmerLootCandidate
@@ -5515,6 +5556,25 @@ public class CvHelperPlugin extends Plugin
 			candidate.reject("too-far:" + distance + ">" + maxDistance);
 		}
 
+		PathingResult pathing = mobFarmerPathDistanceToMelee(localPlayer, npc, maxDistance);
+		entity.put("reachable", pathing.reachable);
+		entity.put("pathDistance", pathing.reachable ? pathing.pathDistance : null);
+		entity.put("pathSearchLimit", pathing.searchLimit);
+		entity.put("pathVisited", pathing.visited);
+		entity.put("pathFailureReason", pathing.failureReason);
+		if (pathing.reachable)
+		{
+			candidate.score = pathing.pathDistance;
+			if (maxDistance > 0 && pathing.pathDistance > maxDistance)
+			{
+				candidate.reject("path-too-far:" + pathing.pathDistance + ">" + maxDistance);
+			}
+		}
+		else
+		{
+			candidate.reject("unreachable:" + pathing.failureReason);
+		}
+
 		boolean lineOfSight = hasLineOfSight(localPlayer, npc);
 		entity.put("lineOfSightToLocalPlayer", lineOfSight);
 		if (getMobFarmerRequireLineOfSight() && !lineOfSight)
@@ -5586,6 +5646,11 @@ public class CvHelperPlugin extends Plugin
 		report.put("engagedByOther", candidate.entity.get("engagedByOther"));
 		report.put("engagedWithLocalPlayer", candidate.entity.get("engagedWithLocalPlayer"));
 		report.put("lineOfSightToLocalPlayer", candidate.entity.get("lineOfSightToLocalPlayer"));
+		report.put("reachable", candidate.entity.get("reachable"));
+		report.put("pathDistance", candidate.entity.get("pathDistance"));
+		report.put("pathSearchLimit", candidate.entity.get("pathSearchLimit"));
+		report.put("pathVisited", candidate.entity.get("pathVisited"));
+		report.put("pathFailureReason", candidate.entity.get("pathFailureReason"));
 		report.put("attackActionIndex", candidate.entity.get("attackActionIndex"));
 		report.put("attackMenuAction", candidate.entity.get("attackMenuAction"));
 		report.put("clickPoint", candidate.entity.get("clickPoint"));
@@ -5907,6 +5972,127 @@ public class CvHelperPlugin extends Plugin
 		}
 	}
 
+	private PathingResult mobFarmerPathDistanceToMelee(Player localPlayer, NPC npc, int maxDistance)
+	{
+		if (localPlayer == null || npc == null)
+		{
+			return PathingResult.unreachable("missing-actor", 0, 0);
+		}
+		WorldArea start = localPlayer.getWorldArea();
+		WorldArea target = npc.getWorldArea();
+		if (start == null || target == null)
+		{
+			return PathingResult.unreachable("missing-world-area", 0, 0);
+		}
+		if (start.getPlane() != target.getPlane())
+		{
+			return PathingResult.unreachable("different-plane", 0, 0);
+		}
+
+		WorldView worldView = localPlayer.getWorldView();
+		if (worldView == null)
+		{
+			worldView = client.getTopLevelWorldView();
+		}
+		if (worldView == null || worldView.getCollisionMaps() == null || start.getPlane() < 0 || start.getPlane() >= worldView.getCollisionMaps().length || worldView.getCollisionMaps()[start.getPlane()] == null)
+		{
+			return PathingResult.unreachable("collision-map-unavailable", 0, 0);
+		}
+
+		int straightDistance = start.distanceTo(target);
+		int baseLimit = maxDistance > 0 ? maxDistance : straightDistance + MOB_FARMER_PATHING_SLACK_TILES;
+		int searchLimit = Math.max(1, Math.min(MOB_FARMER_PATHING_MAX_SEARCH_TILES, baseLimit + MOB_FARMER_PATHING_SLACK_TILES));
+		WorldPoint startPoint = start.toWorldPoint();
+		if (LocalPoint.fromWorld(worldView, startPoint) == null)
+		{
+			return PathingResult.unreachable("start-outside-scene", searchLimit, 0);
+		}
+
+		ArrayDeque<WorldPoint> queue = new ArrayDeque<>();
+		Map<WorldPoint, Integer> distances = new HashMap<>();
+		queue.add(startPoint);
+		distances.put(startPoint, 0);
+		int visited = 0;
+		while (!queue.isEmpty())
+		{
+			WorldPoint point = queue.remove();
+			Integer pathDistance = distances.get(point);
+			if (pathDistance == null)
+			{
+				continue;
+			}
+			visited++;
+			WorldArea area = new WorldArea(point, start.getWidth(), start.getHeight());
+			if (canReachMelee(worldView, area, target))
+			{
+				return PathingResult.reachable(pathDistance, searchLimit, visited);
+			}
+			if (pathDistance >= searchLimit)
+			{
+				continue;
+			}
+
+			for (int[] direction : MOB_FARMER_PATH_DIRECTIONS)
+			{
+				int dx = direction[0];
+				int dy = direction[1];
+				if (!canTravelSafely(worldView, area, dx, dy))
+				{
+					continue;
+				}
+				WorldPoint next = new WorldPoint(point.getX() + dx, point.getY() + dy, point.getPlane());
+				if (distances.containsKey(next) || LocalPoint.fromWorld(worldView, next) == null)
+				{
+					continue;
+				}
+				distances.put(next, pathDistance + 1);
+				queue.add(next);
+			}
+		}
+
+		return PathingResult.unreachable("no-route-within:" + searchLimit, searchLimit, visited);
+	}
+
+	private boolean canReachMelee(WorldView worldView, WorldArea from, WorldArea target)
+	{
+		if (from.intersectsWith(target))
+		{
+			return true;
+		}
+		if (!from.isInMeleeDistance(target))
+		{
+			return false;
+		}
+		int dx = directionToRange(from.getX(), from.getX() + from.getWidth() - 1, target.getX(), target.getX() + target.getWidth() - 1);
+		int dy = directionToRange(from.getY(), from.getY() + from.getHeight() - 1, target.getY(), target.getY() + target.getHeight() - 1);
+		return canTravelSafely(worldView, from, dx, dy);
+	}
+
+	private int directionToRange(int fromMin, int fromMax, int targetMin, int targetMax)
+	{
+		if (targetMin > fromMax)
+		{
+			return 1;
+		}
+		if (targetMax < fromMin)
+		{
+			return -1;
+		}
+		return 0;
+	}
+
+	private boolean canTravelSafely(WorldView worldView, WorldArea area, int dx, int dy)
+	{
+		try
+		{
+			return area.canTravelInDirection(worldView, dx, dy);
+		}
+		catch (RuntimeException e)
+		{
+			return false;
+		}
+	}
+
 	private Map<String, Object> findMobFarmerEntity(List<Map<String, Object>> entities, String targetLabel)
 	{
 		List<Map<String, Object>> npcs = new ArrayList<>();
@@ -6114,10 +6300,13 @@ public class CvHelperPlugin extends Plugin
 	private void pressLoginEnterFallback(String eventName, String panelMessage, Map<String, Object> attemptDetails)
 	{
 		Map<String, Object> queuedAttempt = attemptDetails == null ? new LinkedHashMap<>() : new LinkedHashMap<>(attemptDetails);
+		Point focusPoint = loginCanvasFocusPoint();
 		queuedAttempt.putIfAbsent("source", "pressLoginEnterFallback");
 		queuedAttempt.put("eventName", eventName);
 		queuedAttempt.put("plannedAction", "enter-key");
 		queuedAttempt.put("usedEnterFallback", true);
+		queuedAttempt.put("focusBeforeEnter", focusPoint != null);
+		queuedAttempt.put("focusPoint", awtPointMap(focusPoint));
 		queuedAttempt.put("result", "queued");
 		setLastLoginClickAttempt("queued", queuedAttempt);
 		Thread loginClickThread = new Thread(() ->
@@ -6126,8 +6315,14 @@ public class CvHelperPlugin extends Plugin
 			try
 			{
 				Robot robot = new Robot();
+				if (focusPoint != null)
+				{
+					clickScreenPoint(robot, focusPoint);
+					robot.delay(80);
+					result.put("focusClickedAt", Instant.now().toString());
+				}
 				pressEnter(robot);
-				result.put("actualActionInvoked", "enter-key");
+				result.put("actualActionInvoked", focusPoint == null ? "enter-key" : "focus-click+enter-key");
 				result.put("pressedAt", Instant.now().toString());
 				setLastLoginClickAttempt("pressed-enter", result);
 				updatePanelStatus(panelMessage);
@@ -6144,6 +6339,28 @@ public class CvHelperPlugin extends Plugin
 		}, "cv-helper-login-enter");
 		loginClickThread.setDaemon(true);
 		loginClickThread.start();
+	}
+
+	private Point loginCanvasFocusPoint()
+	{
+		try
+		{
+			Point canvasLocation = client.getCanvas().getLocationOnScreen();
+			Dimension size = client.getCanvas().getSize();
+			if (size == null || size.width <= 0 || size.height <= 0)
+			{
+				size = client.getRealDimensions();
+			}
+			if (canvasLocation == null || size == null || size.width <= 0 || size.height <= 0)
+			{
+				return null;
+			}
+			return new Point(canvasLocation.x + size.width / 2, canvasLocation.y + size.height / 2);
+		}
+		catch (RuntimeException e)
+		{
+			return null;
+		}
 	}
 
 	private void pressEnter(Robot robot)

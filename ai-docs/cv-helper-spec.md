@@ -341,10 +341,12 @@ Current target-validity checks include:
 - NPC is not dead and does not have visible health ratio `0`.
 - Local-player combat is handled separately: continue a desired current target; configurable response for undesired aggressive attackers.
 - Single-combat skips mobs already engaged by someone else. Multi-combat uses the configured engaged-mob policy: `FREE_ONLY`, `PREFER_FREE`, or `ALLOW_ENGAGED`.
-- Optional line-of-sight guard, enabled by default, as a conservative first reachability filter. This is not full route/path distance and does not replace the future real pathing brick.
+- Optional line-of-sight guard, enabled by default, plus a conservative local collision-path check for matched NPCs. The pathing pass uses a bounded BFS over RuneLite `WorldArea.canTravelInDirection(...)` and requires a collision-valid route to melee reach before selecting a target.
 - Optional max-distance guard, default `20` tiles.
 
 `/automation/mob-farmer/status` reports the latest decision plus candidate diagnostics, including per-NPC selectability, reasons, health/death state, attackability, engaged-by-other state, line-of-sight state, score, click point, and world location. Use this report before trusting live clicks in crowded or obstructed areas.
+
+Candidate reports also include `reachable`, `pathDistance`, `pathSearchLimit`, `pathVisited`, and `pathFailureReason`. Matched NPCs behind fences/walls/closed collision blockers should be rejected with `unreachable:<reason>` or `path-too-far` instead of being selected. Door-opening/object navigation and repeated failed-target blacklisting remain follow-up bricks.
 
 First-pass survival, menu interaction, and loot processing is implemented:
 
