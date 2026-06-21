@@ -127,6 +127,10 @@ public class CvHelperPlugin extends Plugin
 	private static final long MOB_FARMER_LOGIN_CLICK_COOLDOWN_MS = 5000L;
 	private static final int MOB_FARMER_PROGRESS_WINDOW_TICKS = 8;
 	private static final int MOB_FARMER_LOOT_SPAWN_GRACE_TICKS = 3;
+	private static final int MOB_FARMER_COMBAT_STABILIZE_TICKS = 4;
+	private static final int MOB_FARMER_ATTACK_REISSUE_MIN_TICKS = 6;
+	private static final int MOB_FARMER_LOOT_RESOLUTION_MAX_TICKS = 6;
+	private static final int MOB_FARMER_UNRESOLVED_LOOT_SKIP_TICKS = 30;
 	private static final int MOB_FARMER_PATHING_SLACK_TILES = 8;
 	private static final int MOB_FARMER_PATHING_MAX_SEARCH_TILES = 64;
 	private static final int[][] MOB_FARMER_PATH_DIRECTIONS = {
@@ -256,6 +260,7 @@ public class CvHelperPlugin extends Plugin
 	private volatile Map<String, Object> lastMobFarmerSchedulerStatus = new LinkedHashMap<>();
 	private volatile Map<String, Object> lastMobFarmerDeathLootStatus = new LinkedHashMap<>();
 	private volatile Map<String, Object> lastMobFarmerReattackStatus = new LinkedHashMap<>();
+	private volatile Map<String, Object> lastMobFarmerStabilizationStatus = new LinkedHashMap<>();
 	private volatile List<Map<String, Object>> lastMobFarmerIntents = new ArrayList<>();
 	private volatile boolean lastMobFarmerMultiCombat;
 	private final KeyEventDispatcher cvHotkeyDispatcher = this::dispatchCvHotkey;
@@ -269,13 +274,21 @@ public class CvHelperPlugin extends Plugin
 	private volatile int activeMobFarmerLootLastDistance = Integer.MAX_VALUE;
 	private volatile boolean activeMobFarmerLootImproving;
 	private volatile int mobFarmerMakeProgressUntilTick;
+	private volatile String activeMobFarmerCombatKey;
+	private volatile int activeMobFarmerCombatUntilTick = -1;
+	private volatile Map<String, Object> activeMobFarmerCombatTarget = new LinkedHashMap<>();
 	private volatile int lastMobFarmerLoopStepTick = -1;
 	private volatile String lastMobFarmerLoopStepSource = "none";
 	private volatile String pendingMobFarmerDeathKey;
 	private volatile int pendingMobFarmerDeathTick = -1;
 	private volatile Map<String, Object> pendingMobFarmerDeathTarget = new LinkedHashMap<>();
 	private volatile boolean mobFarmerReattackAfterPickupPending;
+	private volatile String pendingMobFarmerReattackLootKey;
+	private volatile int pendingMobFarmerReattackLootTick = -1;
+	private volatile int pendingMobFarmerReattackLootWaitTicks = 0;
+	private volatile Map<String, Object> pendingMobFarmerReattackLootTarget = new LinkedHashMap<>();
 	private final Map<String, Integer> lastMobFarmerActionTickByKey = new LinkedHashMap<>();
+	private final Map<String, Integer> mobFarmerLootSkipUntilTickByKey = new LinkedHashMap<>();
 
 	private static final class PanelSwitchTarget
 	{
@@ -3151,6 +3164,7 @@ public class CvHelperPlugin extends Plugin
 		status.put("scheduler", mobFarmerSchedulerStatus());
 		status.put("deathLootTiming", lastMobFarmerDeathLootStatus);
 		status.put("reattachAfterPickup", lastMobFarmerReattackStatus);
+		status.put("stabilization", lastMobFarmerStabilizationStatus);
 		status.put("progress", lastMobFarmerProgressStatus);
 		status.put("recentIntents", lastMobFarmerIntents);
 		status.put("recentMenuEntries", lastMobFarmerMenuEntries);
@@ -3292,6 +3306,7 @@ public class CvHelperPlugin extends Plugin
 		out.put("intermediateActionMappings", getMobFarmerIntermediateActionMappings());
 		out.put("parsedIntermediateActionMappings", parsedIntermediateActionMappingsStatus());
 		out.put("neverDropItems", getMobFarmerNeverDropItems());
+		out.put("temporaryLootSkips", new LinkedHashMap<>(mobFarmerLootSkipUntilTickByKey));
 		return out;
 	}
 
@@ -3380,30 +3395,255 @@ public class CvHelperPlugin extends Plugin
 		return latest;
 	}
 
+	private void recordMobFarmerStabilization(String decision, Map<String, Object> details)
+	{
+		Map<String, Object> status = new LinkedHashMap<>();
+		int tick = safeValue(client::getTickCount, 0);
+		status.put("decision", decision);
+		status.put("at", Instant.now().toString());
+		status.put("currentTick", tick);
+		status.put("combatLeaseActive", mobFarmerCombatLeaseActive(tick));
+		status.put("combatLeaseTargetKey", activeMobFarmerCombatKey);
+		status.put("combatLeaseUntilTick", activeMobFarmerCombatUntilTick);
+		status.put("combatLeaseTarget", activeMobFarmerCombatTarget);
+		status.put("makeProgressActive", mobFarmerMakeProgressActive());
+		status.put("makeProgressUntilTick", mobFarmerMakeProgressUntilTick);
+		status.put("lootResolutionPending", mobFarmerReattackAfterPickupPending);
+		status.put("pendingLootKey", pendingMobFarmerReattackLootKey);
+		if (details != null)
+		{
+			status.put("details", details);
+		}
+		lastMobFarmerStabilizationStatus = status;
+	}
+
+	private void clearMobFarmerStabilization(String reason)
+	{
+		activeMobFarmerCombatKey = null;
+		activeMobFarmerCombatUntilTick = -1;
+		activeMobFarmerCombatTarget = new LinkedHashMap<>();
+		Map<String, Object> status = new LinkedHashMap<>();
+		status.put("decision", "cleared");
+		status.put("reason", reason);
+		status.put("at", Instant.now().toString());
+		status.put("currentTick", safeValue(client::getTickCount, 0));
+		lastMobFarmerStabilizationStatus = status;
+	}
+
+	private void recordMobFarmerCombatLease(Map<String, Object> target, String reason)
+	{
+		int tick = safeValue(client::getTickCount, 0);
+		activeMobFarmerCombatKey = mobFarmerTargetKey(target);
+		activeMobFarmerCombatUntilTick = tick + MOB_FARMER_COMBAT_STABILIZE_TICKS;
+		activeMobFarmerCombatTarget = target == null ? new LinkedHashMap<>() : new LinkedHashMap<>(target);
+		Map<String, Object> details = new LinkedHashMap<>();
+		details.put("reason", reason);
+		details.put("target", target == null ? null : targetLabelForMessage(target));
+		details.put("targetKey", activeMobFarmerCombatKey);
+		details.put("leaseTicks", MOB_FARMER_COMBAT_STABILIZE_TICKS);
+		details.put("leaseUntilTick", activeMobFarmerCombatUntilTick);
+		recordMobFarmerStabilization("combat-lease-started", details);
+	}
+
+	private boolean mobFarmerCombatLeaseActive(int tick)
+	{
+		return activeMobFarmerCombatKey != null && tick <= activeMobFarmerCombatUntilTick;
+	}
+
+	private boolean mobFarmerAttackResolutionHoldActive()
+	{
+		Integer lastAttackTick = lastMobFarmerActionTickForKind(MobFarmerActionKind.COMBAT);
+		int tick = safeValue(client::getTickCount, 0);
+		return lastAttackTick != null && tick - lastAttackTick >= 0 && tick - lastAttackTick < MOB_FARMER_ATTACK_REISSUE_MIN_TICKS;
+	}
+
+	private boolean holdMobFarmerAttackResolution(Player localPlayer)
+	{
+		if (!mobFarmerAttackResolutionHoldActive())
+		{
+			return false;
+		}
+		Actor interacting = localPlayer == null ? null : localPlayer.getInteracting();
+		if (interacting != null && !isEffectivelyDead(interacting))
+		{
+			return false;
+		}
+		Integer lastAttackTick = lastMobFarmerActionTickForKind(MobFarmerActionKind.COMBAT);
+		int tick = safeValue(client::getTickCount, 0);
+		Map<String, Object> details = new LinkedHashMap<>();
+		details.put("lastAttackTick", lastAttackTick);
+		details.put("ticksSinceLastAttack", lastAttackTick == null ? null : tick - lastAttackTick);
+		details.put("minReissueTicks", MOB_FARMER_ATTACK_REISSUE_MIN_TICKS);
+		details.put("activeCombatTargetKey", activeMobFarmerCombatKey);
+		details.put("activeCombatTarget", activeMobFarmerCombatTarget);
+		setMobFarmerDecision("waiting-for-attack-resolution", details);
+		recordMobFarmerStabilization("holding-attack-reissue", details);
+		mobFarmerStatus.set("waiting-attack-resolution");
+		updatePanelStatus("Mob farmer waiting for attack command to resolve");
+		return true;
+	}
+
+	private boolean mobFarmerShouldHoldCombat(Actor interacting)
+	{
+		if (!(interacting instanceof NPC) || isEffectivelyDead(interacting) || !matchesAnyMobTarget((NPC) interacting, mobFarmerTarget))
+		{
+			return false;
+		}
+		int tick = safeValue(client::getTickCount, 0);
+		String interactingKey = mobFarmerTargetKey(actorSummary(interacting));
+		boolean combatLease = mobFarmerCombatLeaseActive(tick) && (interactingKey == null || interactingKey.equals(activeMobFarmerCombatKey));
+		boolean oscillationHold = activeMobFarmerLootKey != null && tick <= mobFarmerMakeProgressUntilTick;
+		return combatLease || oscillationHold;
+	}
+
+	private boolean mobFarmerPriorityLootCanInterruptCombat(Map<String, Object> target)
+	{
+		if (target == null || !(target.get("mobFarmerPriorityReasons") instanceof List))
+		{
+			return false;
+		}
+		for (Object reasonValue : (List<?>) target.get("mobFarmerPriorityReasons"))
+		{
+			String reason = String.valueOf(reasonValue);
+			if ("allowlist".equals(reason) || reason.startsWith("despawn:"))
+			{
+				return true;
+			}
+			if (reason.startsWith("value:") && getMobFarmerHighPriorityLootValueGe() > 0)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private boolean tryMobFarmerPriorityLootInterrupt(Player localPlayer, Actor interacting, boolean live, int generation, String phase)
+	{
+		if (!getMobFarmerLootEnabled() || !getMobFarmerLootDuringCombat())
+		{
+			setMobFarmerLootDecision("combat-priority-loot-disabled:" + phase, null);
+			return false;
+		}
+
+		MobFarmerLootSelection selection = selectMobFarmerLoot(localPlayer, true);
+		lastMobFarmerLootCandidates = selection.reports;
+		if (selection.target == null)
+		{
+			setMobFarmerLootDecision(selection.decision + ":" + phase, null);
+			return false;
+		}
+		if (!mobFarmerPriorityLootCanInterruptCombat(selection.target))
+		{
+			Map<String, Object> details = new LinkedHashMap<>();
+			details.put("phase", phase);
+			details.put("currentTarget", actorSummary(interacting));
+			details.put("deferredLoot", selection.target);
+			details.put("priorityReasons", selection.target.get("mobFarmerPriorityReasons"));
+			setMobFarmerLootDecision("priority-loot-deferred-by-combat-stabilizer:" + phase, selection.target);
+			recordMobFarmerStabilization("deferred-priority-loot-during-combat", details);
+			return false;
+		}
+
+		setMobFarmerLootDecision("selected-combat-interrupt-priority-loot:" + targetLabelForMessage(selection.target) + ":" + phase, selection.target);
+		recordMobFarmerIntent("LOOT_ITEM", selection.target);
+		return clickMobFarmerAutomationTarget("loot", selection.target, live, generation);
+	}
+
 	private void queueMobFarmerReattackAfterPickup(String lootLabel, Map<String, Object> lootTarget)
 	{
 		mobFarmerReattackAfterPickupPending = true;
+		pendingMobFarmerReattackLootKey = mobFarmerTargetKey(lootTarget);
+		pendingMobFarmerReattackLootTick = safeValue(client::getTickCount, 0);
+		pendingMobFarmerReattackLootTarget = lootTarget == null ? new LinkedHashMap<>() : new LinkedHashMap<>(lootTarget);
+		int distance = intValue(lootTarget == null ? null : lootTarget.get("distance"), 0);
+		pendingMobFarmerReattackLootWaitTicks = Math.max(2, Math.min(MOB_FARMER_LOOT_RESOLUTION_MAX_TICKS, distance + 2));
 		Map<String, Object> status = new LinkedHashMap<>();
 		status.put("pending", true);
 		status.put("queuedAt", Instant.now().toString());
-		status.put("queuedAtTick", safeValue(client::getTickCount, 0));
-		status.put("reason", "loot-pickup-invoked");
+		status.put("queuedAtTick", pendingMobFarmerReattackLootTick);
+		status.put("reason", "loot-pickup-invoked-waiting-for-resolution");
 		status.put("lootTarget", lootLabel);
+		status.put("lootTargetKey", pendingMobFarmerReattackLootKey);
 		status.put("lootSnapshot", lootTarget);
+		status.put("lootResolutionWaitTicks", pendingMobFarmerReattackLootWaitTicks);
 		status.put("lastPickupTick", lastMobFarmerActionTickForKind(MobFarmerActionKind.LOOT_PICKUP));
 		status.put("lastAttackTick", lastMobFarmerActionTickForKind(MobFarmerActionKind.COMBAT));
 		status.put("estimatedAttackCooldownTicks", 1);
 		lastMobFarmerReattackStatus = status;
+		recordMobFarmerStabilization("waiting-for-loot-resolution", status);
 	}
 
 	private void clearMobFarmerReattackAfterPickup(String reason)
 	{
 		mobFarmerReattackAfterPickupPending = false;
+		pendingMobFarmerReattackLootKey = null;
+		pendingMobFarmerReattackLootTick = -1;
+		pendingMobFarmerReattackLootWaitTicks = 0;
+		pendingMobFarmerReattackLootTarget = new LinkedHashMap<>();
 		Map<String, Object> status = new LinkedHashMap<>(lastMobFarmerReattackStatus);
 		status.put("pending", false);
 		status.put("clearedAt", Instant.now().toString());
 		status.put("clearReason", reason);
 		lastMobFarmerReattackStatus = status;
+	}
+
+	private void skipMobFarmerLootTemporarily(Map<String, Object> lootTarget, String reason)
+	{
+		String key = mobFarmerTargetKey(lootTarget);
+		if (key == null)
+		{
+			return;
+		}
+		int tick = safeValue(client::getTickCount, 0);
+		int untilTick = tick + MOB_FARMER_UNRESOLVED_LOOT_SKIP_TICKS;
+		mobFarmerLootSkipUntilTickByKey.put(key, untilTick);
+		pruneMobFarmerLootSkips(tick);
+		Map<String, Object> details = new LinkedHashMap<>();
+		details.put("reason", reason);
+		details.put("lootTarget", targetLabelForMessage(lootTarget));
+		details.put("lootTargetKey", key);
+		details.put("skipUntilTick", untilTick);
+		details.put("skipTicks", MOB_FARMER_UNRESOLVED_LOOT_SKIP_TICKS);
+		details.put("lootSnapshot", lootTarget);
+		recordMobFarmerStabilization("temporary-loot-skip", details);
+	}
+
+	private String mobFarmerTemporaryLootSkipReason(Map<String, Object> lootTarget)
+	{
+		String key = mobFarmerTargetKey(lootTarget);
+		if (key == null)
+		{
+			return null;
+		}
+		int tick = safeValue(client::getTickCount, 0);
+		pruneMobFarmerLootSkips(tick);
+		Integer untilTick = mobFarmerLootSkipUntilTickByKey.get(key);
+		if (untilTick == null)
+		{
+			return null;
+		}
+		return "unresolved-loot-cooldown:" + Math.max(0, untilTick - tick) + "t";
+	}
+
+	private void pruneMobFarmerLootSkips(int tick)
+	{
+		List<String> expired = new ArrayList<>();
+		for (Map.Entry<String, Integer> entry : mobFarmerLootSkipUntilTickByKey.entrySet())
+		{
+			if (entry.getValue() == null || entry.getValue() < tick)
+			{
+				expired.add(entry.getKey());
+			}
+		}
+		for (String key : expired)
+		{
+			mobFarmerLootSkipUntilTickByKey.remove(key);
+		}
+		while (mobFarmerLootSkipUntilTickByKey.size() > 32)
+		{
+			String firstKey = mobFarmerLootSkipUntilTickByKey.keySet().iterator().next();
+			mobFarmerLootSkipUntilTickByKey.remove(firstKey);
+		}
 	}
 
 	private boolean tryMobFarmerReattackAfterPickup(Player localPlayer, boolean live, int generation)
@@ -3420,12 +3660,44 @@ public class CvHelperPlugin extends Plugin
 		status.put("lastPickupTick", lastMobFarmerActionTickForKind(MobFarmerActionKind.LOOT_PICKUP));
 		status.put("lastAttackTick", lastMobFarmerActionTickForKind(MobFarmerActionKind.COMBAT));
 		status.put("estimatedAttackCooldownTicks", 1);
+		status.put("lootTargetKey", pendingMobFarmerReattackLootKey);
+		status.put("lootQueuedAtTick", pendingMobFarmerReattackLootTick);
+		status.put("lootResolutionWaitTicks", pendingMobFarmerReattackLootWaitTicks);
 		if (!live || isStaleMobFarmerLoop(generation))
 		{
 			status.put("result", live ? "stale-loop" : "dry-run");
 			lastMobFarmerReattackStatus = status;
 			clearMobFarmerReattackAfterPickup(String.valueOf(status.get("result")));
 			return false;
+		}
+		if (pendingMobFarmerReattackLootTarget != null && !pendingMobFarmerReattackLootTarget.isEmpty())
+		{
+			Map<String, Object> freshLoot = freshGroundItemTarget(pendingMobFarmerReattackLootTarget);
+			int ticksSinceLootCommand = pendingMobFarmerReattackLootTick < 0 ? 0 : tick - pendingMobFarmerReattackLootTick;
+			status.put("ticksSinceLootCommand", ticksSinceLootCommand);
+			status.put("pendingLootStillVisible", freshLoot != null);
+			if (freshLoot != null && ticksSinceLootCommand <= pendingMobFarmerReattackLootWaitTicks)
+			{
+				status.put("result", "waiting-for-loot-resolution");
+				status.put("freshLoot", freshLoot);
+				lastMobFarmerReattackStatus = status;
+				setMobFarmerDecision("waiting-for-loot-resolution", status);
+				recordMobFarmerStabilization("holding-reattack-until-loot-resolves", status);
+				mobFarmerStatus.set("waiting-loot-resolution:" + targetLabelForMessage(freshLoot));
+				updatePanelStatus("Mob farmer waiting for loot pickup to resolve: " + targetLabelForMessage(freshLoot));
+				return true;
+			}
+			if (freshLoot != null)
+			{
+				status.put("result", "loot-still-visible-after-wait");
+				status.put("freshLoot", freshLoot);
+				lastMobFarmerReattackStatus = status;
+				skipMobFarmerLootTemporarily(freshLoot, "loot-still-visible-after-wait");
+				clearMobFarmerReattackAfterPickup("loot-still-visible-after-wait");
+				recordMobFarmerStabilization("loot-resolution-timeout", status);
+				return false;
+			}
+			status.put("lootResolved", true);
 		}
 		Actor interacting = localPlayer.getInteracting();
 		if (interacting != null && !isEffectivelyDead(interacting))
@@ -3486,6 +3758,8 @@ public class CvHelperPlugin extends Plugin
 		}
 		mobFarmerLiveMode = live;
 		clearMobFarmerReattackAfterPickup("start");
+		clearMobFarmerStabilization("start");
+		mobFarmerLootSkipUntilTickByKey.clear();
 		int generation = mobFarmerGeneration.incrementAndGet();
 		mobFarmerStatus.set((live ? "live" : "dry") + "-loop-started");
 		Thread loopThread = new Thread(() ->
@@ -3534,6 +3808,8 @@ public class CvHelperPlugin extends Plugin
 		mobFarmerRunning.set(false);
 		mobFarmerLiveMode = false;
 		clearMobFarmerReattackAfterPickup("stop");
+		clearMobFarmerStabilization("stop");
+		mobFarmerLootSkipUntilTickByKey.clear();
 		interruptMobFarmerThread();
 		mobFarmerStatus.set("stopped");
 		updatePanelStatus("Mob farmer stopped");
@@ -3545,6 +3821,8 @@ public class CvHelperPlugin extends Plugin
 		mobFarmerRunning.set(false);
 		mobFarmerLiveMode = false;
 		clearMobFarmerReattackAfterPickup("panic-stop");
+		clearMobFarmerStabilization("panic-stop");
+		mobFarmerLootSkipUntilTickByKey.clear();
 		interruptMobFarmerThread();
 		actionInProgress.set(false);
 		mobFarmerStatus.set("panic-stopped");
@@ -3846,7 +4124,15 @@ public class CvHelperPlugin extends Plugin
 			clearPendingMobFarmerDeath("death-loot-window-expired");
 		}
 
-		if (tryMobFarmerPriorityLoot(localPlayer, live, generation, "priority-before-combat"))
+		boolean holdCombatForStabilizer = mobFarmerShouldHoldCombat(interacting);
+		if (holdCombatForStabilizer)
+		{
+			if (tryMobFarmerPriorityLootInterrupt(localPlayer, interacting, live, generation, "priority-before-combat"))
+			{
+				return;
+			}
+		}
+		else if (tryMobFarmerPriorityLoot(localPlayer, live, generation, "priority-before-combat"))
 		{
 			return;
 		}
@@ -3859,9 +4145,17 @@ public class CvHelperPlugin extends Plugin
 				{
 					return;
 				}
-				if (getMobFarmerLootDuringCombat() && tryMobFarmerLoot(localPlayer, live, generation, "combat-window"))
+				if (getMobFarmerLootDuringCombat() && !holdCombatForStabilizer && tryMobFarmerLoot(localPlayer, live, generation, "combat-window"))
 				{
 					return;
+				}
+				if (getMobFarmerLootDuringCombat() && holdCombatForStabilizer)
+				{
+					Map<String, Object> details = new LinkedHashMap<>();
+					details.put("phase", "combat-window");
+					details.put("currentTarget", actorSummary(interacting));
+					details.put("suppressedAction", "normal-loot-during-combat");
+					recordMobFarmerStabilization("held-combat-window-loot", details);
 				}
 				mobFarmerStatus.set("continuing-target:" + interacting.getName());
 				setMobFarmerDecision("continuing-target", actorSummary(interacting));
@@ -3891,6 +4185,11 @@ public class CvHelperPlugin extends Plugin
 				updatePanelStatus("Mob farmer blocked by undesired combat: " + interacting.getName());
 				return;
 			}
+		}
+
+		if (holdMobFarmerAttackResolution(localPlayer))
+		{
+			return;
 		}
 
 		if (!getMobFarmerAttackBeforeLoot() && tryMobFarmerLoot(localPlayer, live, generation, "idle-before-attack"))
@@ -4372,6 +4671,11 @@ public class CvHelperPlugin extends Plugin
 		{
 			candidate.note("ground-items-highlighted");
 		}
+		String temporarySkipReason = mobFarmerTemporaryLootSkipReason(item);
+		if (temporarySkipReason != null)
+		{
+			candidate.reject(temporarySkipReason);
+		}
 		if (!lootOwnershipAccepted(item))
 		{
 			candidate.reject("ownership:" + item.get("ownership"));
@@ -4671,7 +4975,14 @@ public class CvHelperPlugin extends Plugin
 				}
 				Robot robot = new Robot();
 				clickScreenPoint(robot, screenPoint);
-				clientThread.invokeLater(() -> recordMobFarmerScheduledAction(actionKind, schedulerTarget, action + "-click"));
+				clientThread.invokeLater(() ->
+				{
+					recordMobFarmerScheduledAction(actionKind, schedulerTarget, action + "-click");
+					if ("attack".equals(action))
+					{
+						recordMobFarmerCombatLease(target, action + "-click");
+					}
+				});
 				if (isStaleMobFarmerLoop(generation))
 				{
 					return;
@@ -5022,6 +5333,7 @@ public class CvHelperPlugin extends Plugin
 			attempt.put("option", "Attack");
 			client.menuAction(0, 0, menuAction, index, -1, "Attack", label);
 			recordMobFarmerScheduledAction(MobFarmerActionKind.COMBAT, schedulerTarget, "attack-menu-action");
+			recordMobFarmerCombatLease(target, "attack-menu-action");
 			attempt.put("result", "invoked");
 			recordMobFarmerActionAttempt("attack", attempt);
 			String message = "Mob farmer menu-attacked " + label + " via " + menuAction;
