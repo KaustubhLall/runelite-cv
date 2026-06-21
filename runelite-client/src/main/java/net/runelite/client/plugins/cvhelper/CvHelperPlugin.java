@@ -238,6 +238,7 @@ public class CvHelperPlugin extends Plugin
 	private volatile List<Map<String, Object>> lastMobFarmerMenuEntries = new ArrayList<>();
 	private volatile Map<String, Object> lastMobFarmerInventoryStatus = new LinkedHashMap<>();
 	private volatile Map<String, Object> lastMobFarmerLoginRecovery = new LinkedHashMap<>();
+	private volatile Map<String, Object> lastLoginClickAttempt = new LinkedHashMap<>();
 	private volatile Map<String, Object> lastMobFarmerProgressStatus = new LinkedHashMap<>();
 	private volatile Map<String, Object> lastMobFarmerSchedulerStatus = new LinkedHashMap<>();
 	private volatile Map<String, Object> lastMobFarmerDeathLootStatus = new LinkedHashMap<>();
@@ -537,16 +538,18 @@ public class CvHelperPlugin extends Plugin
 		else if (gameState == GameState.CONNECTION_LOST)
 		{
 			Map<String, Object> recovery = new LinkedHashMap<>(details);
-			recovery.put("result", "connection-lost-detected");
-			recovery.put("pausedReason", getMobFarmerLoginDisconnectRecoveryEnabled() ? "waiting-for-recovery-loop" : "disconnect-recovery-disabled");
-			setMobFarmerLoginRecoveryDecision("connection-lost-detected", recovery);
+			String pausedReason = mobFarmerLoginRecoveryPausedReason(gameState, mobFarmerRunning.get(), mobFarmerLiveMode);
+			recovery.put("result", pausedReason == null ? "connection-lost-detected" : "paused");
+			recovery.put("pausedReason", pausedReason == null ? "waiting-for-recovery-loop" : pausedReason);
+			setMobFarmerLoginRecoveryDecision(pausedReason == null ? "connection-lost-detected" : "paused:" + pausedReason, recovery);
 		}
 		else if (gameState == GameState.LOGIN_SCREEN || gameState == GameState.LOGIN_SCREEN_AUTHENTICATOR)
 		{
 			Map<String, Object> recovery = new LinkedHashMap<>(details);
-			recovery.put("result", "login-screen-detected");
-			recovery.put("pausedReason", getMobFarmerLoginClickToPlayEnabled() ? "waiting-for-recovery-loop" : "click-to-play-disabled");
-			setMobFarmerLoginRecoveryDecision("login-screen-detected", recovery);
+			String pausedReason = mobFarmerLoginRecoveryPausedReason(gameState, mobFarmerRunning.get(), mobFarmerLiveMode);
+			recovery.put("result", pausedReason == null ? "login-screen-detected" : "paused");
+			recovery.put("pausedReason", pausedReason == null ? "waiting-for-recovery-loop" : pausedReason);
+			setMobFarmerLoginRecoveryDecision(pausedReason == null ? "login-screen-detected" : "paused:" + pausedReason, recovery);
 		}
 		Map<String, Object> scheduler = new LinkedHashMap<>(lastMobFarmerSchedulerStatus);
 		scheduler.put("lastGameState", details);
@@ -3130,8 +3133,17 @@ public class CvHelperPlugin extends Plugin
 		GameState gameState = safeValue(client::getGameState, GameState.UNKNOWN);
 		int preferredWorld = getMobFarmerPreferredLoginWorld();
 		int currentWorld = safeValue(() -> client.getWorld() > 0 ? client.getWorld() : -1, -1);
+		boolean running = mobFarmerRunning.get();
+		boolean live = mobFarmerLiveMode;
+		String worldBlockReason = mobFarmerLoginWorldBlockReason();
 		out.put("currentClientLoginState", gameState == null ? null : gameState.name());
 		out.put("detectedScreen", detectedLoginScreen(gameState));
+		out.put("macroRunning", running);
+		out.put("macroLive", live);
+		out.put("recoveryOnlyRunsWhileMacroRunning", true);
+		out.put("recoveryWorkerActive", running && live && gameState != GameState.LOGGED_IN);
+		out.put("pausedReason", mobFarmerLoginRecoveryPausedReason(gameState, running, live));
+		out.put("willAttemptOnNextRecoveryTick", mobFarmerLoginRecoveryWillAttempt(gameState, running, live));
 		out.put("enabled", getMobFarmerLoginRecoveryEnabled());
 		out.put("loginRecoveryEnabled", getMobFarmerLoginRecoveryEnabled());
 		out.put("clickToPlayEnabled", getMobFarmerLoginClickToPlayEnabled());
@@ -3141,14 +3153,75 @@ public class CvHelperPlugin extends Plugin
 		out.put("preferredWorld", preferredWorld);
 		out.put("currentWorld", currentWorld);
 		out.put("preferredWorldUsed", preferredWorld > 0 && currentWorld == preferredWorld);
+		out.put("preferredWorldReady", preferredWorld <= 0 || currentWorld == preferredWorld);
 		out.put("worldHost", safeValue(client::getWorldHost, null));
 		out.put("worldType", currentWorldTypeText());
-		out.put("currentWorldAllowed", mobFarmerLoginWorldAllowed());
+		out.put("currentWorldAllowed", worldBlockReason == null);
+		out.put("worldBlockReason", worldBlockReason);
 		out.put("cooldownMs", MOB_FARMER_LOGIN_CLICK_COOLDOWN_MS);
 		out.put("antiIdle", false);
 		out.put("idleTimerGuidance", "Use RuneLite's Logout Timer plugin/settings to extend idle logout windows; CV Helper only recovers after a normal logout/login-screen state.");
 		out.put("last", lastMobFarmerLoginRecovery);
+		out.put("lastClickAttempt", lastLoginClickAttempt);
 		return out;
+	}
+
+	private String mobFarmerLoginRecoveryPausedReason(GameState gameState, boolean running, boolean live)
+	{
+		if (gameState == GameState.LOGGED_IN)
+		{
+			return null;
+		}
+		if (!getMobFarmerLoginRecoveryEnabled())
+		{
+			return "login-recovery-disabled";
+		}
+		if (!running)
+		{
+			return "macro-stopped";
+		}
+		if (!live)
+		{
+			return "dry-run";
+		}
+		if (!getMobFarmerAutoResumeAfterLogin())
+		{
+			return "auto-resume-disabled";
+		}
+		if (gameState == GameState.LOGGING_IN || gameState == GameState.LOADING || gameState == GameState.HOPPING)
+		{
+			return "waiting:" + gameState;
+		}
+		if ((gameState == GameState.LOGIN_SCREEN || gameState == GameState.LOGIN_SCREEN_AUTHENTICATOR) && !getMobFarmerLoginClickToPlayEnabled())
+		{
+			return "click-to-play-disabled";
+		}
+		if (gameState == GameState.CONNECTION_LOST && !getMobFarmerLoginDisconnectRecoveryEnabled())
+		{
+			return "disconnect-recovery-disabled";
+		}
+		boolean clickableState = gameState == GameState.LOGIN_SCREEN || gameState == GameState.LOGIN_SCREEN_AUTHENTICATOR || gameState == GameState.CONNECTION_LOST;
+		if (!clickableState)
+		{
+			return "not-clickable-login-state";
+		}
+		String blockReason = mobFarmerLoginWorldBlockReason();
+		if (blockReason != null)
+		{
+			return blockReason;
+		}
+		long elapsed = System.currentTimeMillis() - lastMobFarmerLoginClickMillis;
+		if (elapsed >= 0 && elapsed < MOB_FARMER_LOGIN_CLICK_COOLDOWN_MS)
+		{
+			return "cooldown:" + (MOB_FARMER_LOGIN_CLICK_COOLDOWN_MS - elapsed) + "ms";
+		}
+		return null;
+	}
+
+	private boolean mobFarmerLoginRecoveryWillAttempt(GameState gameState, boolean running, boolean live)
+	{
+		String reason = mobFarmerLoginRecoveryPausedReason(gameState, running, live);
+		return reason == null && gameState != GameState.LOGGED_IN;
 	}
 
 	private Map<String, Object> mobFarmerLootConfigStatus()
@@ -5934,22 +6007,41 @@ public class CvHelperPlugin extends Plugin
 	{
 		clientThread.invokeLater(() ->
 		{
-			if (client.getGameState() != GameState.LOGIN_SCREEN && client.getGameState() != GameState.LOGIN_SCREEN_AUTHENTICATOR)
+			GameState gameState = client.getGameState();
+			Map<String, Object> attempt = new LinkedHashMap<>();
+			attempt.put("source", "clickLoginScreen");
+			attempt.put("gameState", gameState == null ? null : gameState.name());
+			attempt.put("detectedScreen", detectedLoginScreen(gameState));
+			attempt.put("worldAllowed", mobFarmerLoginWorldAllowed());
+			attempt.put("startedAt", Instant.now().toString());
+			if (gameState != GameState.LOGIN_SCREEN && gameState != GameState.LOGIN_SCREEN_AUTHENTICATOR)
 			{
-				updatePanelStatus("Login click skipped: game state is " + client.getGameState());
-				lastEvent.set("login-click-skipped:" + client.getGameState() + "@" + Instant.now());
+				attempt.put("failureReason", "bad-game-state");
+				setLastLoginClickAttempt("skipped", attempt);
+				updatePanelStatus("Login click skipped: game state is " + gameState);
+				lastEvent.set("login-click-skipped:" + gameState + "@" + Instant.now());
 				return;
 			}
 
 			Widget loginWidget = findLoginClickWidget();
+			attempt.put("widget", loginWidgetDiagnostics(loginWidget));
 			Point screenPoint;
 			boolean enterFallback = false;
+			boolean enterFallbackAllowed = loginEnterFallbackAllowed();
+			attempt.put("enterFallbackAllowed", enterFallbackAllowed);
 			if (isVisibleWidget(loginWidget))
 			{
 				Rectangle bounds = loginWidget.getBounds();
-				screenPoint = canvasPointToScreen(pointMap(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
+				Map<String, Object> canvasPoint = pointMap(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+				screenPoint = canvasPointToScreen(canvasPoint);
+				attempt.put("canvasPoint", canvasPoint);
+				attempt.put("screenPoint", awtPointMap(screenPoint));
+				if (screenPoint == null && enterFallbackAllowed)
+				{
+					enterFallback = true;
+				}
 			}
-			else if (loginEnterFallbackAllowed())
+			else if (enterFallbackAllowed)
 			{
 				screenPoint = null;
 				enterFallback = true;
@@ -5960,28 +6052,50 @@ public class CvHelperPlugin extends Plugin
 			}
 			if (screenPoint == null && !enterFallback)
 			{
+				attempt.put("failureReason", "click-to-play-widget-not-visible");
+				setLastLoginClickAttempt("skipped", attempt);
 				updatePanelStatus("Login click skipped: click-to-play widget not visible");
 				lastEvent.set("login-click-skipped:no-widget@" + Instant.now());
 				return;
 			}
 
 			boolean usedEnterFallback = enterFallback;
+			attempt.put("plannedAction", usedEnterFallback ? "enter-key" : "robot-click");
+			attempt.put("usedEnterFallback", usedEnterFallback);
 			if (usedEnterFallback)
 			{
-				pressLoginEnterFallback("login-enter-fallback", "Pressed Enter on login screen");
+				pressLoginEnterFallback("login-enter-fallback", "Pressed Enter on login screen", attempt);
 				return;
 			}
+			attempt.put("result", "queued");
+			setLastLoginClickAttempt("queued", attempt);
+			Map<String, Object> queuedAttempt = new LinkedHashMap<>(attempt);
+			boolean postClickEnterFallback = enterFallbackAllowed;
 			Thread loginClickThread = new Thread(() ->
 			{
+				Map<String, Object> result = new LinkedHashMap<>(queuedAttempt);
 				try
 				{
 					Robot robot = new Robot();
 					clickScreenPoint(robot, screenPoint);
+					result.put("actualActionInvoked", "robot-click");
+					result.put("clickedAt", Instant.now().toString());
+					if (postClickEnterFallback)
+					{
+						robot.delay(160);
+						pressEnter(robot);
+						result.put("actualActionInvoked", "robot-click+enter-key");
+						result.put("postClickEnterFallback", true);
+						result.put("enterFallbackAt", Instant.now().toString());
+					}
+					setLastLoginClickAttempt("clicked", result);
 					updatePanelStatus("Clicked login screen");
 					lastEvent.set("login-click@" + Instant.now());
 				}
 				catch (RuntimeException | java.awt.AWTException e)
 				{
+					result.put("failureReason", e.getMessage());
+					setLastLoginClickAttempt("failed", result);
 					log.warn("CV Helper login click failed", e);
 					updatePanelStatus("Login click failed: " + e.getMessage());
 					lastEvent.set("login-click-failed:" + e.getMessage() + "@" + Instant.now());
@@ -5994,19 +6108,35 @@ public class CvHelperPlugin extends Plugin
 
 	private void pressLoginEnterFallback(String eventName, String panelMessage)
 	{
+		pressLoginEnterFallback(eventName, panelMessage, null);
+	}
+
+	private void pressLoginEnterFallback(String eventName, String panelMessage, Map<String, Object> attemptDetails)
+	{
+		Map<String, Object> queuedAttempt = attemptDetails == null ? new LinkedHashMap<>() : new LinkedHashMap<>(attemptDetails);
+		queuedAttempt.putIfAbsent("source", "pressLoginEnterFallback");
+		queuedAttempt.put("eventName", eventName);
+		queuedAttempt.put("plannedAction", "enter-key");
+		queuedAttempt.put("usedEnterFallback", true);
+		queuedAttempt.put("result", "queued");
+		setLastLoginClickAttempt("queued", queuedAttempt);
 		Thread loginClickThread = new Thread(() ->
 		{
+			Map<String, Object> result = new LinkedHashMap<>(queuedAttempt);
 			try
 			{
 				Robot robot = new Robot();
-				robot.keyPress(KeyEvent.VK_ENTER);
-				robot.delay(40);
-				robot.keyRelease(KeyEvent.VK_ENTER);
+				pressEnter(robot);
+				result.put("actualActionInvoked", "enter-key");
+				result.put("pressedAt", Instant.now().toString());
+				setLastLoginClickAttempt("pressed-enter", result);
 				updatePanelStatus(panelMessage);
 				lastEvent.set(eventName + "@" + Instant.now());
 			}
 			catch (RuntimeException | java.awt.AWTException e)
 			{
+				result.put("failureReason", e.getMessage());
+				setLastLoginClickAttempt("failed", result);
 				log.warn("CV Helper login Enter fallback failed", e);
 				updatePanelStatus("Login Enter fallback failed: " + e.getMessage());
 				lastEvent.set(eventName + "-failed:" + e.getMessage() + "@" + Instant.now());
@@ -6014,6 +6144,68 @@ public class CvHelperPlugin extends Plugin
 		}, "cv-helper-login-enter");
 		loginClickThread.setDaemon(true);
 		loginClickThread.start();
+	}
+
+	private void pressEnter(Robot robot)
+	{
+		robot.keyPress(KeyEvent.VK_ENTER);
+		robot.delay(40);
+		robot.keyRelease(KeyEvent.VK_ENTER);
+	}
+
+	private void setLastLoginClickAttempt(String result, Map<String, Object> details)
+	{
+		Map<String, Object> payload = new LinkedHashMap<>();
+		if (details != null)
+		{
+			payload.putAll(details);
+		}
+		payload.put("result", result);
+		payload.put("updatedAt", Instant.now().toString());
+		lastLoginClickAttempt = payload;
+	}
+
+	private Map<String, Object> loginWidgetDiagnostics(Widget widget)
+	{
+		Map<String, Object> out = new LinkedHashMap<>();
+		out.put("present", widget != null);
+		if (widget == null)
+		{
+			return out;
+		}
+		out.put("id", widget.getId());
+		out.put("visible", isVisibleWidget(widget));
+		out.put("hidden", widget.isHidden());
+		out.put("text", cleanWidgetText(widget.getText()));
+		out.put("name", cleanWidgetText(widget.getName()));
+		String[] actions = widget.getActions();
+		out.put("actions", actions == null ? new ArrayList<>() : Arrays.asList(actions));
+		out.put("bounds", rectangleMap(widget.getBounds()));
+		out.put("candidate", isLoginClickCandidate(widget));
+		return out;
+	}
+
+	private Map<String, Object> rectangleMap(Rectangle rectangle)
+	{
+		if (rectangle == null)
+		{
+			return null;
+		}
+		Map<String, Object> out = new LinkedHashMap<>();
+		out.put("x", rectangle.x);
+		out.put("y", rectangle.y);
+		out.put("width", rectangle.width);
+		out.put("height", rectangle.height);
+		return out;
+	}
+
+	private Map<String, Object> awtPointMap(Point point)
+	{
+		if (point == null)
+		{
+			return null;
+		}
+		return pointMap(point.x, point.y);
 	}
 
 	private Widget findLoginClickWidget()
