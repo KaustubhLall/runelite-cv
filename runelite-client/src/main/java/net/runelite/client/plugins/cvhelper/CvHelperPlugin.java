@@ -255,6 +255,7 @@ public class CvHelperPlugin extends Plugin
 	private volatile Map<String, Object> lastMobFarmerProgressStatus = new LinkedHashMap<>();
 	private volatile Map<String, Object> lastMobFarmerSchedulerStatus = new LinkedHashMap<>();
 	private volatile Map<String, Object> lastMobFarmerDeathLootStatus = new LinkedHashMap<>();
+	private volatile Map<String, Object> lastMobFarmerReattackStatus = new LinkedHashMap<>();
 	private volatile List<Map<String, Object>> lastMobFarmerIntents = new ArrayList<>();
 	private volatile boolean lastMobFarmerMultiCombat;
 	private final KeyEventDispatcher cvHotkeyDispatcher = this::dispatchCvHotkey;
@@ -273,6 +274,7 @@ public class CvHelperPlugin extends Plugin
 	private volatile String pendingMobFarmerDeathKey;
 	private volatile int pendingMobFarmerDeathTick = -1;
 	private volatile Map<String, Object> pendingMobFarmerDeathTarget = new LinkedHashMap<>();
+	private volatile boolean mobFarmerReattackAfterPickupPending;
 	private final Map<String, Integer> lastMobFarmerActionTickByKey = new LinkedHashMap<>();
 
 	private static final class PanelSwitchTarget
@@ -3148,6 +3150,7 @@ public class CvHelperPlugin extends Plugin
 		status.put("lastActionAttempt", lastMobFarmerActionAttempt);
 		status.put("scheduler", mobFarmerSchedulerStatus());
 		status.put("deathLootTiming", lastMobFarmerDeathLootStatus);
+		status.put("reattachAfterPickup", lastMobFarmerReattackStatus);
 		status.put("progress", lastMobFarmerProgressStatus);
 		status.put("recentIntents", lastMobFarmerIntents);
 		status.put("recentMenuEntries", lastMobFarmerMenuEntries);
@@ -3363,6 +3366,112 @@ public class CvHelperPlugin extends Plugin
 		return kind.name() + ":" + (targetKey == null ? "global" : targetKey);
 	}
 
+	private Integer lastMobFarmerActionTickForKind(MobFarmerActionKind kind)
+	{
+		String prefix = kind.name() + ":";
+		Integer latest = null;
+		for (Map.Entry<String, Integer> entry : lastMobFarmerActionTickByKey.entrySet())
+		{
+			if (entry.getKey() != null && entry.getKey().startsWith(prefix) && entry.getValue() != null && (latest == null || entry.getValue() > latest))
+			{
+				latest = entry.getValue();
+			}
+		}
+		return latest;
+	}
+
+	private void queueMobFarmerReattackAfterPickup(String lootLabel, Map<String, Object> lootTarget)
+	{
+		mobFarmerReattackAfterPickupPending = true;
+		Map<String, Object> status = new LinkedHashMap<>();
+		status.put("pending", true);
+		status.put("queuedAt", Instant.now().toString());
+		status.put("queuedAtTick", safeValue(client::getTickCount, 0));
+		status.put("reason", "loot-pickup-invoked");
+		status.put("lootTarget", lootLabel);
+		status.put("lootSnapshot", lootTarget);
+		status.put("lastPickupTick", lastMobFarmerActionTickForKind(MobFarmerActionKind.LOOT_PICKUP));
+		status.put("lastAttackTick", lastMobFarmerActionTickForKind(MobFarmerActionKind.COMBAT));
+		status.put("estimatedAttackCooldownTicks", 1);
+		lastMobFarmerReattackStatus = status;
+	}
+
+	private void clearMobFarmerReattackAfterPickup(String reason)
+	{
+		mobFarmerReattackAfterPickupPending = false;
+		Map<String, Object> status = new LinkedHashMap<>(lastMobFarmerReattackStatus);
+		status.put("pending", false);
+		status.put("clearedAt", Instant.now().toString());
+		status.put("clearReason", reason);
+		lastMobFarmerReattackStatus = status;
+	}
+
+	private boolean tryMobFarmerReattackAfterPickup(Player localPlayer, boolean live, int generation)
+	{
+		if (!mobFarmerReattackAfterPickupPending)
+		{
+			return false;
+		}
+		Map<String, Object> status = new LinkedHashMap<>(lastMobFarmerReattackStatus);
+		int tick = safeValue(client::getTickCount, 0);
+		status.put("pending", true);
+		status.put("attemptedAt", Instant.now().toString());
+		status.put("attemptedAtTick", tick);
+		status.put("lastPickupTick", lastMobFarmerActionTickForKind(MobFarmerActionKind.LOOT_PICKUP));
+		status.put("lastAttackTick", lastMobFarmerActionTickForKind(MobFarmerActionKind.COMBAT));
+		status.put("estimatedAttackCooldownTicks", 1);
+		if (!live || isStaleMobFarmerLoop(generation))
+		{
+			status.put("result", live ? "stale-loop" : "dry-run");
+			lastMobFarmerReattackStatus = status;
+			clearMobFarmerReattackAfterPickup(String.valueOf(status.get("result")));
+			return false;
+		}
+		Actor interacting = localPlayer.getInteracting();
+		if (interacting != null && !isEffectivelyDead(interacting))
+		{
+			status.put("result", "already-in-combat");
+			status.put("currentTarget", actorSummary(interacting));
+			lastMobFarmerReattackStatus = status;
+			clearMobFarmerReattackAfterPickup("already-in-combat");
+			return false;
+		}
+
+		lastEntities = collectEntities();
+		MobFarmerSelection selection = selectMobFarmerTarget(localPlayer);
+		lastMobFarmerCandidates = selection.reports;
+		lastMobFarmerMultiCombat = selection.multiCombat;
+		status.put("selectionDecision", selection.decision);
+		if (selection.target == null)
+		{
+			status.put("result", "no-valid-target");
+			lastMobFarmerReattackStatus = status;
+			clearMobFarmerReattackAfterPickup("no-valid-target");
+			return false;
+		}
+
+		Map<String, Object> target = selection.target;
+		Map<String, Object> clickPoint = firstPoint(target, "clickPoint", "center", "canvasTileCenter");
+		if (getMobFarmerAttackInteractionMode() == CvHelperMobInteractionMode.DIRECT_CLICK && canvasPointToScreen(clickPoint) == null)
+		{
+			status.put("result", "target-off-canvas");
+			status.put("target", target);
+			lastMobFarmerReattackStatus = status;
+			clearMobFarmerReattackAfterPickup("target-off-canvas");
+			return false;
+		}
+
+		status.put("result", "attacking");
+		status.put("target", target);
+		status.put("attackReady", true);
+		status.put("preemptedNormalFlow", true);
+		lastMobFarmerReattackStatus = status;
+		clearMobFarmerReattackAfterPickup("attack-issued");
+		setMobFarmerDecision("reattack-after-pickup", target);
+		invokeMobFarmerAttack(target, clickPoint, true, generation);
+		return true;
+	}
+
 	void runMobFarmerStep(boolean live)
 	{
 		clientThread.invokeLater(() -> mobFarmerStep(live, 0, "manual-step"));
@@ -3376,6 +3485,7 @@ public class CvHelperPlugin extends Plugin
 			return;
 		}
 		mobFarmerLiveMode = live;
+		clearMobFarmerReattackAfterPickup("start");
 		int generation = mobFarmerGeneration.incrementAndGet();
 		mobFarmerStatus.set((live ? "live" : "dry") + "-loop-started");
 		Thread loopThread = new Thread(() ->
@@ -3423,6 +3533,7 @@ public class CvHelperPlugin extends Plugin
 		mobFarmerGeneration.incrementAndGet();
 		mobFarmerRunning.set(false);
 		mobFarmerLiveMode = false;
+		clearMobFarmerReattackAfterPickup("stop");
 		interruptMobFarmerThread();
 		mobFarmerStatus.set("stopped");
 		updatePanelStatus("Mob farmer stopped");
@@ -3433,6 +3544,7 @@ public class CvHelperPlugin extends Plugin
 		mobFarmerGeneration.incrementAndGet();
 		mobFarmerRunning.set(false);
 		mobFarmerLiveMode = false;
+		clearMobFarmerReattackAfterPickup("panic-stop");
 		interruptMobFarmerThread();
 		actionInProgress.set(false);
 		mobFarmerStatus.set("panic-stopped");
@@ -3691,6 +3803,10 @@ public class CvHelperPlugin extends Plugin
 
 		lastMobFarmerInventoryStatus = inventoryPolicyStatus();
 		if (tryMobFarmerAutoEat(localPlayer, live, generation))
+		{
+			return;
+		}
+		if (tryMobFarmerReattackAfterPickup(localPlayer, live, generation))
 		{
 			return;
 		}
@@ -5019,6 +5135,8 @@ public class CvHelperPlugin extends Plugin
 			client.menuAction(sceneX, sceneY, MenuAction.GROUND_ITEM_THIRD_OPTION, itemId, itemId, "Take", label);
 			recordMobFarmerScheduledAction(MobFarmerActionKind.LOOT_PICKUP, schedulerTarget, "loot-menu-action");
 			attempt.put("result", "invoked");
+			attempt.put("reattackQueued", true);
+			queueMobFarmerReattackAfterPickup(label, freshTarget);
 			recordMobFarmerActionAttempt("loot", attempt);
 			String message = "Mob farmer menu-took " + label + " @ scene " + sceneX + "," + sceneY;
 			mobFarmerStatus.set("menu-loot:" + label);
