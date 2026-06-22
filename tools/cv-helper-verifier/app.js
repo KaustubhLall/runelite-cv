@@ -10,6 +10,10 @@ const LOGIN_SCREEN_STATES = new Set([
 ]);
 const surfaces = ["prayer", "spell", "minimap", "inventory", "equipment", "panels", "combat"];
 
+const navButtons = Array.from(document.querySelectorAll("[data-view]"));
+const views = Array.from(document.querySelectorAll("[data-view-panel]"));
+const farmerTabButtons = Array.from(document.querySelectorAll("[data-farmer-tab]"));
+const farmerPanels = Array.from(document.querySelectorAll("[data-farmer-panel]"));
 const form = document.querySelector("#connection-form");
 const portInput = document.querySelector("#port");
 const connectionStatus = document.querySelector("#connection-status");
@@ -20,6 +24,8 @@ const countGrid = document.querySelector("#count-grid");
 const warningsList = document.querySelector("#warnings");
 const entitiesRoot = document.querySelector("#entities");
 const surfacesRoot = document.querySelector("#surfaces");
+const inventoryRoot = document.querySelector("#inventory-root");
+const rawDataRoot = document.querySelector("#raw-data-root");
 const refreshNow = document.querySelector("#refresh-now");
 const autoRefresh = document.querySelector("#auto-refresh");
 const autoDiscover = document.querySelector("#auto-discover");
@@ -69,8 +75,17 @@ let timer = null;
 let mobFarmerEvents = [];
 let mobFarmerRawPayload = null;
 let mobFarmerConfigPayload = null;
-let mobFarmerDraftPayload = null;  // User's draft edits, separate from live state
+let mobFarmerDraftPayload = null;
+let mobFarmerDraftDirty = false;
+let mobFarmerLiveChangedWhileDirty = false;
+let mobFarmerLastLiveFingerprint = "";
 const skillFarmerConfigPayloads = {};
+const skillFarmerDraftPayloads = {};
+const skillFarmerDraftDirty = {};
+const skillFarmerLiveChangedWhileDirty = {};
+const skillFarmerLastLiveFingerprints = {};
+const skillFarmerRunControlDrafts = {};
+let latestRawPayloads = {};
 let discoveryState = emptyDiscoveryState();
 
 const queryPort = sanitizePort(new URLSearchParams(window.location.search).get("port"));
@@ -88,6 +103,20 @@ setRuntime("Waiting for /status", "neutral");
 connectionHint.textContent = "The verifier starts at 11777 and can fall back when the preferred port is stale.";
 renderDiscovery();
 renderMobFarmerProfiles();
+
+navButtons.forEach(button => {
+	button.addEventListener("click", () => {
+		showView(button.getAttribute("data-view"));
+		const farmer = button.getAttribute("data-farmer-target");
+		if (farmer) {
+			showFarmerTab(farmer);
+		}
+	});
+});
+
+farmerTabButtons.forEach(button => {
+	button.addEventListener("click", () => showFarmerTab(button.getAttribute("data-farmer-tab")));
+});
 
 form.addEventListener("submit", async event => {
 	event.preventDefault();
@@ -151,19 +180,43 @@ for (const [skill, refs] of Object.entries(skillFarmers)) {
 	refs.stop.addEventListener("click", () => runSkillFarmerAction(skill, "stop"));
 	refs.loadConfig.addEventListener("click", () => loadSkillFarmerConfig(skill));
 	refs.saveConfig.addEventListener("click", () => saveSkillFarmerConfig(skill));
+	refs.resetDraft.addEventListener("click", () => resetSkillFarmerDraft(skill));
 	refs.exportConfig.addEventListener("click", () => exportSkillFarmerConfig(skill));
 	refs.importConfig.addEventListener("click", () => importSkillFarmerConfig(skill));
+	refs.target.addEventListener("input", () => markSkillFarmerRunControlDirty(skill, "target"));
+	refs.mode.addEventListener("change", () => markSkillFarmerRunControlDirty(skill, "mode"));
 	refs.preset.addEventListener("change", () => {
-		const target = refs.preset.value;
-		if (target) {
-			refs.target.value = target;
-		}
+		const presetIndex = Number(refs.preset.value);
+		const preset = Number.isFinite(presetIndex) ? (refs._presets || [])[presetIndex] : null;
+		applySkillFarmerPreset(skill, preset);
 	});
+}
+mobFarmerConfigForm.addEventListener("input", markMobFarmerDraftDirty);
+mobFarmerConfigForm.addEventListener("change", markMobFarmerDraftDirty);
+mobFarmerActionSlots.addEventListener("input", markMobFarmerDraftDirty);
+mobFarmerActionSlots.addEventListener("change", markMobFarmerDraftDirty);
+for (const [skill, refs] of Object.entries(skillFarmers)) {
+	refs.configForm.addEventListener("input", () => markSkillFarmerDraftDirty(skill));
+	refs.configForm.addEventListener("change", () => markSkillFarmerDraftDirty(skill));
 }
 mobFarmerRawToggle.addEventListener("change", renderMobFarmerRaw);
 mobFarmerClearLog.addEventListener("click", () => {
 	mobFarmerEvents = [];
 	renderMobFarmerLog();
+});
+
+document.addEventListener("input", event => {
+	const filter = event.target.closest("[data-table-filter]");
+	if (filter) {
+		filterTable(filter);
+	}
+});
+
+document.addEventListener("click", event => {
+	const header = event.target.closest("th[data-sort]");
+	if (header) {
+		sortTable(header);
+	}
 });
 discoveryAttempts.addEventListener("click", async event => {
 	const button = event.target.closest("[data-use-port]");
@@ -218,6 +271,7 @@ function skillFarmerRefs(skill) {
 		configStatus: document.querySelector(`${prefix}-config-status`),
 		loadConfig: document.querySelector(`${prefix}-load-config`),
 		saveConfig: document.querySelector(`${prefix}-save-config`),
+		resetDraft: document.querySelector(`${prefix}-reset-draft`),
 		exportConfig: document.querySelector(`${prefix}-export-config`),
 		importConfig: document.querySelector(`${prefix}-import-config`),
 		configErrors: document.querySelector(`${prefix}-config-errors`),
@@ -225,6 +279,37 @@ function skillFarmerRefs(skill) {
 		configJson: document.querySelector(`${prefix}-config-json`),
 		details: document.querySelector(`${prefix}-details`),
 	};
+}
+
+function showView(viewId) {
+	const resolvedView = viewId || "dashboard-view";
+	for (const view of views) {
+		view.classList.toggle("active", view.id === resolvedView);
+	}
+	for (const button of navButtons) {
+		const sameView = button.getAttribute("data-view") === resolvedView;
+		const farmerTarget = button.getAttribute("data-farmer-target");
+		const farmerActive = resolvedView === "farmers-view"
+			&& farmerTarget
+			&& document.querySelector(`[data-farmer-panel="${farmerTarget}"]`)?.classList.contains("active");
+		button.classList.toggle("active", sameView && (!farmerTarget || farmerActive));
+	}
+}
+
+function showFarmerTab(tab) {
+	const resolvedTab = tab || "mob";
+	for (const button of farmerTabButtons) {
+		button.classList.toggle("active", button.getAttribute("data-farmer-tab") === resolvedTab);
+	}
+	for (const panel of farmerPanels) {
+		panel.classList.toggle("active", panel.getAttribute("data-farmer-panel") === resolvedTab);
+	}
+	for (const button of navButtons) {
+		const farmerTarget = button.getAttribute("data-farmer-target");
+		if (farmerTarget) {
+			button.classList.toggle("active", views.find(view => view.id === "farmers-view")?.classList.contains("active") && farmerTarget === resolvedTab);
+		}
+	}
 }
 
 function emptyDiscoveryState() {
@@ -352,17 +437,24 @@ async function refreshAll(options = {}) {
 		renderRuntime(status);
 		renderStatus(status);
 		renderMobFarmer(mobFarmerStatus);
-		// Store config payload for explicit loads, but do not auto-update form during refresh
-		// This prevents live sync from overwriting user edits
-		if (!mobFarmerDraftPayload && configPayload && !configPayload.unavailable) {
-			mobFarmerConfigPayload = configPayload;
-		}
+		receiveMobFarmerLiveConfig(configPayload);
 		renderSkillFarmer("mining", miningStatus, miningConfig);
 		renderSkillFarmer("woodcutting", woodcuttingStatus, woodcuttingConfig);
+		renderInventoryView(status, mobFarmerStatus, miningStatus, woodcuttingStatus);
 		renderCounts(status, targetPayloads, entitiesPayload);
 		renderEntities(entitiesPayload, nearestEntityPayload);
 		renderSurfaces(targetPayloads);
 		renderWarnings(status, targetPayloads, entitiesPayload);
+		latestRawPayloads = {
+			status,
+			mobFarmer: mobFarmerStatus,
+			mining: miningStatus,
+			woodcutting: woodcuttingStatus,
+			entities: entitiesPayload,
+			nearestEntity: nearestEntityPayload,
+			targets: Object.fromEntries(targetPayloads.map(payload => [payload.surface || payload.path || "unknown", payload])),
+		};
+		renderRawData();
 	} catch (error) {
 		if (options.allowRediscovery !== false) {
 			const recoveredPort = await discoverPort();
@@ -691,6 +783,69 @@ function renderStatus(status) {
 	statusGrid.innerHTML = groups.map(statusGroup).join("");
 }
 
+function renderInventoryView(status, mobFarmerStatus, miningStatus, woodcuttingStatus) {
+	const wealth = status?.player?.wealth || status?.wealth || {};
+	const inventory = wealth.inventory || mobFarmerStatus?.inventory || miningStatus?.inventory || woodcuttingStatus?.inventory || {};
+	const equipment = wealth.equipment || {};
+	const summaries = [
+		["Inventory slots", `${selectedValue(inventory.occupiedSlots, 0)} / ${selectedValue(inventory.slotCount, 28)}`],
+		["Free slots", selectedValue(inventory.freeSlots, inventory.slotCount !== undefined && inventory.occupiedSlots !== undefined ? inventory.slotCount - inventory.occupiedSlots : "Unknown")],
+		["Inventory GE", formatGp(inventory.gePrice)],
+		["Inventory HA", formatGp(inventory.haPrice)],
+		["Equipment GE", formatGp(equipment.gePrice)],
+		["Protected", inventory.neverDropItems || mobFarmerStatus?.loot?.neverDropItems || "None"],
+		["Drop candidate", inventory.dropCandidate?.name || "None"],
+	];
+	inventoryRoot.innerHTML = `
+		<div class="stat-grid mob-farmer-grid">${summaries.map(([label, value]) => statCard(label, String(value))).join("")}</div>
+		<div class="mob-farmer-details">
+			${renderInventoryTable("Inventory Items", inventory.items || [], "inventory-items")}
+			${renderInventoryTable("Equipment Items", equipment.items || [], "equipment-items")}
+		</div>
+	`;
+}
+
+function renderInventoryTable(title, items, tableId) {
+	const rows = (items || []).map(item => `
+		<tr>
+			<td>${escapeHtml(item.name || "")}<br><small>${escapeHtml(item.id ?? "")}</small></td>
+			<td>${escapeHtml(item.quantity ?? "")}</td>
+			<td>${escapeHtml(item.slot ?? "")}</td>
+			<td>${formatGp(item.gePriceEach)}</td>
+			<td>${formatGp(item.gePrice)}</td>
+			<td>${formatGp(item.haPriceEach)}</td>
+			<td>${formatGp(item.haPrice)}</td>
+		</tr>
+	`).join("");
+	return `
+		<article class="mob-farmer-block wide-block">
+			<header>
+				<h3>${escapeHtml(title)}</h3>
+				<small>${escapeHtml(items.length)} rows</small>
+			</header>
+			${items.length ? `
+				<input class="table-filter" data-table-filter="${escapeHtml(tableId)}" placeholder="Filter ${escapeHtml(title.toLowerCase())}">
+				<div class="table-wrap compact-table">
+					<table data-table-id="${escapeHtml(tableId)}">
+						<thead>
+							<tr>
+								<th data-sort>Item</th>
+								<th data-sort>Qty</th>
+								<th data-sort>Slot</th>
+								<th data-sort>GE each</th>
+								<th data-sort>GE stack</th>
+								<th data-sort>HA each</th>
+								<th data-sort>HA stack</th>
+							</tr>
+						</thead>
+						<tbody>${rows}</tbody>
+					</table>
+				</div>
+			` : `<p class="empty compact">No items reported.</p>`}
+		</article>
+	`;
+}
+
 function renderMobFarmer(status) {
 	if (status?.unavailable) {
 		mobFarmerState.textContent = "Unavailable";
@@ -749,7 +904,6 @@ function renderMobFarmer(status) {
 		renderMobFarmerCandidates("Loot candidates", lootCandidates),
 		renderHighAlchCandidates(highAlchCandidates),
 		renderMobFarmerMenuEntries(recentMenuEntries),
-		renderMobFarmerInventory(status.inventory),
 	].join("");
 	renderMobFarmerLog();
 	renderMobFarmerRaw();
@@ -793,24 +947,30 @@ async function loadMobFarmerConfig() {
 	try {
 		clearMobFarmerConfigErrors();
 		const payload = await request("/automation/mob-farmer/config");
-		// Store as both live and draft on explicit load
 		mobFarmerConfigPayload = payload;
-		mobFarmerDraftPayload = JSON.parse(JSON.stringify(payload));  // Deep copy
-		renderMobFarmerConfig(payload, true);
-		logMobFarmerEvent("settings loaded from client");
+		mobFarmerLastLiveFingerprint = configFingerprint(payload);
+		mobFarmerDraftPayload = deepClone(payload);
+		mobFarmerDraftDirty = false;
+		mobFarmerLiveChangedWhileDirty = false;
+		renderMobFarmerConfig(mobFarmerDraftPayload, "Synced", "ok");
+		logMobFarmerEvent("current config loaded into draft");
 	} catch (error) {
 		showMobFarmerConfigErrors([formatError(error)]);
 	}
 }
 
 function resetMobFarmerDraft() {
-	mobFarmerDraftPayload = null;
 	if (mobFarmerConfigPayload) {
-		renderMobFarmerConfig(mobFarmerConfigPayload, false);
-		logMobFarmerEvent("draft discarded - reverted to live settings");
+		mobFarmerDraftPayload = deepClone(mobFarmerConfigPayload);
+		mobFarmerDraftDirty = false;
+		mobFarmerLiveChangedWhileDirty = false;
+		renderMobFarmerConfig(mobFarmerDraftPayload, "Synced", "ok");
+		clearMobFarmerConfigErrors();
+		logMobFarmerEvent("draft reset from live config");
 	} else {
-		mobFarmerConfigForm.innerHTML = `<p class="empty compact">No live configuration loaded yet. Click "Sync from client" to load current settings.</p>`;
-		mobFarmerConfigStatus.textContent = "No config loaded";
+		mobFarmerDraftPayload = null;
+		mobFarmerDraftDirty = false;
+		renderMobFarmerDraftPlaceholder("No live config loaded yet. Use Load current into draft first.");
 	}
 }
 
@@ -826,28 +986,28 @@ async function saveMobFarmerConfig() {
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(payload),
 		});
-		// After successful save, update live state and clear draft
 		mobFarmerConfigPayload = result.config || payload;
-		mobFarmerDraftPayload = null;
-		renderMobFarmerConfig(mobFarmerConfigPayload, false);
-		logMobFarmerEvent(`settings saved (${result.updatedSettings || 0} updates)`);
+		mobFarmerLastLiveFingerprint = configFingerprint(mobFarmerConfigPayload);
+		mobFarmerDraftPayload = deepClone(mobFarmerConfigPayload);
+		mobFarmerDraftDirty = false;
+		mobFarmerLiveChangedWhileDirty = false;
+		renderMobFarmerConfig(mobFarmerDraftPayload, "Applied successfully", "ok");
+		logMobFarmerEvent(`draft applied (${result.updatedSettings || 0} updates)`);
 		await refreshAll();
 	} catch (error) {
 		showMobFarmerConfigErrors([formatError(error)]);
+		setConfigState(mobFarmerConfigStatus, "Apply failed", "bad");
 	}
 }
 
 function exportMobFarmerConfig() {
-	const payload = collectMobFarmerConfigFromForm();
-	payload.version = mobFarmerConfigPayload?.version || 1;
+	const payload = mobFarmerDraftPayload ? collectMobFarmerConfigFromForm() : (mobFarmerConfigPayload || { version: 1, settings: {}, actionSlots: [] });
+	payload.version = mobFarmerDraftPayload?.version || mobFarmerConfigPayload?.version || 1;
 	mobFarmerConfigJson.value = JSON.stringify(payload, null, 2);
-	mobFarmerConfigStatus.textContent = "Exported JSON from current form";
+	setConfigState(mobFarmerConfigStatus, mobFarmerDraftDirty ? "Unsaved changes" : "Synced", mobFarmerDraftDirty ? "warn" : "ok");
 }
 
-async function importMobFarmerConfig() {
-	if (!(await ensurePort())) {
-		return;
-	}
+function importMobFarmerConfig() {
 	try {
 		clearMobFarmerConfigErrors();
 		const raw = mobFarmerConfigJson.value.trim();
@@ -855,45 +1015,75 @@ async function importMobFarmerConfig() {
 			showMobFarmerConfigErrors(["Paste exported JSON before importing."]);
 			return;
 		}
-		const payload = JSON.parse(raw);
-		const result = await request("/automation/mob-farmer/config", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(payload),
-		});
-		// After successful import, update live and clear draft
-		mobFarmerConfigPayload = result.config || payload;
-		mobFarmerDraftPayload = null;
-		renderMobFarmerConfig(mobFarmerConfigPayload, false);
-		logMobFarmerEvent("settings imported");
-		await refreshAll();
+		mobFarmerDraftPayload = normalizeMobFarmerDraft(JSON.parse(raw));
+		mobFarmerDraftDirty = true;
+		renderMobFarmerConfig(mobFarmerDraftPayload, "Draft modified", "warn");
+		logMobFarmerEvent("JSON imported into draft");
 	} catch (error) {
 		showMobFarmerConfigErrors([formatError(error)]);
 	}
 }
 
-function renderMobFarmerConfig(payload, isDraft = false) {
+function receiveMobFarmerLiveConfig(payload) {
 	if (!payload) {
 		return;
 	}
 	if (payload.unavailable) {
-		mobFarmerConfigStatus.textContent = `Unavailable until client relaunch: ${payload.error}`;
-		mobFarmerConfigForm.innerHTML = `<p class="empty compact">The running CV Helper build does not expose ${escapeHtml(payload.path || "the config endpoint")} yet. Relaunch the newly compiled client to enable synced settings.</p>`;
-		mobFarmerActionSlots.innerHTML = "";
+		if (!mobFarmerDraftPayload) {
+			setConfigState(mobFarmerConfigStatus, "Config endpoint unavailable", "bad");
+			mobFarmerConfigForm.innerHTML = `<p class="empty compact">The running CV Helper build does not expose ${escapeHtml(payload.path || "the config endpoint")} yet.</p>`;
+			mobFarmerActionSlots.innerHTML = "";
+		}
 		return;
 	}
 
-	// Only update the live payload if not loading from a draft
-	if (!isDraft) {
-		mobFarmerConfigPayload = payload;
+	const nextFingerprint = configFingerprint(payload);
+	const previousFingerprint = mobFarmerLastLiveFingerprint;
+	mobFarmerConfigPayload = payload;
+	mobFarmerLastLiveFingerprint = nextFingerprint;
+	if (mobFarmerDraftPayload && nextFingerprint !== configFingerprint(mobFarmerDraftPayload)) {
+		mobFarmerLiveChangedWhileDirty = true;
+		if (mobFarmerDraftDirty) {
+			showMobFarmerConfigWarning("Live config changed while this draft has unsaved changes. The draft was not overwritten.");
+			setConfigState(mobFarmerConfigStatus, "Unsaved changes", "warn");
+		} else if (previousFingerprint && nextFingerprint !== previousFingerprint) {
+			showMobFarmerConfigWarning("Live config changed after this draft was loaded. Use Load current into draft or Reset draft to refresh it.");
+			setConfigState(mobFarmerConfigStatus, "Live changed", "warn");
+		}
+		return;
+	}
+	if (!mobFarmerDraftPayload) {
+		renderMobFarmerDraftPlaceholder("Live config is available. Load current into draft to edit safely.");
+	} else if (!mobFarmerDraftDirty) {
+		setConfigState(mobFarmerConfigStatus, "Synced", "ok");
+	}
+}
+
+function renderMobFarmerDraftPlaceholder(message) {
+	setConfigState(mobFarmerConfigStatus, mobFarmerConfigPayload ? "Live available" : "No draft loaded", "neutral");
+	mobFarmerConfigForm.innerHTML = `<p class="empty compact">${escapeHtml(message)}</p>`;
+	mobFarmerActionSlots.innerHTML = "";
+}
+
+function renderMobFarmerConfig(payload, stateLabel = "Synced", tone = "ok") {
+	if (!payload) {
+		renderMobFarmerDraftPlaceholder("No draft loaded. Load current config or import JSON to begin editing.");
+		return;
+	}
+	if (payload.unavailable) {
+		setConfigState(mobFarmerConfigStatus, `Unavailable: ${payload.error}`, "bad");
+		mobFarmerConfigForm.innerHTML = `<p class="empty compact">The running CV Helper build does not expose ${escapeHtml(payload.path || "the config endpoint")} yet.</p>`;
+		mobFarmerActionSlots.innerHTML = "";
+		return;
 	}
 
 	const settings = payload.settings || {};
 	const schema = Array.isArray(payload.schema) ? payload.schema : [];
 
-	const draftIndicator = isDraft ? " (draft - unsaved)" : "";
-	mobFarmerConfigStatus.textContent = `${isDraft ? "Draft" : "Live"} ${new Date().toLocaleTimeString()} - v${payload.version || 1}${draftIndicator}`;
-	mobFarmerConfigForm.innerHTML = schema.map(field => renderConfigField(field, settings[field.key])).join("");
+	setConfigState(mobFarmerConfigStatus, `${stateLabel} - v${payload.version || 1}`, tone);
+	mobFarmerConfigForm.innerHTML = schema.length
+		? schema.map(field => renderConfigField(field, settings[field.key], "mob-config")).join("")
+		: `<p class="empty compact">This draft has no editable schema. Load current into draft before importing partial settings.</p>`;
 	mobFarmerActionSlots.innerHTML = (payload.actionSlots || []).map(renderActionSlotFieldset).join("");
 	mobFarmerTarget.value = settings.target || mobFarmerTarget.value || "cow";
 	mobFarmerProfileName.value = settings.profileName || mobFarmerProfileName.value || settings.target || "Mob farmer profile";
@@ -901,16 +1091,25 @@ function renderMobFarmerConfig(payload, isDraft = false) {
 	clearMobFarmerConfigErrors();
 }
 
-function renderConfigField(field, value) {
+function markMobFarmerDraftDirty() {
+	if (!mobFarmerDraftPayload) {
+		return;
+	}
+	mobFarmerDraftDirty = true;
+	setConfigState(mobFarmerConfigStatus, mobFarmerLiveChangedWhileDirty ? "Unsaved changes; live changed" : "Unsaved changes", "warn");
+}
+
+function renderConfigField(field, value, prefix = "config") {
 	const key = escapeHtml(field.key);
+	const id = `${escapeHtml(prefix)}-${key}`;
 	const label = escapeHtml(field.label || field.key);
 	const description = escapeHtml(field.description || "");
 	const type = field.type || "text";
 	if (type === "boolean") {
 		return `
 			<div class="config-field checkbox-field" title="${description}">
-				<input id="config-${key}" data-config-key="${key}" type="checkbox" ${value ? "checked" : ""}>
-				<label for="config-${key}">${label}</label>
+				<input id="${id}" data-config-key="${key}" type="checkbox" ${value ? "checked" : ""}>
+				<label for="${id}">${label}</label>
 				<small>${description}</small>
 			</div>
 		`;
@@ -919,8 +1118,8 @@ function renderConfigField(field, value) {
 		const options = (field.options || []).map(option => `<option value="${escapeHtml(option)}" ${String(value) === String(option) ? "selected" : ""}>${escapeHtml(option)}</option>`).join("");
 		return `
 			<div class="config-field" title="${description}">
-				<label for="config-${key}">${label}</label>
-				<select id="config-${key}" data-config-key="${key}">${options}</select>
+				<label for="${id}">${label}</label>
+				<select id="${id}" data-config-key="${key}">${options}</select>
 				<small>${description}</small>
 			</div>
 		`;
@@ -928,16 +1127,16 @@ function renderConfigField(field, value) {
 	if (type === "textarea") {
 		return `
 			<div class="config-field" title="${description}">
-				<label for="config-${key}">${label}</label>
-				<textarea id="config-${key}" data-config-key="${key}" spellcheck="false">${escapeHtml(value ?? "")}</textarea>
+				<label for="${id}">${label}</label>
+				<textarea id="${id}" data-config-key="${key}" spellcheck="false">${escapeHtml(value ?? "")}</textarea>
 				<small>${description}</small>
 			</div>
 		`;
 	}
 	return `
 		<div class="config-field" title="${description}">
-			<label for="config-${key}">${label}</label>
-			<input id="config-${key}" data-config-key="${key}" type="${type === "number" ? "number" : "text"}" value="${escapeHtml(value ?? "")}">
+			<label for="${id}">${label}</label>
+			<input id="${id}" data-config-key="${key}" type="${type === "number" ? "number" : "text"}" value="${escapeHtml(value ?? "")}">
 			<small>${description}</small>
 		</div>
 	`;
@@ -992,12 +1191,79 @@ function collectMobFarmerConfigFromForm() {
 function showMobFarmerConfigErrors(errors) {
 	mobFarmerConfigErrors.classList.add("visible");
 	mobFarmerConfigErrors.innerHTML = `<strong>Config not applied.</strong><ul>${errors.map(error => `<li>${escapeHtml(error)}</li>`).join("")}</ul>`;
-	mobFarmerConfigStatus.textContent = "Validation failed";
+	setConfigState(mobFarmerConfigStatus, "Validation failed", "bad");
 }
 
 function clearMobFarmerConfigErrors() {
 	mobFarmerConfigErrors.classList.remove("visible");
+	mobFarmerConfigErrors.classList.remove("warning");
 	mobFarmerConfigErrors.innerHTML = "";
+}
+
+function showMobFarmerConfigWarning(message) {
+	mobFarmerConfigErrors.classList.add("visible", "warning");
+	mobFarmerConfigErrors.innerHTML = `<strong>Draft preserved.</strong> ${escapeHtml(message)}`;
+}
+
+function setConfigState(element, message, tone = "neutral") {
+	element.textContent = message;
+	element.classList.remove("ok", "bad", "warn", "neutral");
+	element.classList.add(tone);
+}
+
+function deepClone(value) {
+	return JSON.parse(JSON.stringify(value || {}));
+}
+
+function normalizeMobFarmerDraft(payload) {
+	const live = mobFarmerConfigPayload || {};
+	const draft = {
+		...deepClone(live),
+		...deepClone(payload),
+		version: payload?.version || live.version || 1,
+		settings: {
+			...(live.settings || {}),
+			...(payload?.settings || {}),
+		},
+	};
+	if (Array.isArray(payload?.schema)) {
+		draft.schema = payload.schema;
+	} else if (Array.isArray(live.schema)) {
+		draft.schema = live.schema;
+	}
+	if (Array.isArray(payload?.actionSlots)) {
+		draft.actionSlots = payload.actionSlots;
+	} else if (Array.isArray(live.actionSlots)) {
+		draft.actionSlots = live.actionSlots;
+	}
+	return draft;
+}
+
+function normalizeSkillFarmerDraft(skill, payload) {
+	const live = skillFarmerConfigPayloads[skill] || {};
+	return {
+		...deepClone(live),
+		...deepClone(payload),
+		version: payload?.version || live.version || 1,
+		skill,
+		settings: {
+			...(live.settings || {}),
+			...(payload?.settings || {}),
+		},
+		schema: Array.isArray(payload?.schema) ? payload.schema : (live.schema || []),
+		presets: Array.isArray(payload?.presets) ? payload.presets : (live.presets || []),
+	};
+}
+
+function configFingerprint(payload) {
+	if (!payload || payload.unavailable) {
+		return "";
+	}
+	return JSON.stringify({
+		version: payload.version || 1,
+		settings: payload.settings || {},
+		actionSlots: payload.actionSlots || [],
+	});
 }
 
 function renderSkillFarmer(skill, statusPayload, configPayload) {
@@ -1005,9 +1271,7 @@ function renderSkillFarmer(skill, statusPayload, configPayload) {
 	if (!refs) {
 		return;
 	}
-	if (configPayload && !configPayload.unavailable) {
-		renderSkillFarmerConfig(skill, configPayload);
-	}
+	receiveSkillFarmerLiveConfig(skill, configPayload);
 	const status = statusPayload?.unavailable ? null : statusPayload;
 	if (!status) {
 		refs.state.textContent = "Unavailable";
@@ -1026,14 +1290,15 @@ function renderSkillFarmer(skill, statusPayload, configPayload) {
 	refs.state.classList.remove("ok", "bad", "warn");
 	refs.state.classList.add(running ? "ok" : "bad");
 	refs.decision.textContent = status.decision || status.currentAction || status.lastFailureReason || "No decision yet.";
-	refs.target.value = status.target || refs.target.value;
-	refs.mode.value = String(live);
+	syncSkillFarmerRunControlsFromStatus(skill, status);
 	refs.statusGrid.innerHTML = [
 		["Target", status.target || "Unknown"],
 		["Action", status.currentAction || "Unknown"],
 		["Selected", selected.name || selected.label || "None"],
 		["Path distance", selected.pathDistance ?? "None"],
 		["Reachable", selected.reachable === undefined ? "Unknown" : String(Boolean(selected.reachable))],
+		["Scan radius", selectedValue(status.scanRadiusTiles, "Unknown")],
+		["Max candidates", selectedValue(status.maxCandidates, "Unknown")],
 		["Inventory GE", formatGp(inventory.gePrice)],
 		["Inventory HA", formatGp(inventory.haPrice)],
 		["Free slots", selectedValue(inventory.freeSlots, "Unknown")],
@@ -1042,32 +1307,95 @@ function renderSkillFarmer(skill, statusPayload, configPayload) {
 	refs.details.innerHTML = [
 		renderSkillSelectedBlock(skill, selected),
 		renderSkillCandidateTable(skill, Array.isArray(status.candidates) ? status.candidates : []),
-		renderMobFarmerInventory(inventory),
 	].join("");
 }
 
-function renderSkillFarmerConfig(skill, payload) {
+function receiveSkillFarmerLiveConfig(skill, payload) {
 	const refs = skillFarmers[skill];
 	if (!refs || !payload) {
 		return;
 	}
 	if (payload.unavailable) {
-		refs.configStatus.textContent = `Unavailable until client relaunch: ${payload.error}`;
+		if (!skillFarmerDraftPayloads[skill]) {
+			setConfigState(refs.configStatus, "Config endpoint unavailable", "bad");
+			refs.configForm.innerHTML = `<p class="empty compact">The running CV Helper build does not expose ${escapeHtml(payload.path || "this config endpoint")} yet.</p>`;
+		}
+		return;
+	}
+	const nextFingerprint = configFingerprint(payload);
+	const previousFingerprint = skillFarmerLastLiveFingerprints[skill] || "";
+	skillFarmerConfigPayloads[skill] = payload;
+	skillFarmerLastLiveFingerprints[skill] = nextFingerprint;
+	renderSkillFarmerPresets(skill, payload);
+	if (skillFarmerDraftPayloads[skill] && nextFingerprint !== configFingerprint(skillFarmerDraftPayloads[skill])) {
+		skillFarmerLiveChangedWhileDirty[skill] = true;
+		if (skillFarmerDraftDirty[skill]) {
+			showSkillFarmerConfigWarning(skill, "Live config changed while this draft has unsaved changes. The draft was not overwritten.");
+			setConfigState(refs.configStatus, "Unsaved changes", "warn");
+		} else if (previousFingerprint && nextFingerprint !== previousFingerprint) {
+			showSkillFarmerConfigWarning(skill, "Live config changed after this draft was loaded. Use Load current into draft or Reset draft to refresh it.");
+			setConfigState(refs.configStatus, "Live changed", "warn");
+		}
+		return;
+	}
+	if (!skillFarmerDraftPayloads[skill]) {
+		renderSkillFarmerDraftPlaceholder(skill, "Live config is available. Load current into draft to edit safely.");
+	} else if (!skillFarmerDraftDirty[skill]) {
+		setConfigState(refs.configStatus, "Synced", "ok");
+	}
+}
+
+function renderSkillFarmerDraftPlaceholder(skill, message) {
+	const refs = skillFarmers[skill];
+	setConfigState(refs.configStatus, skillFarmerConfigPayloads[skill] ? "Live available" : "No draft loaded", "neutral");
+	refs.configForm.innerHTML = `<p class="empty compact">${escapeHtml(message)}</p>`;
+}
+
+function renderSkillFarmerConfig(skill, payload, stateLabel = "Synced", tone = "ok") {
+	const refs = skillFarmers[skill];
+	if (!refs || !payload) {
+		renderSkillFarmerDraftPlaceholder(skill, "No draft loaded. Load current config or import JSON to begin editing.");
+		return;
+	}
+	if (payload.unavailable) {
+		setConfigState(refs.configStatus, `Unavailable: ${payload.error}`, "bad");
 		refs.configForm.innerHTML = `<p class="empty compact">The running CV Helper build does not expose ${escapeHtml(payload.path || "this config endpoint")} yet.</p>`;
 		return;
 	}
-	skillFarmerConfigPayloads[skill] = payload;
 	const settings = payload.settings || {};
 	const schema = Array.isArray(payload.schema) ? payload.schema : [];
-	refs.configStatus.textContent = `Synced ${new Date().toLocaleTimeString()} - v${payload.version || 1}`;
-	refs.configForm.innerHTML = schema.map(field => renderConfigField(field, settings[field.key])).join("");
-	refs.target.value = settings.target || refs.target.value;
-	refs.mode.value = String(Boolean(settings.live));
-	const presets = Array.isArray(payload.presets) ? payload.presets : [];
-	refs.preset.innerHTML = presets.length
-		? presets.map(profile => `<option value="${escapeHtml(profile.target || "")}">${escapeHtml(profile.name || profile.target || "Preset")}</option>`).join("")
-		: `<option value="">No presets</option>`;
+	setConfigState(refs.configStatus, `${stateLabel} - v${payload.version || 1}`, tone);
+	refs.configForm.innerHTML = schema.length
+		? schema.map(field => renderConfigField(field, settings[field.key], `${skill}-config`)).join("")
+		: `<p class="empty compact">This draft has no editable schema. Load current into draft before importing partial settings.</p>`;
+	syncSkillFarmerRunControlsFromDraft(skill, settings);
+	renderSkillFarmerPresets(skill, payload);
 	clearSkillFarmerConfigErrors(skill);
+}
+
+function renderSkillFarmerPresets(skill, payload) {
+	const refs = skillFarmers[skill];
+	const presets = Array.isArray(payload.presets) ? payload.presets : [];
+	const previousValue = refs.preset.value;
+	refs._presets = presets;
+	refs.preset.innerHTML = presets.length
+		? presets.map((profile, index) => `<option value="${index}">${escapeHtml(profile.name || profile.target || `Preset ${index + 1}`)}</option>`).join("")
+		: `<option value="">No presets</option>`;
+	if (!presets.length) {
+		return;
+	}
+
+	const previousIndex = Number(previousValue);
+	if (Number.isInteger(previousIndex) && previousIndex >= 0 && previousIndex < presets.length) {
+		refs.preset.value = previousValue;
+		return;
+	}
+
+	const targetValue = refs.target.value.trim().toLowerCase();
+	const matchingIndex = presets.findIndex(profile => String(profile?.target || "").trim().toLowerCase() === targetValue);
+	if (matchingIndex >= 0) {
+		refs.preset.value = String(matchingIndex);
+	}
 }
 
 async function runSkillFarmerAction(skill, action) {
@@ -1077,6 +1405,10 @@ async function runSkillFarmerAction(skill, action) {
 	const refs = skillFarmers[skill];
 	const target = refs.target.value.trim();
 	const live = refs.mode.value === "true";
+	setSkillFarmerRunControlDraft(skill, {
+		targetDirty: false,
+		modeDirty: false,
+	});
 	const path = action === "stop"
 		? `/automation/${skill}/stop`
 		: `/automation/${skill}/${action}?target=${encodeURIComponent(target)}&live=${encodeURIComponent(String(live))}`;
@@ -1093,9 +1425,28 @@ async function loadSkillFarmerConfig(skill) {
 	try {
 		clearSkillFarmerConfigErrors(skill);
 		const payload = await request(`/automation/${skill}/config`);
-		renderSkillFarmerConfig(skill, payload);
+		skillFarmerConfigPayloads[skill] = payload;
+		skillFarmerLastLiveFingerprints[skill] = configFingerprint(payload);
+		skillFarmerDraftPayloads[skill] = deepClone(payload);
+		skillFarmerDraftDirty[skill] = false;
+		skillFarmerLiveChangedWhileDirty[skill] = false;
+		renderSkillFarmerConfig(skill, skillFarmerDraftPayloads[skill], "Synced", "ok");
 	} catch (error) {
 		showSkillFarmerConfigErrors(skill, [formatError(error)]);
+	}
+}
+
+function resetSkillFarmerDraft(skill) {
+	if (skillFarmerConfigPayloads[skill]) {
+		skillFarmerDraftPayloads[skill] = deepClone(skillFarmerConfigPayloads[skill]);
+		skillFarmerDraftDirty[skill] = false;
+		skillFarmerLiveChangedWhileDirty[skill] = false;
+		renderSkillFarmerConfig(skill, skillFarmerDraftPayloads[skill], "Synced", "ok");
+		clearSkillFarmerConfigErrors(skill);
+	} else {
+		skillFarmerDraftPayloads[skill] = null;
+		skillFarmerDraftDirty[skill] = false;
+		renderSkillFarmerDraftPlaceholder(skill, "No live config loaded yet. Use Load current into draft first.");
 	}
 }
 
@@ -1111,24 +1462,29 @@ async function saveSkillFarmerConfig(skill) {
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(payload),
 		});
-		renderSkillFarmerConfig(skill, result.config || payload);
+		skillFarmerConfigPayloads[skill] = result.config || payload;
+		skillFarmerLastLiveFingerprints[skill] = configFingerprint(skillFarmerConfigPayloads[skill]);
+		skillFarmerDraftPayloads[skill] = deepClone(skillFarmerConfigPayloads[skill]);
+		skillFarmerDraftDirty[skill] = false;
+		skillFarmerLiveChangedWhileDirty[skill] = false;
+		renderSkillFarmerConfig(skill, skillFarmerDraftPayloads[skill], "Applied successfully", "ok");
 		await refreshAll();
 	} catch (error) {
 		showSkillFarmerConfigErrors(skill, [formatError(error)]);
+		setConfigState(skillFarmers[skill].configStatus, "Apply failed", "bad");
 	}
 }
 
 function exportSkillFarmerConfig(skill) {
 	const refs = skillFarmers[skill];
-	const payload = collectSkillFarmerConfigFromForm(skill);
+	const payload = skillFarmerDraftPayloads[skill]
+		? collectSkillFarmerConfigFromForm(skill)
+		: (skillFarmerConfigPayloads[skill] || { version: 1, skill, settings: {} });
 	refs.configJson.value = JSON.stringify(payload, null, 2);
-	refs.configStatus.textContent = "Exported JSON from current form";
+	setConfigState(refs.configStatus, skillFarmerDraftDirty[skill] ? "Unsaved changes" : "Synced", skillFarmerDraftDirty[skill] ? "warn" : "ok");
 }
 
-async function importSkillFarmerConfig(skill) {
-	if (!(await ensurePort())) {
-		return;
-	}
+function importSkillFarmerConfig(skill) {
 	const refs = skillFarmers[skill];
 	try {
 		clearSkillFarmerConfigErrors(skill);
@@ -1137,14 +1493,9 @@ async function importSkillFarmerConfig(skill) {
 			showSkillFarmerConfigErrors(skill, ["Paste exported JSON before importing."]);
 			return;
 		}
-		const payload = JSON.parse(raw);
-		const result = await request(`/automation/${skill}/config`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(payload),
-		});
-		renderSkillFarmerConfig(skill, result.config || payload);
-		await refreshAll();
+		skillFarmerDraftPayloads[skill] = normalizeSkillFarmerDraft(skill, JSON.parse(raw));
+		skillFarmerDraftDirty[skill] = true;
+		renderSkillFarmerConfig(skill, skillFarmerDraftPayloads[skill], "Draft modified", "warn");
 	} catch (error) {
 		showSkillFarmerConfigErrors(skill, [formatError(error)]);
 	}
@@ -1162,22 +1513,126 @@ function collectSkillFarmerConfigFromForm(skill) {
 	}
 	settings.live = refs.mode.value === "true";
 	return {
-		version: skillFarmerConfigPayloads[skill]?.version || 1,
+		version: skillFarmerDraftPayloads[skill]?.version || skillFarmerConfigPayloads[skill]?.version || 1,
 		skill,
 		settings,
 	};
+}
+
+function markSkillFarmerDraftDirty(skill) {
+	if (!skillFarmerDraftPayloads[skill]) {
+		return;
+	}
+	skillFarmerDraftDirty[skill] = true;
+	const refs = skillFarmers[skill];
+	setConfigState(refs.configStatus, skillFarmerLiveChangedWhileDirty[skill] ? "Unsaved changes; live changed" : "Unsaved changes", "warn");
+}
+
+function ensureSkillFarmerRunControlDraft(skill) {
+	if (!skillFarmerRunControlDrafts[skill]) {
+		skillFarmerRunControlDrafts[skill] = {
+			targetDirty: false,
+			modeDirty: false,
+		};
+	}
+	return skillFarmerRunControlDrafts[skill];
+}
+
+function setSkillFarmerRunControlDraft(skill, patch) {
+	const draft = ensureSkillFarmerRunControlDraft(skill);
+	Object.assign(draft, patch || {});
+}
+
+function markSkillFarmerRunControlDirty(skill, control) {
+	const refs = skillFarmers[skill];
+	if (!refs) {
+		return;
+	}
+	setSkillFarmerRunControlDraft(skill, {
+		targetDirty: control === "target" ? true : ensureSkillFarmerRunControlDraft(skill).targetDirty,
+		modeDirty: control === "mode" ? true : ensureSkillFarmerRunControlDraft(skill).modeDirty,
+	});
+	if (skillFarmerDraftPayloads[skill]) {
+		markSkillFarmerDraftDirty(skill);
+	}
+}
+
+function syncSkillFarmerRunControlsFromStatus(skill, status) {
+	const refs = skillFarmers[skill];
+	const draft = ensureSkillFarmerRunControlDraft(skill);
+	if (!draft.targetDirty && document.activeElement !== refs.target) {
+		refs.target.value = status.target || refs.target.value;
+	}
+	if (!draft.modeDirty && document.activeElement !== refs.mode) {
+		refs.mode.value = String(Boolean(status.live));
+	}
+}
+
+function syncSkillFarmerRunControlsFromDraft(skill, settings) {
+	const refs = skillFarmers[skill];
+	if ((settings.target || "") && document.activeElement !== refs.target) {
+		refs.target.value = settings.target;
+	}
+	if (settings.live !== undefined && document.activeElement !== refs.mode) {
+		refs.mode.value = String(Boolean(settings.live));
+	}
+	setSkillFarmerRunControlDraft(skill, {
+		targetDirty: false,
+		modeDirty: false,
+	});
+}
+
+function resolveSkillFarmerPresetLive(preset) {
+	if (!preset || typeof preset !== "object") {
+		return undefined;
+	}
+	if (typeof preset.live === "boolean") {
+		return preset.live;
+	}
+	if (preset.settings && typeof preset.settings.live === "boolean") {
+		return preset.settings.live;
+	}
+	return undefined;
+}
+
+function applySkillFarmerPreset(skill, preset) {
+	const refs = skillFarmers[skill];
+	if (!refs || !preset) {
+		return;
+	}
+	if (preset.target) {
+		refs.target.value = preset.target;
+	}
+	const presetLive = resolveSkillFarmerPresetLive(preset);
+	if (presetLive !== undefined) {
+		refs.mode.value = String(Boolean(presetLive));
+	}
+	setSkillFarmerRunControlDraft(skill, {
+		targetDirty: true,
+		modeDirty: presetLive !== undefined,
+	});
+	if (skillFarmerDraftPayloads[skill]) {
+		markSkillFarmerDraftDirty(skill);
+	}
 }
 
 function showSkillFarmerConfigErrors(skill, errors) {
 	const refs = skillFarmers[skill];
 	refs.configErrors.classList.add("visible");
 	refs.configErrors.innerHTML = `<strong>Config not applied.</strong><ul>${errors.map(error => `<li>${escapeHtml(error)}</li>`).join("")}</ul>`;
-	refs.configStatus.textContent = "Validation failed";
+	setConfigState(refs.configStatus, "Validation failed", "bad");
+}
+
+function showSkillFarmerConfigWarning(skill, message) {
+	const refs = skillFarmers[skill];
+	refs.configErrors.classList.add("visible", "warning");
+	refs.configErrors.innerHTML = `<strong>Draft preserved.</strong> ${escapeHtml(message)}`;
 }
 
 function clearSkillFarmerConfigErrors(skill) {
 	const refs = skillFarmers[skill];
 	refs.configErrors.classList.remove("visible");
+	refs.configErrors.classList.remove("warning");
 	refs.configErrors.innerHTML = "";
 }
 
@@ -1194,6 +1649,10 @@ function renderSkillSelectedBlock(skill, selected) {
 		straightDistance: selected.distance,
 		pathDistance: selected.pathDistance,
 		reachable: selected.reachable,
+		visible: selected.visible,
+		bounds: formatRect(selected.bounds || selected.canvasBounds || {}),
+		clickPoint: selected.clickPoint,
+		menuAction: selected.menuAction,
 		pathFailureReason: selected.pathFailureReason,
 		reasons: selected.reasons,
 	});
@@ -1208,6 +1667,8 @@ function renderSkillCandidateTable(skill, candidates) {
 			<td>${escapeHtml(candidate.distance ?? "")}</td>
 			<td>${escapeHtml(candidate.pathDistance ?? "")}</td>
 			<td>${candidate.reachable ? "yes" : "no"}</td>
+			<td>${candidate.visible ? "yes" : "no"}</td>
+			<td>${formatRect(candidate.bounds || candidate.canvasBounds || {})}<br><small>${escapeHtml(formatPoint(candidate.clickPoint))}</small></td>
 			<td>${candidate.selectable ? "selectable" : "skip"}</td>
 			<td>${escapeHtml((candidate.reasons || []).join(", ") || candidate.pathFailureReason || "")}</td>
 		</tr>
@@ -1229,6 +1690,8 @@ function renderSkillCandidateTable(skill, candidates) {
 								<th>Straight</th>
 								<th>Path</th>
 								<th>Reachable</th>
+								<th>Visible</th>
+								<th>Box / click</th>
 								<th>Decision</th>
 								<th>Reason</th>
 							</tr>
@@ -1293,9 +1756,15 @@ function loadMobFarmerProfile() {
 		showMobFarmerConfigErrors(["Select a saved profile first."]);
 		return;
 	}
-	renderMobFarmerConfig(profile.payload);
-	mobFarmerConfigJson.value = JSON.stringify(profile.payload, null, 2);
-	mobFarmerConfigStatus.textContent = `Loaded profile "${profile.name}" into the form; click Save to client to apply.`;
+	mobFarmerDraftPayload = normalizeMobFarmerDraft(profile.payload);
+	mobFarmerDraftDirty = true;
+	mobFarmerLiveChangedWhileDirty = Boolean(
+		mobFarmerConfigPayload
+		&& configFingerprint(mobFarmerConfigPayload) !== configFingerprint(mobFarmerDraftPayload)
+	);
+	renderMobFarmerConfig(mobFarmerDraftPayload, "Draft modified", "warn");
+	mobFarmerConfigJson.value = JSON.stringify(mobFarmerDraftPayload, null, 2);
+	setConfigState(mobFarmerConfigStatus, `Loaded profile "${profile.name}" into draft`, "warn");
 	logMobFarmerEvent(`profile loaded: ${profile.name}`);
 }
 
@@ -1399,17 +1868,18 @@ function renderEntities(payload, nearestPayload) {
 				</div>
 			` : ""}
 			${rows.length ? `
+				<input class="table-filter" data-table-filter="entities-table" placeholder="Filter entities">
 				<div class="table-wrap">
-					<table>
+					<table data-table-id="entities-table">
 						<thead>
 							<tr>
-								<th>Name</th>
-								<th>Type</th>
-								<th>ID</th>
-								<th>Distance</th>
-								<th>World</th>
-								<th>Bounds</th>
-								<th>Click</th>
+								<th data-sort>Name</th>
+								<th data-sort>Type</th>
+								<th data-sort>ID</th>
+								<th data-sort>Distance</th>
+								<th data-sort>World</th>
+								<th data-sort>Bounds</th>
+								<th data-sort>Click</th>
 							</tr>
 						</thead>
 						<tbody>${body}</tbody>
@@ -1450,6 +1920,7 @@ function renderSurface(payload) {
 	}
 	const rows = payload.targets || [];
 	const body = rows.map(target => renderTargetRow(payload.surface, target)).join("");
+	const tableId = `surface-${payload.surface || "unknown"}-table`;
 	const empty = rows.length === 0
 		? `<p class="empty">No targets. If this surface depends on a RuneLite tab, leave that tab visible and refresh.</p>`
 		: "";
@@ -1465,16 +1936,17 @@ function renderSurface(payload) {
 			</header>
 			${empty}
 			${rows.length ? `
+				<input class="table-filter" data-table-filter="${escapeHtml(tableId)}" placeholder="Filter ${escapeHtml(payload.surface || "targets")}">
 				<div class="table-wrap">
-					<table>
+					<table data-table-id="${escapeHtml(tableId)}">
 						<thead>
 							<tr>
-								<th>Label</th>
-								<th>Widget</th>
-								<th>Item</th>
-								<th>Bounds</th>
-								<th>Center</th>
-								<th>Actions</th>
+								<th data-sort>Label</th>
+								<th data-sort>Widget</th>
+								<th data-sort>Item</th>
+								<th data-sort>Bounds</th>
+								<th data-sort>Center</th>
+								<th data-sort>Actions</th>
 							</tr>
 						</thead>
 						<tbody>${body}</tbody>
@@ -1579,15 +2051,34 @@ function renderMobFarmerRaw() {
 	mobFarmerRaw.textContent = JSON.stringify(mobFarmerRawPayload ?? {}, null, 2);
 }
 
+function renderRawData() {
+	renderMobFarmerRaw();
+	const entries = Object.entries(latestRawPayloads || {}).filter(([, value]) => value !== undefined);
+	rawDataRoot.innerHTML = entries.map(([key, value]) => `
+		<details>
+			<summary>${escapeHtml(key)}</summary>
+			<pre>${escapeHtml(JSON.stringify(value ?? {}, null, 2))}</pre>
+		</details>
+	`).join("");
+}
+
 function renderMobFarmerBlock(title, payload) {
-	const lines = flattenMobFarmerPayload(payload);
+	const rows = structuredRows(payload);
+	const summary = typeof payload === "string" ? payload : rows[0]?.[1] || "No data";
 	return `
 		<article class="mob-farmer-block">
 			<header>
 				<h3>${escapeHtml(title)}</h3>
-				<small>${escapeHtml(typeof payload === "string" ? payload : lines[0] || "No data")}</small>
+				<small>${escapeHtml(summary)}</small>
 			</header>
-			${lines.length ? `<pre>${escapeHtml(lines.join("\n"))}</pre>` : `<p class="empty compact">No data.</p>`}
+			${rows.length ? `
+				<div class="table-wrap compact-table">
+					<table>
+						<thead><tr><th data-sort>Field</th><th data-sort>Value</th></tr></thead>
+						<tbody>${rows.map(([key, value]) => `<tr><td>${escapeHtml(key)}</td><td>${escapeHtml(value)}</td></tr>`).join("")}</tbody>
+					</table>
+				</div>
+			` : `<p class="empty compact">No data.</p>`}
 		</article>
 	`;
 }
@@ -1687,14 +2178,35 @@ function renderHighAlchCandidates(candidates) {
 }
 
 function renderMobFarmerMenuEntries(entries) {
-	const rows = entries.map(entry => `<li>${escapeHtml(typeof entry === "string" ? entry : JSON.stringify(entry))}</li>`).join("");
+	const rows = entries.slice(0, 30).map(entry => {
+		if (typeof entry === "string") {
+			return `<tr><td>${escapeHtml(entry)}</td><td></td><td></td><td></td></tr>`;
+		}
+		return `
+			<tr>
+				<td>${escapeHtml(entry.option || "")}</td>
+				<td>${escapeHtml(entry.npcName || entry.target || "")}</td>
+				<td>${escapeHtml(entry.menuAction || "")}</td>
+				<td>${escapeHtml(entry.at || "")}</td>
+			</tr>
+		`;
+	}).join("");
 	return `
 		<article class="mob-farmer-block">
 			<header>
 				<h3>Recent menu entries</h3>
 				<small>${escapeHtml(entries.length)} entries</small>
 			</header>
-			${entries.length ? `<ul class="compact-list">${rows}</ul>` : `<p class="empty compact">No recent menu entries.</p>`}
+			${entries.length ? `
+				<div class="table-wrap compact-table">
+					<table>
+						<thead>
+							<tr><th data-sort>Option</th><th data-sort>Target</th><th data-sort>Action</th><th data-sort>At</th></tr>
+						</thead>
+						<tbody>${rows}</tbody>
+					</table>
+				</div>
+			` : `<p class="empty compact">No recent menu entries.</p>`}
 		</article>
 	`;
 }
@@ -1721,6 +2233,40 @@ function flattenMobFarmerPayload(payload, indent = 0) {
 		}
 		return [`${" ".repeat(indent)}${key}: ${value}`];
 	});
+}
+
+function structuredRows(payload, prefix = "") {
+	if (payload === null || payload === undefined) {
+		return [];
+	}
+	if (typeof payload === "string" || typeof payload === "number" || typeof payload === "boolean") {
+		return [[prefix || "value", String(payload)]];
+	}
+	if (Array.isArray(payload)) {
+		return payload.slice(0, 12).map((item, index) => [`${prefix || "item"} ${index + 1}`, compactValue(item)]);
+	}
+	return Object.entries(payload).flatMap(([key, value]) => {
+		const label = prefix ? `${prefix}.${key}` : key;
+		if (value && typeof value === "object" && !Array.isArray(value)) {
+			const nested = structuredRows(value, label);
+			return nested.length ? nested.slice(0, 16) : [[label, ""]];
+		}
+		return [[label, compactValue(value)]];
+	}).slice(0, 28);
+}
+
+function compactValue(value) {
+	if (value === null || value === undefined) {
+		return "";
+	}
+	if (Array.isArray(value)) {
+		return value.map(compactValue).join(", ");
+	}
+	if (typeof value === "object") {
+		const label = value.name || value.label || value.decision || value.status || value.target || value.result;
+		return label ? String(label) : JSON.stringify(value);
+	}
+	return String(value);
 }
 
 function formatMobFarmerCandidate(candidate) {
@@ -1858,6 +2404,48 @@ function renderCapturePreview(capture) {
 			<p>${escapeHtml(capture.savedPath || "")}</p>
 		</article>
 	`;
+}
+
+function filterTable(input) {
+	const tableId = input.getAttribute("data-table-filter");
+	const table = document.querySelector(`[data-table-id="${CSS.escape(tableId)}"]`);
+	if (!table) {
+		return;
+	}
+	const needle = input.value.trim().toLowerCase();
+	for (const row of table.tBodies[0]?.rows || []) {
+		row.hidden = needle && !row.textContent.toLowerCase().includes(needle);
+	}
+}
+
+function sortTable(header) {
+	const table = header.closest("table");
+	const tbody = table?.tBodies[0];
+	if (!table || !tbody) {
+		return;
+	}
+	const column = Array.from(header.parentElement.children).indexOf(header);
+	const direction = header.dataset.direction === "asc" ? "desc" : "asc";
+	for (const cell of header.parentElement.children) {
+		delete cell.dataset.direction;
+	}
+	header.dataset.direction = direction;
+	const rows = Array.from(tbody.rows);
+	rows.sort((left, right) => {
+		const a = sortValue(left.cells[column]?.textContent || "");
+		const b = sortValue(right.cells[column]?.textContent || "");
+		if (typeof a === "number" && typeof b === "number") {
+			return direction === "asc" ? a - b : b - a;
+		}
+		return direction === "asc" ? String(a).localeCompare(String(b)) : String(b).localeCompare(String(a));
+	});
+	tbody.append(...rows);
+}
+
+function sortValue(value) {
+	const trimmed = String(value || "").replace(/,/g, "").trim();
+	const numeric = Number(trimmed.match(/-?\d+(\.\d+)?/)?.[0]);
+	return Number.isFinite(numeric) ? numeric : trimmed.toLowerCase();
 }
 
 function readRememberedPorts() {

@@ -140,6 +140,15 @@ class CvHelperOverlay extends Overlay
 			}
 		}
 
+		if (plugin.getConfig().showSkillFarmerTargets())
+		{
+			for (Map<String, Object> target : plugin.getLiveSkillFarmerTargets())
+			{
+				drawTarget(graphics, target, new Color(72, 219, 116));
+				rendered = true;
+			}
+		}
+
 		return rendered ? new Dimension(1, 1) : null;
 	}
 

@@ -113,6 +113,7 @@ class CvHelperPanel extends PluginPanel
 		JCheckBox panelTargets = new JCheckBox("Panel tab boxes", plugin.getConfig().showPanelTargets());
 		JCheckBox combatTargets = new JCheckBox("Combat option boxes", plugin.getConfig().showCombatTargets());
 		JCheckBox entityTargets = new JCheckBox("Nearby entity boxes", plugin.getConfig().showEntityTargets());
+		JCheckBox skillFarmerTargets = new JCheckBox("Skilling target boxes", plugin.getConfig().showSkillFarmerTargets());
 		JCheckBox targetLabels = new JCheckBox("Target labels", plugin.getConfig().showTargetLabels());
 		JCheckBox localExport = new JCheckBox("Localhost export", plugin.getConfig().enableLocalExport());
 
@@ -126,10 +127,11 @@ class CvHelperPanel extends PluginPanel
 		panelTargets.addActionListener(e -> plugin.setShowPanelTargets(panelTargets.isSelected()));
 		combatTargets.addActionListener(e -> plugin.setShowCombatTargets(combatTargets.isSelected()));
 		entityTargets.addActionListener(e -> plugin.setShowEntityTargets(entityTargets.isSelected()));
+		skillFarmerTargets.addActionListener(e -> plugin.setShowSkillFarmerTargets(skillFarmerTargets.isSelected()));
 		targetLabels.addActionListener(e -> plugin.setShowTargetLabels(targetLabels.isSelected()));
 		localExport.addActionListener(e -> plugin.setLocalExportEnabled(localExport.isSelected()));
 
-		for (JCheckBox checkbox : new JCheckBox[]{hoverOverlay, widgetInfo, prayerTargets, spellTargets, minimapTargets, inventoryTargets, equipmentTargets, panelTargets, combatTargets, entityTargets, targetLabels, localExport})
+		for (JCheckBox checkbox : new JCheckBox[]{hoverOverlay, widgetInfo, prayerTargets, spellTargets, minimapTargets, inventoryTargets, equipmentTargets, panelTargets, combatTargets, entityTargets, skillFarmerTargets, targetLabels, localExport})
 		{
 			styleCheckbox(checkbox);
 			toggles.add(checkbox);

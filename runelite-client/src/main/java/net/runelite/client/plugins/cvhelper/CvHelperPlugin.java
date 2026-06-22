@@ -138,6 +138,32 @@ public class CvHelperPlugin extends Plugin
 	private static final int MOB_FARMER_UNRESOLVED_LOOT_SKIP_TICKS = 30;
 	private static final int MOB_FARMER_PATHING_SLACK_TILES = 8;
 	private static final int MOB_FARMER_PATHING_MAX_SEARCH_TILES = 64;
+	private static final int SKILL_FARMER_SCAN_RADIUS_TILES = 24;
+	private static final int SKILL_FARMER_MAX_CANDIDATES = 80;
+	private static final int SKILL_FARMER_PATH_SEARCH_TILES = 30;
+	private static final String MOB_FARMER_IMPLICIT_NEVER_DROP_ITEMS = String.join("|",
+		"rune pouch",
+		"coins",
+		"clue scroll",
+		"clue geode",
+		"clue nest",
+		"clue bottle",
+		"casket",
+		"reward casket",
+		"clue box",
+		"giant key",
+		"mossy key",
+		"brimstone key",
+		"larran's key",
+		"crystal key",
+		"enhanced crystal key",
+		"dark totem",
+		"ancient shard",
+		"champion's scroll",
+		"long bone",
+		"curved bone",
+		"jar of"
+	);
 	private static final int[][] MOB_FARMER_PATH_DIRECTIONS = {
 		{1, 0},
 		{-1, 0},
@@ -231,6 +257,7 @@ public class CvHelperPlugin extends Plugin
 	private CvHelperPanel panel;
 	private HttpServer server;
 	private final AtomicReference<String> lastEvent = new AtomicReference<>("idle");
+	private final AtomicReference<Instant> lastLocalWebHelperRequest = new AtomicReference<>();
 	private volatile List<Map<String, Object>> lastPrayerTargets = new ArrayList<>();
 	private volatile List<Map<String, Object>> lastSpellTargets = new ArrayList<>();
 	private volatile List<Map<String, Object>> lastMinimapTargets = new ArrayList<>();
@@ -301,6 +328,10 @@ public class CvHelperPlugin extends Plugin
 	private volatile boolean woodcuttingFarmerLiveMode;
 	private volatile String miningFarmerTarget = "iron rocks|iron ore rocks|rocks";
 	private volatile String woodcuttingFarmerTarget = "oak|tree|willow|maple";
+	private volatile int miningFarmerScanRadius = SKILL_FARMER_SCAN_RADIUS_TILES;
+	private volatile int woodcuttingFarmerScanRadius = SKILL_FARMER_SCAN_RADIUS_TILES;
+	private volatile int miningFarmerMaxCandidates = SKILL_FARMER_MAX_CANDIDATES;
+	private volatile int woodcuttingFarmerMaxCandidates = SKILL_FARMER_MAX_CANDIDATES;
 	private volatile Map<String, Object> lastMiningFarmerStatus = new LinkedHashMap<>();
 	private volatile Map<String, Object> lastWoodcuttingFarmerStatus = new LinkedHashMap<>();
 	private final Map<String, Integer> lastMobFarmerActionTickByKey = new LinkedHashMap<>();
@@ -1015,7 +1046,15 @@ public class CvHelperPlugin extends Plugin
 	String getServerStatusText()
 	{
 		int port = localPort();
-		return port > 0 ? "Server: http://127.0.0.1:" + port : "Server: off";
+		if (port <= 0)
+		{
+			return "Server: off";
+		}
+		Instant lastRequest = lastLocalWebHelperRequest.get();
+		String webHelper = lastRequest == null
+			? "WebHelper: waiting"
+			: "WebHelper: seen " + Math.max(0L, TimeUnit.MILLISECONDS.toSeconds(Instant.now().toEpochMilli() - lastRequest.toEpochMilli())) + "s ago";
+		return "Server: http://127.0.0.1:" + port + " | " + webHelper;
 	}
 
 	Map<String, Object> getPlayerStatus()
@@ -1154,6 +1193,53 @@ public class CvHelperPlugin extends Plugin
 		return lastEntities;
 	}
 
+	List<Map<String, Object>> getLiveSkillFarmerTargets()
+	{
+		List<Map<String, Object>> targets = new ArrayList<>();
+		addSkillFarmerOverlayTargets(targets, lastMiningFarmerStatus);
+		addSkillFarmerOverlayTargets(targets, lastWoodcuttingFarmerStatus);
+		return targets;
+	}
+
+	private void addSkillFarmerOverlayTargets(List<Map<String, Object>> targets, Map<String, Object> status)
+	{
+		if (status == null || status.isEmpty())
+		{
+			return;
+		}
+		Set<String> seen = new HashSet<>();
+		Object selected = status.get("selected");
+		if (selected instanceof Map)
+		{
+			addSkillFarmerOverlayTarget(targets, seen, (Map<String, Object>) selected);
+		}
+		Object candidates = status.get("candidates");
+		if (!(candidates instanceof List))
+		{
+			return;
+		}
+		for (Object value : (List<?>) candidates)
+		{
+			if (value instanceof Map)
+			{
+				addSkillFarmerOverlayTarget(targets, seen, (Map<String, Object>) value);
+			}
+		}
+	}
+
+	private void addSkillFarmerOverlayTarget(List<Map<String, Object>> targets, Set<String> seen, Map<String, Object> target)
+	{
+		if (target == null || !(target.get("bounds") instanceof Map))
+		{
+			return;
+		}
+		String key = target.get("skill") + ":" + target.get("id") + ":" + String.valueOf(target.get("worldLocation"));
+		if (seen.add(key))
+		{
+			targets.add(target);
+		}
+	}
+
 	List<Rectangle> getLivePrayerTargetBounds()
 	{
 		getLivePrayerTargets();
@@ -1270,6 +1356,11 @@ public class CvHelperPlugin extends Plugin
 		{
 			refreshEntities();
 		}
+	}
+
+	void setShowSkillFarmerTargets(boolean value)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.SHOW_SKILL_FARMER_TARGETS, value);
 	}
 
 	void setShowTargetLabels(boolean value)
@@ -3507,7 +3598,7 @@ public class CvHelperPlugin extends Plugin
 		schema.add(settingSchema("intermediateActionsEnabled", "Intermediate actions", "boolean", "Use configured inventory actions such as Bury/Scatter during safe loop windows.", null));
 		schema.add(settingSchema("intermediateItems", "Intermediate items", "textarea", "Inventory items eligible for configured intermediate actions.", null));
 		schema.add(settingSchema("intermediateActionMappings", "Intermediate map", "textarea", "Mappings like bones -> Bury; ashes -> Scatter|Bury. Drop is never allowed here.", null));
-		schema.add(settingSchema("neverDropItems", "Protected items", "textarea", "Inventory items protected from future drop/replacement actions.", null));
+		schema.add(settingSchema("neverDropItems", "Protected items", "textarea", "Inventory items protected from future drop/replacement actions. Built-in safeguards always protect clue/rare unique items (for example clue scroll rewards, keys, totems, shards, champion scroll, long/curved bones).", null));
 		schema.add(settingSchema("highAlchEnabled", "High Alch policy", "boolean", "Evaluate safe High Alchemy candidates while farming. Current pass reports safe candidates and availability instead of casting unsafely.", null));
 		schema.add(settingSchema("highAlchMinHa", "Min HA value", "number", "Minimum single-item High Alchemy value for candidate reporting.", null));
 		schema.add(settingSchema("highAlchMinDelta", "Min HA delta", "number", "Require HA value minus GE value to be at least this amount.", null));
@@ -5122,12 +5213,13 @@ public class CvHelperPlugin extends Plugin
 		{
 			return false;
 		}
-		if (lastMobFarmerActionTickForKind(MobFarmerActionKind.LOOT_PICKUP) < 0)
+		Integer lastLootTick = lastMobFarmerActionTickForKind(MobFarmerActionKind.LOOT_PICKUP);
+		if (lastLootTick == null)
 		{
 			return false;
 		}
 		int tick = safeValue(client::getTickCount, 0);
-		int ticksSinceLoot = tick - lastMobFarmerActionTickForKind(MobFarmerActionKind.LOOT_PICKUP);
+		int ticksSinceLoot = tick - lastLootTick;
 		if (ticksSinceLoot < 0 || ticksSinceLoot > Math.max(1, MOB_FARMER_LOOT_RESOLUTION_MAX_TICKS))
 		{
 			return false;
@@ -6503,6 +6595,8 @@ public class CvHelperPlugin extends Plugin
 		status.put("running", mining ? miningFarmerRunning.get() : woodcuttingFarmerRunning.get());
 		status.put("live", mining ? miningFarmerLiveMode : woodcuttingFarmerLiveMode);
 		status.put("target", target);
+		status.put("scanRadiusTiles", getSkillFarmerScanRadius(skill));
+		status.put("maxCandidates", getSkillFarmerMaxCandidates(skill));
 		status.put("inventory", inventoryPolicyStatus());
 		return status;
 	}
@@ -6513,12 +6607,16 @@ public class CvHelperPlugin extends Plugin
 		Map<String, Object> settings = new LinkedHashMap<>();
 		settings.put("target", mining ? miningFarmerTarget : woodcuttingFarmerTarget);
 		settings.put("live", mining ? miningFarmerLiveMode : woodcuttingFarmerLiveMode);
+		settings.put("scanRadiusTiles", getSkillFarmerScanRadius(skill));
+		settings.put("maxCandidates", getSkillFarmerMaxCandidates(skill));
 		settings.put("protectedItems", getMobFarmerNeverDropItems());
 		settings.put("inventoryPolicy", "REPORT_ONLY");
 
 		List<Map<String, Object>> schema = new ArrayList<>();
 		schema.add(settingSchema("target", mining ? "Target rocks/ores" : "Target trees/logs", "text", "Pipe/comma/newline separated names or id:123 object ids. The farmer selects the nearest reachable matching object with the correct menu action.", null));
 		schema.add(settingSchema("live", "Live mode default", "boolean", "When enabled, Start/Step sends real menu actions. Leave off for dry selection/debug.", null));
+		schema.add(settingSchema("scanRadiusTiles", "Scan radius tiles", "number", "Scene search radius around the player. Increase this if RuneLite is rendering targets farther out; lower it if scans feel heavy.", null));
+		schema.add(settingSchema("maxCandidates", "Max candidates", "number", "Maximum object candidates returned to WebHelper and overlay. Higher values show more boxes but can be heavier.", null));
 		schema.add(settingSchema("protectedItems", "Protected inventory items", "textarea", "Shared never-drop/protected list from the mob farmer. Skill farmers expose it for drop/replacement decisions.", null));
 		schema.add(settingSchema("inventoryPolicy", "Inventory policy", "select", "Currently reports the shared inventory policy and safest drop candidate; destructive dropping is not auto-invoked yet.", Arrays.asList("REPORT_ONLY")));
 
@@ -6555,6 +6653,12 @@ public class CvHelperPlugin extends Plugin
 		{
 			live = booleanSettingValue(settings.get("live"), "live", errors);
 		}
+		int scanRadius = settings.containsKey("scanRadiusTiles")
+			? Math.max(4, Math.min(64, intSettingValue(settings.get("scanRadiusTiles"), getSkillFarmerScanRadius(skill), "scanRadiusTiles", errors)))
+			: getSkillFarmerScanRadius(skill);
+		int maxCandidates = settings.containsKey("maxCandidates")
+			? Math.max(10, Math.min(300, intSettingValue(settings.get("maxCandidates"), getSkillFarmerMaxCandidates(skill), "maxCandidates", errors)))
+			: getSkillFarmerMaxCandidates(skill);
 		if (!errors.isEmpty())
 		{
 			result.put("ok", false);
@@ -6569,6 +6673,8 @@ public class CvHelperPlugin extends Plugin
 			{
 				miningFarmerLiveMode = Boolean.TRUE.equals(live);
 			}
+			miningFarmerScanRadius = scanRadius;
+			miningFarmerMaxCandidates = maxCandidates;
 		}
 		else
 		{
@@ -6577,6 +6683,8 @@ public class CvHelperPlugin extends Plugin
 			{
 				woodcuttingFarmerLiveMode = Boolean.TRUE.equals(live);
 			}
+			woodcuttingFarmerScanRadius = scanRadius;
+			woodcuttingFarmerMaxCandidates = maxCandidates;
 		}
 		Object protectedItems = settings.get("protectedItems");
 		if (protectedItems instanceof String)
@@ -6617,6 +6725,16 @@ public class CvHelperPlugin extends Plugin
 		profile.put("name", name);
 		profile.put("target", target);
 		return profile;
+	}
+
+	private int getSkillFarmerScanRadius(String skill)
+	{
+		return "mining".equals(skill) ? miningFarmerScanRadius : woodcuttingFarmerScanRadius;
+	}
+
+	private int getSkillFarmerMaxCandidates(String skill)
+	{
+		return "mining".equals(skill) ? miningFarmerMaxCandidates : woodcuttingFarmerMaxCandidates;
 	}
 
 	private void startSkillFarmer(String skill, boolean live)
@@ -6712,6 +6830,8 @@ public class CvHelperPlugin extends Plugin
 		}
 		out.put("candidates", candidates);
 		out.put("selected", best);
+		out.put("scanRadiusTiles", getSkillFarmerScanRadius(skill));
+		out.put("maxCandidates", getSkillFarmerMaxCandidates(skill));
 		out.put("decision", best == null ? "no-valid-target" : "selected:" + targetLabelForMessage(best));
 		return out;
 	}
@@ -6724,14 +6844,38 @@ public class CvHelperPlugin extends Plugin
 		{
 			return objects;
 		}
+		WorldPoint origin = localPlayer == null ? null : localPlayer.getWorldLocation();
+		int scanRadius = getSkillFarmerScanRadius(skill);
+		int maxCandidates = getSkillFarmerMaxCandidates(skill);
 		Tile[][][] tiles = worldView.getScene().getTiles();
 		int plane = Math.max(0, Math.min(worldView.getPlane(), tiles.length - 1));
-		for (int x = 0; x < Math.min(worldView.getSizeX(), tiles[plane].length); x++)
+		int minX = 0;
+		int maxX = Math.min(worldView.getSizeX(), tiles[plane].length) - 1;
+		int minY = 0;
+		int maxY = worldView.getSizeY() - 1;
+		if (origin != null)
 		{
-			for (int y = 0; tiles[plane][x] != null && y < Math.min(worldView.getSizeY(), tiles[plane][x].length); y++)
+			LocalPoint localOrigin = LocalPoint.fromWorld(worldView, origin);
+			if (localOrigin != null)
+			{
+				int sceneX = localOrigin.getSceneX();
+				int sceneY = localOrigin.getSceneY();
+				minX = Math.max(0, sceneX - scanRadius);
+				maxX = Math.min(maxX, sceneX + scanRadius);
+				minY = Math.max(0, sceneY - scanRadius);
+				maxY = Math.min(maxY, sceneY + scanRadius);
+			}
+		}
+		for (int x = minX; x <= maxX; x++)
+		{
+			for (int y = minY; tiles[plane][x] != null && y <= Math.min(maxY, tiles[plane][x].length - 1); y++)
 			{
 				Tile tile = tiles[plane][x][y];
 				if (tile == null)
+				{
+					continue;
+				}
+				if (origin != null && tile.getWorldLocation() != null && origin.distanceTo(tile.getWorldLocation()) > scanRadius)
 				{
 					continue;
 				}
@@ -6752,7 +6896,8 @@ public class CvHelperPlugin extends Plugin
 				addSkillFarmerCandidate(objects, skillFarmerObjectTarget(skill, tile.getGroundObject(), targetText, action, localPlayer));
 			}
 		}
-		return objects;
+		objects.sort((left, right) -> Integer.compare(intValue(left.get("distance"), Integer.MAX_VALUE), intValue(right.get("distance"), Integer.MAX_VALUE)));
+		return objects.size() > maxCandidates ? new ArrayList<>(objects.subList(0, maxCandidates)) : objects;
 	}
 
 	private void addSkillFarmerCandidate(List<Map<String, Object>> objects, Map<String, Object> candidate)
@@ -6769,8 +6914,8 @@ public class CvHelperPlugin extends Plugin
 		{
 			return null;
 		}
-		ObjectComposition composition = client.getObjectDefinition(object.getId());
-		ObjectComposition impostor = composition == null ? null : composition.getImpostor();
+		ObjectComposition composition = safeValue(() -> client.getObjectDefinition(object.getId()), null);
+		ObjectComposition impostor = composition == null ? null : safeValue(composition::getImpostor, null);
 		if (impostor != null)
 		{
 			composition = impostor;
@@ -6781,11 +6926,15 @@ public class CvHelperPlugin extends Plugin
 			return null;
 		}
 		boolean targetMatch = matchesTargetText(name, object.getId(), targetText);
-		boolean actionMatch = objectHasAction(composition, action);
+		int actionIndex = objectActionIndex(composition, action);
+		boolean actionMatch = actionIndex >= 0;
 		if (!targetMatch && !actionMatch)
 		{
 			return null;
 		}
+		net.runelite.api.Point canvasLocation = safeValue(object::getCanvasLocation, null);
+		Map<String, Object> canvasBounds = tileObjectCanvasBounds(object);
+		boolean visible = canvasBounds != null || canvasPointVisible(canvasLocation);
 		int sizeX = 1;
 		int sizeY = 1;
 		Map<String, Object> sceneMin = pointValue(object.getLocalLocation() == null ? null : new Point(object.getLocalLocation().getSceneX(), object.getLocalLocation().getSceneY()));
@@ -6804,6 +6953,19 @@ public class CvHelperPlugin extends Plugin
 			sizeY = Math.max(1, composition.getSizeY());
 		}
 		int distance = localPlayer == null || object.getWorldLocation() == null ? Integer.MAX_VALUE : localPlayer.getWorldLocation().distanceTo(object.getWorldLocation());
+		List<String> reasons = new ArrayList<>();
+		if (!targetMatch)
+		{
+			reasons.add("target-mismatch");
+		}
+		if (!actionMatch)
+		{
+			reasons.add("missing-action:" + action);
+		}
+		if (!visible)
+		{
+			reasons.add("not-visible");
+		}
 		Map<String, Object> target = new LinkedHashMap<>();
 		target.put("skill", skill);
 		target.put("surface", skill);
@@ -6816,27 +6978,35 @@ public class CvHelperPlugin extends Plugin
 		target.put("localLocation", pointValue(object.getLocalLocation()));
 		target.put("sceneMinLocation", sceneMin);
 		target.put("sceneMaxLocation", sceneMax);
-		target.put("clickPoint", pointValue(object.getCanvasLocation()));
+		target.put("bounds", canvasBounds);
+		target.put("canvasBounds", canvasBounds);
+		target.put("clickPoint", pointValue(canvasLocation));
+		target.put("visible", visible);
 		target.put("action", action);
-		target.put("menuAction", MenuAction.GAME_OBJECT_FIRST_OPTION.name());
-		List<String> reasons = new ArrayList<>();
-		if (!targetMatch)
+		target.put("actions", composition == null || composition.getActions() == null ? new String[0] : composition.getActions());
+		target.put("actionIndex", actionIndex);
+		MenuAction menuAction = gameObjectMenuActionForIndex(actionIndex);
+		target.put("menuAction", menuAction == null ? null : menuAction.name());
+		if (targetMatch && actionMatch && visible)
 		{
-			reasons.add("target-mismatch");
+			PathingResult pathing = pathDistanceToWorldArea(localPlayer, new WorldArea(object.getWorldLocation(), sizeX, sizeY), Math.max(SKILL_FARMER_PATH_SEARCH_TILES, getSkillFarmerScanRadius(skill)));
+			target.put("reachable", pathing.reachable);
+			target.put("pathDistance", pathing.reachable ? pathing.pathDistance : null);
+			target.put("pathSearchLimit", pathing.searchLimit);
+			target.put("pathVisited", pathing.visited);
+			target.put("pathFailureReason", pathing.failureReason);
+			if (!pathing.reachable)
+			{
+				reasons.add("unreachable:" + pathing.failureReason);
+			}
 		}
-		if (!actionMatch)
+		else
 		{
-			reasons.add("missing-action:" + action);
-		}
-		PathingResult pathing = pathDistanceToWorldArea(localPlayer, new WorldArea(object.getWorldLocation(), sizeX, sizeY), 30);
-		target.put("reachable", pathing.reachable);
-		target.put("pathDistance", pathing.reachable ? pathing.pathDistance : null);
-		target.put("pathSearchLimit", pathing.searchLimit);
-		target.put("pathVisited", pathing.visited);
-		target.put("pathFailureReason", pathing.failureReason);
-		if (!pathing.reachable)
-		{
-			reasons.add("unreachable:" + pathing.failureReason);
+			target.put("reachable", false);
+			target.put("pathDistance", null);
+			target.put("pathSearchLimit", 0);
+			target.put("pathVisited", 0);
+			target.put("pathFailureReason", reasons.isEmpty() ? null : "not-pathing:" + String.join(",", reasons));
 		}
 		target.put("selectable", reasons.isEmpty());
 		target.put("reasons", reasons);
@@ -6864,20 +7034,78 @@ public class CvHelperPlugin extends Plugin
 		return false;
 	}
 
-	private boolean objectHasAction(ObjectComposition composition, String action)
+	private int objectActionIndex(ObjectComposition composition, String action)
 	{
 		if (composition == null || composition.getActions() == null)
 		{
-			return false;
+			return -1;
 		}
-		for (String option : composition.getActions())
+		String[] actions = composition.getActions();
+		for (int i = 0; i < actions.length; i++)
 		{
-			if (action.equalsIgnoreCase(cleanWidgetText(option)))
+			if (action.equalsIgnoreCase(cleanWidgetText(actions[i])))
 			{
-				return true;
+				return i;
 			}
 		}
-		return false;
+		return -1;
+	}
+
+	private MenuAction gameObjectMenuActionForIndex(int actionIndex)
+	{
+		switch (actionIndex)
+		{
+			case 0:
+				return MenuAction.GAME_OBJECT_FIRST_OPTION;
+			case 1:
+				return MenuAction.GAME_OBJECT_SECOND_OPTION;
+			case 2:
+				return MenuAction.GAME_OBJECT_THIRD_OPTION;
+			case 3:
+				return MenuAction.GAME_OBJECT_FOURTH_OPTION;
+			case 4:
+				return MenuAction.GAME_OBJECT_FIFTH_OPTION;
+			default:
+				return null;
+		}
+	}
+
+	private Map<String, Object> tileObjectCanvasBounds(TileObject object)
+	{
+		if (object == null)
+		{
+			return null;
+		}
+		Shape clickbox = safeValue(object::getClickbox, null);
+		if (clickbox != null)
+		{
+			Rectangle bounds = clickbox.getBounds();
+			if (bounds.width > 0 && bounds.height > 0)
+			{
+				return boundsMap(bounds);
+			}
+		}
+		Polygon tilePoly = safeValue(object::getCanvasTilePoly, null);
+		if (tilePoly != null)
+		{
+			Rectangle bounds = tilePoly.getBounds();
+			if (bounds.width > 0 && bounds.height > 0)
+			{
+				return boundsMap(bounds);
+			}
+		}
+		return null;
+	}
+
+	private boolean canvasPointVisible(net.runelite.api.Point point)
+	{
+		if (point == null)
+		{
+			return false;
+		}
+		int width = safeValue(client::getCanvasWidth, 0);
+		int height = safeValue(client::getCanvasHeight, 0);
+		return point.getX() >= 0 && point.getY() >= 0 && (width <= 0 || point.getX() <= width) && (height <= 0 || point.getY() <= height);
 	}
 
 	private void invokeSkillFarmerObject(String skill, String action, Map<String, Object> target)
@@ -6896,11 +7124,28 @@ public class CvHelperPlugin extends Plugin
 			{
 				return;
 			}
-			client.menuAction(sceneX, sceneY, MenuAction.GAME_OBJECT_FIRST_OPTION, id, -1, action, targetLabelForMessage(target));
+			MenuAction menuAction = menuActionFromName(String.valueOf(target.get("menuAction")), MenuAction.GAME_OBJECT_FIRST_OPTION);
+			client.menuAction(sceneX, sceneY, menuAction, id, -1, action, targetLabelForMessage(target));
 		}
 		finally
 		{
 			actionInProgress.set(false);
+		}
+	}
+
+	private MenuAction menuActionFromName(String name, MenuAction fallback)
+	{
+		if (name == null || name.isEmpty() || "null".equals(name))
+		{
+			return fallback;
+		}
+		try
+		{
+			return MenuAction.valueOf(name);
+		}
+		catch (IllegalArgumentException e)
+		{
+			return fallback;
 		}
 	}
 
@@ -7004,7 +7249,7 @@ public class CvHelperPlugin extends Plugin
 			String name = String.valueOf(item.get("name"));
 			int itemId = intValue(item.get("id"), -1);
 			int quantity = intValue(item.get("quantity"), 1);
-			if (matchesItemPolicy(name, itemId, quantity, getMobFarmerNeverDropItems()))
+			if (isMobFarmerProtectedInventoryItem(name, itemId, quantity))
 			{
 				continue;
 			}
@@ -7066,7 +7311,7 @@ public class CvHelperPlugin extends Plugin
 		{
 			reasons.add("blacklisted");
 		}
-		if (matchesItemPolicy(name, itemId, quantity, getMobFarmerNeverDropItems()))
+		if (isMobFarmerProtectedInventoryItem(name, itemId, quantity))
 		{
 			reasons.add("protected-item");
 		}
@@ -7162,6 +7407,15 @@ public class CvHelperPlugin extends Plugin
 	private boolean matchesItemPolicy(String itemName, int itemId, String policy)
 	{
 		return matchesItemPolicy(itemName, itemId, 1, policy);
+	}
+
+	private boolean isMobFarmerProtectedInventoryItem(String itemName, int itemId, int quantity)
+	{
+		if (matchesItemPolicy(itemName, itemId, quantity, getMobFarmerNeverDropItems()))
+		{
+			return true;
+		}
+		return matchesItemPolicy(itemName, itemId, quantity, MOB_FARMER_IMPLICIT_NEVER_DROP_ITEMS);
 	}
 
 	private boolean matchesItemPolicy(String itemName, int itemId, int quantity, String policy)
@@ -8805,7 +9059,20 @@ public class CvHelperPlugin extends Plugin
 
 	private void handleMobFarmerStatusRequest(HttpExchange exchange) throws IOException
 	{
-		writeJson(exchange, 200, getMobFarmerStatus());
+		try
+		{
+			writeJson(exchange, 200, getMobFarmerStatusOnClientThread());
+		}
+		catch (RuntimeException e)
+		{
+			log.warn("CV Helper mob-farmer status request failed", e);
+			writeResponse(exchange, 500, "{\"error\":\"mob-farmer-status-failed\"}");
+		}
+		catch (InterruptedException e)
+		{
+			Thread.currentThread().interrupt();
+			writeResponse(exchange, 503, "{\"error\":\"interrupted\"}");
+		}
 	}
 
 	private void handleMobFarmerConfigRequest(HttpExchange exchange) throws IOException
@@ -8859,30 +9126,62 @@ public class CvHelperPlugin extends Plugin
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("ok", true);
 		body.put("action", "mob-farmer-focus-click");
-		body.put("mobFarmer", getMobFarmerStatus());
-		writeJson(exchange, 202, body);
+		try
+		{
+			body.put("mobFarmer", getMobFarmerStatusOnClientThread());
+			writeJson(exchange, 202, body);
+		}
+		catch (InterruptedException e)
+		{
+			Thread.currentThread().interrupt();
+			writeResponse(exchange, 503, "{\"error\":\"interrupted\"}");
+		}
 	}
 
 	private void handleMobFarmerStepRequest(HttpExchange exchange) throws IOException
 	{
-		applyMobFarmerQuery(exchange);
-		boolean live = Boolean.parseBoolean(queryParam(exchange, "live"));
-		runMobFarmerStep(live);
-		writeJson(exchange, 202, getMobFarmerStatus());
+		try
+		{
+			applyMobFarmerQuery(exchange);
+			boolean live = Boolean.parseBoolean(queryParam(exchange, "live"));
+			runMobFarmerStep(live);
+			writeJson(exchange, 202, getMobFarmerStatusOnClientThread());
+		}
+		catch (InterruptedException e)
+		{
+			Thread.currentThread().interrupt();
+			writeResponse(exchange, 503, "{\"error\":\"interrupted\"}");
+		}
 	}
 
 	private void handleMobFarmerStartRequest(HttpExchange exchange) throws IOException
 	{
-		applyMobFarmerQuery(exchange);
-		boolean live = Boolean.parseBoolean(queryParam(exchange, "live"));
-		startMobFarmer(live);
-		writeJson(exchange, 202, getMobFarmerStatus());
+		try
+		{
+			applyMobFarmerQuery(exchange);
+			boolean live = Boolean.parseBoolean(queryParam(exchange, "live"));
+			startMobFarmer(live);
+			writeJson(exchange, 202, getMobFarmerStatusOnClientThread());
+		}
+		catch (InterruptedException e)
+		{
+			Thread.currentThread().interrupt();
+			writeResponse(exchange, 503, "{\"error\":\"interrupted\"}");
+		}
 	}
 
 	private void handleMobFarmerStopRequest(HttpExchange exchange) throws IOException
 	{
-		stopMobFarmer();
-		writeJson(exchange, 202, getMobFarmerStatus());
+		try
+		{
+			stopMobFarmer();
+			writeJson(exchange, 202, getMobFarmerStatusOnClientThread());
+		}
+		catch (InterruptedException e)
+		{
+			Thread.currentThread().interrupt();
+			writeResponse(exchange, 503, "{\"error\":\"interrupted\"}");
+		}
 	}
 
 	private void handlePanicStopRequest(HttpExchange exchange) throws IOException
@@ -8891,7 +9190,16 @@ public class CvHelperPlugin extends Plugin
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("ok", true);
 		body.put("action", "panic-stop");
-		body.put("mobFarmer", getMobFarmerStatus());
+		try
+		{
+			body.put("mobFarmer", getMobFarmerStatusOnClientThread());
+		}
+		catch (InterruptedException e)
+		{
+			Thread.currentThread().interrupt();
+			writeResponse(exchange, 503, "{\"error\":\"interrupted\"}");
+			return;
+		}
 		writeJson(exchange, 202, body);
 	}
 
@@ -9060,13 +9368,46 @@ public class CvHelperPlugin extends Plugin
 		AtomicReference<Map<String, Object>> result = new AtomicReference<>();
 		clientThread.invokeLater(() ->
 		{
-			result.set(getSkillFarmerStatus(skill));
-			latch.countDown();
+			try
+			{
+				result.set(getSkillFarmerStatus(skill));
+			}
+			catch (RuntimeException e)
+			{
+				log.warn("CV Helper skill-farmer status failed", e);
+				Map<String, Object> error = new LinkedHashMap<>();
+				error.put("skill", skill);
+				error.put("error", "client-thread-error");
+				error.put("message", e.getMessage());
+				result.set(error);
+			}
+			finally
+			{
+				latch.countDown();
+			}
 		});
 		if (!latch.await(1500, TimeUnit.MILLISECONDS))
 		{
 			Map<String, Object> timeout = new LinkedHashMap<>();
 			timeout.put("skill", skill);
+			timeout.put("error", "client-thread-timeout");
+			return timeout;
+		}
+		return result.get();
+	}
+
+	private Map<String, Object> getMobFarmerStatusOnClientThread() throws InterruptedException
+	{
+		CountDownLatch latch = new CountDownLatch(1);
+		AtomicReference<Map<String, Object>> result = new AtomicReference<>();
+		clientThread.invokeLater(() ->
+		{
+			result.set(getMobFarmerStatus());
+			latch.countDown();
+		});
+		if (!latch.await(1500, TimeUnit.MILLISECONDS))
+		{
+			Map<String, Object> timeout = new LinkedHashMap<>();
 			timeout.put("error", "client-thread-timeout");
 			return timeout;
 		}
@@ -9079,20 +9420,36 @@ public class CvHelperPlugin extends Plugin
 		AtomicReference<Map<String, Object>> result = new AtomicReference<>();
 		clientThread.invokeLater(() ->
 		{
-			if ("step".equals(action))
+			try
 			{
-				runSkillFarmerStep(skill, live, "http-step");
+				if ("step".equals(action))
+				{
+					runSkillFarmerStep(skill, live, "http-step");
+				}
+				else if ("start".equals(action))
+				{
+					startSkillFarmer(skill, live);
+				}
+				else if ("stop".equals(action))
+				{
+					stopSkillFarmer(skill);
+				}
+				result.set(getSkillFarmerStatus(skill));
 			}
-			else if ("start".equals(action))
+			catch (RuntimeException e)
 			{
-				startSkillFarmer(skill, live);
+				log.warn("CV Helper skill-farmer action failed: {} {}", skill, action, e);
+				Map<String, Object> error = new LinkedHashMap<>();
+				error.put("skill", skill);
+				error.put("action", action);
+				error.put("error", "client-thread-error");
+				error.put("message", e.getMessage());
+				result.set(error);
 			}
-			else if ("stop".equals(action))
+			finally
 			{
-				stopSkillFarmer(skill);
+				latch.countDown();
 			}
-			result.set(getSkillFarmerStatus(skill));
-			latch.countDown();
 		});
 		if (!latch.await(1500, TimeUnit.MILLISECONDS))
 		{
@@ -10752,6 +11109,7 @@ public class CvHelperPlugin extends Plugin
 
 	private void writeResponse(HttpExchange exchange, int code, String body) throws IOException
 	{
+		noteLocalWebHelperRequest();
 		byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
 		exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
 		exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
@@ -10766,6 +11124,7 @@ public class CvHelperPlugin extends Plugin
 
 	private void writeBinary(HttpExchange exchange, int code, String contentType, byte[] bytes) throws IOException
 	{
+		noteLocalWebHelperRequest();
 		exchange.getResponseHeaders().add("Content-Type", contentType);
 		exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
 		exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -10775,6 +11134,12 @@ public class CvHelperPlugin extends Plugin
 		{
 			os.write(bytes);
 		}
+	}
+
+	private void noteLocalWebHelperRequest()
+	{
+		lastLocalWebHelperRequest.set(Instant.now());
+		updatePanelServerStatus();
 	}
 
 	private Map<String, Object> eventPayload(String eventType, Object payload)

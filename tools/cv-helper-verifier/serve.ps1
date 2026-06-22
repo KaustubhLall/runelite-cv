@@ -330,30 +330,59 @@ if ($OpenBrowser) {
 try {
 	while ($listener.IsListening) {
 		$context = $listener.GetContext()
-		$requestPath = $context.Request.Url.AbsolutePath
+		try {
+			$requestPath = $context.Request.Url.AbsolutePath
+			$method = $context.Request.HttpMethod
 
-		if ($context.Request.HttpMethod -eq "OPTIONS") {
-			Add-CommonHeaders -Response $context.Response
-			$context.Response.StatusCode = 204
-			$context.Response.OutputStream.Close()
-			continue
+			if ($method -eq "OPTIONS") {
+				Add-CommonHeaders -Response $context.Response
+				$context.Response.StatusCode = 204
+				$context.Response.OutputStream.Close()
+				continue
+			}
+
+			if ($method -eq "HEAD") {
+				$staticPath = Resolve-StaticPath -RequestPath $requestPath
+				Add-CommonHeaders -Response $context.Response
+				$context.Response.StatusCode = if ($staticPath) { 200 } else { 404 }
+				if ($staticPath) {
+					$context.Response.ContentType = Get-ContentType -Path $staticPath
+				}
+				$context.Response.ContentLength64 = 0
+				$context.Response.OutputStream.Close()
+				continue
+			}
+
+			if ($method -ne "GET") {
+				Write-JsonResponse -Response $context.Response -StatusCode 405 -Body @{ error = "method-not-allowed"; method = $method }
+				continue
+			}
+
+			if ($requestPath -eq "/api/discover") {
+				$knownPorts = Parse-KnownPorts -Known $context.Request.QueryString["known"]
+				$payload = Invoke-Discovery -KnownPorts $knownPorts
+				Write-JsonResponse -Response $context.Response -StatusCode 200 -Body $payload
+				continue
+			}
+
+			$staticPath = Resolve-StaticPath -RequestPath $requestPath
+			if (-not $staticPath) {
+				Write-JsonResponse -Response $context.Response -StatusCode 404 -Body @{ error = "not-found"; path = $requestPath }
+				continue
+			}
+
+			$bytes = [System.IO.File]::ReadAllBytes($staticPath)
+			Write-TextResponse -Response $context.Response -StatusCode 200 -ContentType (Get-ContentType -Path $staticPath) -Bytes $bytes
+		} catch {
+			try {
+				Write-JsonResponse -Response $context.Response -StatusCode 500 -Body @{ error = "verifier-request-failed"; message = $_.Exception.Message }
+			} catch {
+				try {
+					$context.Response.Abort()
+				} catch {
+				}
+			}
 		}
-
-		if ($requestPath -eq "/api/discover") {
-			$knownPorts = Parse-KnownPorts -Known $context.Request.QueryString["known"]
-			$payload = Invoke-Discovery -KnownPorts $knownPorts
-			Write-JsonResponse -Response $context.Response -StatusCode 200 -Body $payload
-			continue
-		}
-
-		$staticPath = Resolve-StaticPath -RequestPath $requestPath
-		if (-not $staticPath) {
-			Write-JsonResponse -Response $context.Response -StatusCode 404 -Body @{ error = "not-found"; path = $requestPath }
-			continue
-		}
-
-		$bytes = [System.IO.File]::ReadAllBytes($staticPath)
-		Write-TextResponse -Response $context.Response -StatusCode 200 -ContentType (Get-ContentType -Path $staticPath) -Bytes $bytes
 	}
 } finally {
 	$listener.Stop()

@@ -35,6 +35,7 @@ public interface CvHelperConfig extends Config
 	String SHOW_PANEL_TARGETS = "showPanelTargets";
 	String SHOW_COMBAT_TARGETS = "showCombatTargets";
 	String SHOW_ENTITY_TARGETS = "showEntityTargets";
+	String SHOW_SKILL_FARMER_TARGETS = "showSkillFarmerTargets";
 	String SHOW_TARGET_LABELS = "showTargetLabels";
 	String ENABLE_LOCAL_EXPORT = "enableLocalExport";
 	String LOCAL_PORT = "localPort";
@@ -263,6 +264,16 @@ public interface CvHelperConfig extends Config
 		description = "Draw nearby player and NPC canvas bounds where RuneLite exposes them."
 	)
 	default boolean showEntityTargets()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = SHOW_SKILL_FARMER_TARGETS,
+		name = "Show skilling target boxes",
+		description = "Draw latest mining and woodcutting candidate object boxes when the farmer scans them."
+	)
+	default boolean showSkillFarmerTargets()
 	{
 		return true;
 	}
@@ -987,7 +998,7 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = MOB_FARMER_NEVER_DROP_ITEMS,
 		name = "Protected inventory",
-		description = "Inventory items that future drop-processing must never drop. Current implementation reports protected/drop candidates but does not drop items yet.",
+		description = "Inventory items that future drop-processing must never drop. Built-in rare/unique safeguards are always protected (for example clue scroll rewards, keys, totems, shards, champion scroll, long/curved bones). Current implementation reports protected/drop candidates but does not drop items yet.",
 		section = mobFarmerSection
 	)
 	default String mobFarmerNeverDropItems()
