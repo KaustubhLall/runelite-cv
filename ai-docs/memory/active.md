@@ -4,11 +4,11 @@ Use this file as the short working map for the current session. Keep it concise.
 
 ## Current Focus
 
-- Branch: `master` with local uncommitted CV Helper/bootstrap work
-- Linear task: `OSR-2`
-- State: custom RuneLite game login, Plugin Hub loading, CV Helper startup, localhost status, screenshot capture, and initial prayer target export implemented
+- Branch: `master` with local uncommitted config sync & panel updates
+- Linear task: `OSR-2` (CV Helper automation)
+- State: Browser config form sync issue fixed, plugin panel updated with newer loot/alchemy fields
 - Last merged PR: https://github.com/KaustubhLall/runelite-cv/pull/1
-- Current task: `OSR-2` CV Helper plugin and Jagex Launcher credential bootstrap
+- Current task: Config editing flow fix + plugin panel parity with HTTP config schema
 
 ## Active Task Stack
 
@@ -18,6 +18,30 @@ Use this file as the short working map for the current session. Keep it concise.
 - `OSR-4` - Synchronize CV Helper export delivery to OSRS game ticks
 - `OSR-5` - Investigate CV Helper hotkeys for prayers and spell actions
 - `OSR-6` - Build CV Helper verifier client site
+- `CONFIG-SYNC-FIX` - Browser config form should not be overwritten by live auto-sync
+
+## Latest Patch Summary
+
+Fixed three related issues in the config/automation layer:
+
+1. **Browser config form overwrite bug**: Live sync was calling `renderMobFarmerConfig()` on every auto-refresh cycle, overwriting user edits in the form. Now:
+   - Live state (status, targets, decision) refreshes separately every cycle
+   - Config form only loads on explicit "Sync from client" button click
+   - "Save to client" clears the draft, "Reset draft" discards unsaved edits without syncing
+   - Added visual indicator "(draft - unsaved)" in status when form has unpushed changes
+   - Mob farmer HTTP start and browser buttons both call same underlying logic
+
+2. **Plugin sidebar missing newer fields**: Panel was missing newer loot stack-aware and High Alchemy config options that were in HTTP schema. Added:
+   - `lootMinSingleGe`, `lootMinStackGe`, `lootMinStackQuantity`, `lootAlwaysStackGe`, `lootNeverStackBelowGe`
+   - `highAlchEnabled`, `highAlchMinHa`, `highAlchMinDelta`, `highAlchMaxLoss`, `highAlchItems`, `highAlchBlacklist`
+   - Updated saveGuards button to persist all new fields to config
+
+3. **Mob farmer start path**: Both plugin sidebar and HTTP browser endpoint call identical `startMobFarmer(live)` logic with proper target via `applyMobFarmerQuery()`. No fix needed here; plugin side already works.
+
+Files changed:
+- `tools/cv-helper-verifier/app.js`: Draft/live separation, no auto-update form on refresh
+- `tools/cv-helper-verifier/index.html`: Added "Reset draft" button
+- `runelite-client/src/main/java/net/runelite/client/plugins/cvhelper/CvHelperPanel.java`: Added newer loot/alchemy field controls
 
 ## Current Notes
 
@@ -85,6 +109,10 @@ Use this file as the short working map for the current session. Keep it concise.
 - Implemented on 2026-06-18: action slots now expose invocation mode (`AUTO`, `WIDGET`, `CLICK`) and target-choice refresh from the same exported target snapshots used by verifier/Python. Use `CLICK` mode to compare against widget invocation when targeted spell selection times out.
 - Fixed on 2026-06-19: action panel switching now opens required panels by exported tab click before selecting the action, then returns to the command-start panel by exported tab click only after the selected action has been consumed. If a targeted spell/action is still selected and unconsumed, return is keybind-only or skipped. Unknown previous panel falls back to inventory.
 - Implemented on 2026-06-19: CV Helper exposes guarded login-click support in the panel and at `/login/click`. `LOGIN_SCREEN` with `/status` responding means the plugin is running; do not treat empty live widget targets as failure until the user logs in.
+- Implemented on 2026-06-21: `tools/cv-helper-verifier` now has a local helper launcher at `serve.ps1` that serves the dashboard on `http://127.0.0.1:8765/` and auto-discovers the active CV Helper port by probing `11777` first, then known ports, then live local Java listeners. The verifier UI separately reports transport health vs. login-screen state so `LOGIN_SCREEN` no longer reads like a broken localhost export.
+- Fixed on 2026-06-22: the verifier no longer flips to a full "disconnected" state just because one auxiliary endpoint on an older export is missing. `/status` now owns transport health, unavailable surfaces/actions render as warnings, and the local helper prefers the most verifier-compatible client when multiple RuneLite builds are listening.
+- Fixed on 2026-06-22: remaining verifier flicker came from a client-side warning-render exception during auto-refresh plus stale cached dashboard assets. `renderWarnings(...)` now receives entity endpoint state correctly, and `serve.ps1` disables caching so a helper restart/hard refresh picks up the latest `app.js` immediately.
+- Fixed on 2026-06-22: mining/woodcutting skill farmers no longer scan only `GameObject` tiles. They now consider relevant wall/decorative/ground tile objects too, preserve object-type diagnostics in status, and still require the configured action/name match before a target is selectable. This should unblock visible-tree selection cases where the scene object is not exposed through the plain game-object array.
 - User preference/policy: implementation closeouts should always end with what changed, what the user should test, and next steps/why autonomous continuation stopped.
 - Current automation direction: `OSR-7` is the first reusable automation task, a configurable auto mob farmer first validated on Lumbridge cows. Do not build the live loop until `OSR-5` action primitives, entity targeting, and Python/verifier state consumption are stable enough to dry-run and test independently.
 - Implemented on 2026-06-18: `/status` and `/player/status` now include `vitals`, `selectedWidget`, and `wealth` summaries. Vitals include HP, prayer, run, spec energy, and active prayers. Wealth includes inventory/current-loot, equipment, total carried, and coarse risked-value approximations.
@@ -105,7 +133,10 @@ Use this file as the short working map for the current session. Keep it concise.
 - Implemented on 2026-06-20: mob farmer target selection now applies a conservative local collision-path check to matched NPCs. A bounded BFS over RuneLite `WorldArea.canTravelInDirection(...)` estimates path distance to collision-valid melee reach, and candidate reports expose `reachable`, `pathDistance`, `pathSearchLimit`, `pathVisited`, and `pathFailureReason`. Matched targets with no local route are rejected as `unreachable:<reason>`; door/object navigation and repeated failed-target blacklisting remain follow-ups.
 - Implemented on 2026-06-20: successful live ground-item `Take` actions now queue `reattachAfterPickup` for the next valid logged-in tick after survival checks. Status reports pending/queued/attempt ticks, last pickup and attack ticks, selected target/result, estimated 1-tick scheduler gate, and clear reason. Compile/relaunch/status smoke passed, but a natural live pickup did not occur in the bounded smoke window, so the pickup-triggered reattack still needs live observation.
 - Implemented on 2026-06-20: mob farmer anti-oscillation stabilization now treats `Take` invocation as pending until the exact item/tile resolves, holds reattack while loot is still visible, temporarily rejects unresolved loot keys with `unresolved-loot-cooldown:Nt`, and adds `status.stabilization` diagnostics for combat leases, attack reissue holds, loot-resolution holds, and temporary loot skips. Live smoke on Moss giants showed login recovery to F2P world 301, `waiting-attack-resolution` spacing attack reissues, unresolved Bones cooldown rejection, and successful reattack after resolved Big bones/Coins pickups; the farmer was stopped after verification.
-- Current mob-farmer wrap-up backlog to ticket/finish as separate bricks: multi-target farming; emergency teleport recovery; config profiles/presets plus export/import; full inventory drop/replacement with protected never-drop enforcement; Ground Items precedence diagnostics; stronger loot/combat oscillation handling; tick-aware scheduling; grouped/collapsible UI cleanup.
+- Implemented on 2026-06-22: mob farmer exposes `GET/POST /automation/mob-farmer/config` with versioned readable settings/schema/action-slot JSON, validates imports before applying them, and exposes `/automation/mob-farmer/focus-click` for the guarded one-click startup/login focus workaround. Status now reports configurable recovery-loop delay, autorun, startup focus-click, and `afterLootCombatMode` (`RESUME_TARGETING`, `STAY_ON_CURRENT_ATTACKER`, `STOP_WHEN_TAGGED`) to avoid post-loot 2v1/new-target behavior when an attacker is already on the player.
+- Implemented on 2026-06-22: WebHelper mob-farmer UI syncs current config, saves settings back to RuneLite, supports copy/paste JSON import/export, renders structured controls with descriptions/tooltips, edits action slot hotkey text/options, and keeps raw JSON behind the advanced toggle. Live smoke: old client still held `11777`; freshly launched build bound fallback port `58480`; `/automation/mob-farmer/config` returned `version:1`, a no-op valid save applied, and `/automation/mob-farmer/focus-click` returned `202` safely at `LOGIN_SCREEN`.
+- Implemented on 2026-06-22: WebHelper adds local named mob-farmer profiles, richer stack-aware loot thresholds, GP/HA inventory and loot-candidate tables, policy-only High Alchemy candidate diagnostics, and first mining/woodcutting farmer shells using shared path-distance and inventory primitives. Mining/woodcutting expose `/automation/<skill>/status`, `/config`, `/step`, `/start`, and `/stop`, with presets, dry/live controls, reachable object candidate tables, and report-only inventory/drop diagnostics.
+- Current mob-farmer wrap-up backlog to ticket/finish as separate bricks: multi-target farming; emergency teleport recovery; full inventory drop/replacement with protected never-drop enforcement; Ground Items precedence diagnostics; live High Alchemy invocation after spell/rune guards are verified; mining/woodcutting respawn-timer integration and destructive drop policies.
 - Current automation follow-up order: config/profile foundation, then pathing/navigation/anchor foundation, then local-area/piling behavior, then mining/woodcutting/fishing modules using shared primitives.
 - Preference/policy: if live verification is blocked only by the login flow, use `/login/click` or ask the user to click `Play Now`, wait, finish login, and confirm before treating empty widget-dependent targets as failure.
 - Implemented on 2026-06-18: `/entities` includes canvas-space `center`, `canvasTileCenter`, and preferred `clickPoint` fields for nearby player/NPC actors. `/entities/nearest` returns the closest actor with a usable `clickPoint`, and the verifier shows nearest/per-row click coordinates for Python click planning.

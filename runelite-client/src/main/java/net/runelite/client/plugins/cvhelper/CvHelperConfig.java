@@ -102,6 +102,11 @@ public interface CvHelperConfig extends Config
 	String ACTION_RETURN_PRAYER_HOTKEY = "actionReturnPrayerHotkey";
 	String ACTION_RETURN_SPELLBOOK_HOTKEY = "actionReturnSpellbookHotkey";
 	String MOB_FARMER_TARGET = "mobFarmerTarget";
+	String MOB_FARMER_RECOVERY_LOOP_DELAY_MS = "mobFarmerRecoveryLoopDelayMs";
+	String MOB_FARMER_AUTORUN_ENABLED = "mobFarmerAutorunEnabled";
+	String MOB_FARMER_AUTORUN_MIN_ENERGY = "mobFarmerAutorunMinEnergy";
+	String MOB_FARMER_FOCUS_CLICK_AFTER_LOGIN = "mobFarmerFocusClickAfterLogin";
+	String MOB_FARMER_AFTER_LOOT_COMBAT_MODE = "mobFarmerAfterLootCombatMode";
 	String MOB_FARMER_ENGAGED_MODE = "mobFarmerEngagedMode";
 	String MOB_FARMER_AGGRO_RESPONSE = "mobFarmerAggroResponse";
 	String MOB_FARMER_REQUIRE_LINE_OF_SIGHT = "mobFarmerRequireLineOfSight";
@@ -121,6 +126,11 @@ public interface CvHelperConfig extends Config
 	String MOB_FARMER_LOOT_DURING_COMBAT = "mobFarmerLootDuringCombat";
 	String MOB_FARMER_ATTACK_BEFORE_LOOT = "mobFarmerAttackBeforeLoot";
 	String MOB_FARMER_LOOT_MIN_VALUE_GE = "mobFarmerLootMinValueGe";
+	String MOB_FARMER_LOOT_MIN_SINGLE_GE = "mobFarmerLootMinSingleGe";
+	String MOB_FARMER_LOOT_MIN_STACK_GE = "mobFarmerLootMinStackGe";
+	String MOB_FARMER_LOOT_MIN_STACK_QUANTITY = "mobFarmerLootMinStackQuantity";
+	String MOB_FARMER_LOOT_ALWAYS_STACK_GE = "mobFarmerLootAlwaysStackGe";
+	String MOB_FARMER_LOOT_NEVER_STACK_BELOW_GE = "mobFarmerLootNeverStackBelowGe";
 	String MOB_FARMER_HIGH_PRIORITY_LOOT_VALUE_GE = "mobFarmerHighPriorityLootValueGe";
 	String MOB_FARMER_LOOT_URGENT_DESPAWN_TICKS = "mobFarmerLootUrgentDespawnTicks";
 	String MOB_FARMER_LOOT_CLEANUP_PILE_COUNT = "mobFarmerLootCleanupPileCount";
@@ -136,6 +146,12 @@ public interface CvHelperConfig extends Config
 	String MOB_FARMER_INTERMEDIATE_ACTIONS_ENABLED = "mobFarmerIntermediateActionsEnabled";
 	String MOB_FARMER_INTERMEDIATE_ITEMS = "mobFarmerIntermediateItems";
 	String MOB_FARMER_INTERMEDIATE_ACTION_MAPPINGS = "mobFarmerIntermediateActionMappings";
+	String MOB_FARMER_HIGH_ALCH_ENABLED = "mobFarmerHighAlchEnabled";
+	String MOB_FARMER_HIGH_ALCH_MIN_HA = "mobFarmerHighAlchMinHa";
+	String MOB_FARMER_HIGH_ALCH_MIN_DELTA = "mobFarmerHighAlchMinDelta";
+	String MOB_FARMER_HIGH_ALCH_MAX_LOSS = "mobFarmerHighAlchMaxLoss";
+	String MOB_FARMER_HIGH_ALCH_ITEMS = "mobFarmerHighAlchItems";
+	String MOB_FARMER_HIGH_ALCH_BLACKLIST = "mobFarmerHighAlchBlacklist";
 
 	@ConfigSection(
 		name = "Action hotkeys",
@@ -496,6 +512,61 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = MOB_FARMER_RECOVERY_LOOP_DELAY_MS,
+		name = "Recovery loop delay",
+		description = "Wall-clock delay, in milliseconds, for the background recovery loop when logged out or manually stepping. Logged-in farming remains game-tick driven.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerRecoveryLoopDelayMs()
+	{
+		return 1200;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_AUTORUN_ENABLED,
+		name = "Auto-run on",
+		description = "When logged in and safe, click the run orb if run is off and run energy is at or above the configured threshold.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerAutorunEnabled()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_AUTORUN_MIN_ENERGY,
+		name = "Auto-run energy %",
+		description = "Minimum run energy percent required before the farmer toggles run on. Uses the minimap run toggle target and does not toggle run off.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerAutorunMinEnergy()
+	{
+		return 30;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_FOCUS_CLICK_AFTER_LOGIN,
+		name = "Focus click after login",
+		description = "After login/startup, require one guarded canvas-center focus click before farming actions. This works around RuneLite/client focus states where movement or menu actions do not register until one click.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerFocusClickAfterLogin()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_AFTER_LOOT_COMBAT_MODE,
+		name = "After-loot combat",
+		description = "Controls what happens after a pickup if the player is already in combat or an NPC is tagging the player. STAY_ON_CURRENT_ATTACKER prevents tagging another mob; STOP_WHEN_TAGGED stops the farmer.",
+		section = mobFarmerSection
+	)
+	default CvHelperAfterLootCombatMode mobFarmerAfterLootCombatMode()
+	{
+		return CvHelperAfterLootCombatMode.STAY_ON_CURRENT_ATTACKER;
+	}
+
+	@ConfigItem(
 		keyName = MOB_FARMER_ENGAGED_MODE,
 		name = "Already-engaged mobs",
 		description = "Controls whether multi-combat can target mobs already being fought by someone else. Single-combat always skips them.",
@@ -705,6 +776,61 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_MIN_SINGLE_GE,
+		name = "Min single-item GE",
+		description = "Minimum GE value per individual item before unlisted loot is eligible. Use 0 to disable the per-item guard.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerLootMinSingleGe()
+	{
+		return 0;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_MIN_STACK_GE,
+		name = "Min stack GE",
+		description = "Minimum total GE stack value before unlisted loot is eligible. This is the guard that skips tiny coin/rune/arrow stacks.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerLootMinStackGe()
+	{
+		return 100;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_MIN_STACK_QUANTITY,
+		name = "Min stack quantity",
+		description = "Minimum quantity for stackable unlisted items. Use 0 to disable quantity filtering.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerLootMinStackQuantity()
+	{
+		return 0;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_ALWAYS_STACK_GE,
+		name = "Always loot stack GE",
+		description = "Treat any stack at or above this total GE value as high-priority loot even if Attack before loot is enabled. Use 0 to disable.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerLootAlwaysStackGe()
+	{
+		return 1000;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_NEVER_STACK_BELOW_GE,
+		name = "Never stack below GE",
+		description = "Reject unlisted stacks below this total GE value even when other broad value rules would allow them. Explicit always-loot items still pass.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerLootNeverStackBelowGe()
+	{
+		return 0;
+	}
+
+	@ConfigItem(
 		keyName = MOB_FARMER_HIGH_PRIORITY_LOOT_VALUE_GE,
 		name = "Priority loot GE",
 		description = "Loot at or above this GE value can override Attack before loot. Use 0 to treat all selectable loot as priority.",
@@ -867,6 +993,72 @@ public interface CvHelperConfig extends Config
 	default String mobFarmerNeverDropItems()
 	{
 		return "rune pouch|coins";
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_HIGH_ALCH_ENABLED,
+		name = "High Alch policy",
+		description = "Evaluate safe High Alchemy candidates while farming. Current pass reports candidates and safety/availability; invocation stays disabled unless all guards pass in a future live-cast pass.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerHighAlchEnabled()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_HIGH_ALCH_MIN_HA,
+		name = "Min HA value",
+		description = "Minimum single-item High Alchemy value for candidate reporting.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerHighAlchMinHa()
+	{
+		return 0;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_HIGH_ALCH_MIN_DELTA,
+		name = "Min HA delta",
+		description = "Require HA value minus GE value to be at least this amount. Use 0 to allow break-even, negative values through max-loss, and positive values for profit-only alching.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerHighAlchMinDelta()
+	{
+		return 0;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_HIGH_ALCH_MAX_LOSS,
+		name = "Max HA loss",
+		description = "Maximum acceptable GE-to-HA loss per item when inventory space matters. Use 0 for no loss.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerHighAlchMaxLoss()
+	{
+		return 0;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_HIGH_ALCH_ITEMS,
+		name = "Alch allowlist",
+		description = "If non-empty, only these item names or id:<item id> are eligible for High Alchemy.",
+		section = mobFarmerSection
+	)
+	default String mobFarmerHighAlchItems()
+	{
+		return "";
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_HIGH_ALCH_BLACKLIST,
+		name = "Never alch",
+		description = "Items that must never be high-alched. Food, protected inventory items, and useful items should be listed here.",
+		section = mobFarmerSection
+	)
+	default String mobFarmerHighAlchBlacklist()
+	{
+		return "coins|rune pouch|law rune|nature rune|air rune|fire rune|water rune|earth rune|mind rune|body rune|chaos rune|death rune|blood rune|soul rune|astral rune|wrath rune|teleport|tab|shark|lobster|swordfish|monkfish|karambwan";
 	}
 
 	@ConfigItem(

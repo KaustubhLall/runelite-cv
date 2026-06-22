@@ -50,6 +50,7 @@ $serviceBase = "https://api.runelite.net/runelite-$ServiceVersion"
 $arguments = @(
     "-Drunelite.pluginhub.version=$ServiceVersion",
     "-Drunelite.http-service.url=$serviceBase",
+    "-Dcvhelper.forceLocalExport=true",
     "-jar",
     (Resolve-Path $jarPath).Path
 )

@@ -177,6 +177,63 @@ Mob-farmer status includes tick-aware scheduling diagnostics under `scheduler`. 
 
 Mob-farmer status includes death/loot timing diagnostics under `deathLootTiming`. When the current target is effectively dead or zero-HP, it records the detected tick, expected loot tile, target HP/death state, and a short loot-spawn grace window. This is diagnostic and conservative for now: it does not yet issue speculative movement clicks toward the expected tile.
 
+Mob-farmer status also reports configurable recovery-loop delay, autorun, startup focus-click, and after-loot combat policy. `autorun` includes enabled/min-energy/current energy/run-enabled/last result. `startupFocus` includes enabled/needed/last result. `afterLootCombatMode` controls whether the farmer resumes normal targeting after loot, holds when an attacker is already on the player, or stops when tagged.
+
+### `GET /automation/mob-farmer/config`
+
+Returns the current mob-farmer config, field schema, and action-slot settings in a readable versioned JSON shape:
+
+```json
+{
+  "version": 1,
+  "settings": {
+    "target": "cow",
+    "recoveryLoopDelayMs": 1200,
+    "autorunEnabled": false,
+    "focusClickAfterLogin": false,
+    "afterLootCombatMode": "STAY_ON_CURRENT_ATTACKER"
+  },
+  "schema": [{"key": "target", "label": "Mob targets", "type": "text", "description": "..."}],
+  "actionSlots": [{"slot": 1, "enabled": true, "hotkey": "1", "surface": "PRAYER", "target": ""}]
+}
+```
+
+### `POST /automation/mob-farmer/config`
+
+Accepts the same readable JSON shape for WebHelper import/save. The plugin validates enum values, booleans, numbers, and text hotkeys before applying any setting. On failure it returns HTTP `400` with `{"ok":false,"applied":false,"errors":[...]}` and does not mutate current settings. Hotkeys use text such as `F12`, `CTRL+1`, `ALT+Q`, or `NOT_SET`.
+
+Mob-farmer config now includes stack-aware loot thresholds (`lootMinSingleGe`, `lootMinStackGe`, `lootMinStackQuantity`, `lootAlwaysStackGe`, `lootNeverStackBelowGe`) and a safe High Alchemy policy (`highAlchEnabled`, `highAlchMinHa`, `highAlchMinDelta`, `highAlchMaxLoss`, `highAlchItems`, `highAlchBlacklist`). Loot candidates report quantity, GE each, GE stack, HA each, HA stack, allowlist/denylist match, Ground Items classification, final decision, and rejection reasons. High Alchemy is currently diagnostic/policy-only and does not cast until spell/rune guards are live-verified.
+
+WebHelper stores named mob-farmer profiles locally in browser storage. Profiles are readable versioned JSON payloads and can be saved, loaded into the form, duplicated, deleted, imported, and exported. Loading a profile does not mutate RuneLite until the user clicks Save to client.
+
+### `POST /automation/mob-farmer/focus-click`
+
+Queues a guarded canvas-center focus click for the current RuneLite client. This is intended for the startup/login focus issue where movement or menu actions may not register until one manual click has occurred. The loop can also require this click after login via `focusClickAfterLogin`; survival/auto-eat still runs before startup focus helpers.
+
+### `GET/POST /automation/mining/config`
+
+Returns or applies a versioned mining farmer config:
+
+```json
+{
+  "version": 1,
+  "skill": "mining",
+  "settings": {
+    "target": "iron rocks|iron ore rocks",
+    "live": false,
+    "protectedItems": "coins|rune pouch",
+    "inventoryPolicy": "REPORT_ONLY"
+  },
+  "presets": [{"name": "Iron", "target": "iron rocks|iron ore rocks|id:11364|id:11365"}]
+}
+```
+
+Mining status chooses the nearest reachable visible tile object with a matching name or `id:<object id>` and a `Mine` action. It scans relevant game/wall/decorative/ground object layers so odd object placements still appear in diagnostics. Status exposes selected rock, object type, tile, straight-line distance, path distance, reachability, candidate rejection reasons, inventory GE/HA value, and lowest safe drop candidate. Live mode invokes a guarded first-option object menu action; dropping ores and respawn-timer integration are report-only/follow-up in this pass.
+
+### `GET/POST /automation/woodcutting/config`
+
+Woodcutting mirrors the mining config/status shape with target tree lists and presets for normal trees, oak, willow, maple, and custom targets. It requires a `Chop down` action, scans relevant visible tile-object layers instead of only plain game objects, chooses by path distance rather than straight-line distance, and exposes the same pathing/inventory diagnostics plus object type in candidate rows. Live mode invokes a guarded first-option object menu action; dropping logs and tree-respawn integration are report-only/follow-up in this pass.
+
 ### `GET /targets/panels`
 
 Returns side-panel tab and navigation controls, including combat options, stats, quests, inventory, equipment, prayer, magic, clan, settings, and other visible fixed/resizable layout tab buttons where available. These targets should use last-known caching so they remain available after a panel closes unless the client is resized or the layout changes.
@@ -250,9 +307,9 @@ Current push events:
 
 Tracked by `OSR-6`.
 
-The first verifier is a dependency-free static dashboard at `tools/cv-helper-verifier/index.html`. It polls the CV Helper localhost endpoints, shows target counts and payload tables, and flags suspicious target geometry such as oversized inventory/equipment boxes or unnamed equipment slots.
+The first verifier is a static dashboard in `tools/cv-helper-verifier/`, served by `serve.ps1` at `http://127.0.0.1:8765/`. The helper exposes `/api/discover`, which probes `11777` first and then falls back through known browser ports and live local Java listeners until it finds a valid CV Helper `/status` response. The dashboard polls the active localhost endpoints, shows target counts and payload tables, and flags suspicious target geometry such as oversized inventory/equipment boxes or unnamed equipment slots.
 
-The plugin adds CORS headers to JSON responses so the browser can call `http://127.0.0.1:<port>` directly.
+The plugin adds CORS headers to JSON responses so the browser can call `http://127.0.0.1:<port>` directly. The verifier UI must clearly separate "transport is broken" from "transport is healthy but RuneLite is at `LOGIN_SCREEN`", because empty widget-dependent targets are expected until login completes.
 
 ## Hotkey Action Investigation
 
@@ -327,6 +384,8 @@ The CV Helper right-side panel includes a collapsible `Action hotkeys` section w
 The first automation slice is a guarded mob-farmer controller, not a full unattended combat bot. It exposes:
 
 - `GET /automation/mob-farmer/status`
+- `GET/POST /automation/mob-farmer/config`
+- `POST /automation/mob-farmer/focus-click`
 - `POST/GET /automation/mob-farmer/step?target=cow&live=false`
 - `POST/GET /automation/mob-farmer/start?target=cow&live=false`
 - `POST/GET /automation/mob-farmer/stop`
@@ -340,6 +399,7 @@ Current target-validity checks include:
 - NPC composition has an `Attack` action and is interactible.
 - NPC is not dead and does not have visible health ratio `0`.
 - Local-player combat is handled separately: continue a desired current target; configurable response for undesired aggressive attackers.
+- After a live pickup, `afterLootCombatMode` can prevent re-targeting when the player is already interacting with an attacker or an NPC is tagging the player. `STAY_ON_CURRENT_ATTACKER` holds instead of selecting a new target; `STOP_WHEN_TAGGED` stops the farmer.
 - Single-combat skips mobs already engaged by someone else. Multi-combat uses the configured engaged-mob policy: `FREE_ONLY`, `PREFER_FREE`, or `ALLOW_ENGAGED`.
 - Optional line-of-sight guard, enabled by default, plus a conservative local collision-path check for matched NPCs. The pathing pass uses a bounded BFS over RuneLite `WorldArea.canTravelInDirection(...)` and requires a collision-valid route to melee reach before selecting a target.
 - Optional max-distance guard, default `20` tiles.
@@ -374,10 +434,12 @@ Known farmer follow-ups:
 
 The verifier dashboard groups `/status` data into connection, vitals, wealth, and interface sections. It shows HP/prayer, run energy, special attack energy/enabled state, active prayers, current loot/equipment/total carried/risked-value approximation, selected widget state, and latest capture preview/path.
 
+The mob-farmer verifier panel syncs current settings from `/automation/mob-farmer/config`, renders structured config controls with labels/descriptions/tooltips instead of a raw dump, supports copy/paste JSON import/export, exposes a focus-click button, and allows action slot hotkey/options editing through WebHelper. Raw JSON remains available behind the advanced toggle for debugging.
+
 ## Debugging In Game
 
 - The open client must be a freshly launched custom jar; Java changes do not hot-load into an already-open RuneLite window.
-- Use the newest `CV Helper local export listening on http://127.0.0.1:<port>/status` log line to identify the active debug port.
+- Start `tools/cv-helper-verifier/serve.ps1` and let the verifier auto-discover the active debug port. Only fall back to log inspection if the helper itself is not available.
 - In the CV Helper right-side panel, `Debug overlay` writes current state, mouse position, and target counts to in-game chat.
 - `Print overlay bounds` writes current mouse, prayer panel, quick-prayer panel, spellbook, and cached target bounds to in-game chat.
 - Green rectangles are prayer targets. Orange rectangles are spell targets. Mouse coordinates are cyan.
@@ -408,4 +470,4 @@ The verifier dashboard groups `/status` data into connection, vitals, wealth, an
 - Add endpoint for all currently known target surfaces, likely `GET /targets`.
 - Add stable target IDs/names so Python can ask for a semantic click point.
 - Prototype `OSR-5` hotkey logging for one prayer and one spell before implementing direct action execution.
-- Open `tools/cv-helper-verifier/index.html` after relaunch and confirm it can poll the fresh CV Helper port.
+- Run `powershell -ExecutionPolicy Bypass -File .\tools\cv-helper-verifier\serve.ps1` after relaunch and confirm the dashboard auto-discovers the fresh CV Helper port, distinguishes `LOGIN_SCREEN` from transport failure, and still polls the live status surfaces.

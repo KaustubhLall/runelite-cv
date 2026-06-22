@@ -108,7 +108,7 @@ h2 {
 
 .port-row {
 	display: grid;
-	grid-template-columns: 1fr auto;
+	grid-template-columns: 1fr auto auto;
 	gap: 10px;
 }
 
@@ -135,9 +135,26 @@ h2 {
 	color: #2f5e31;
 }
 
+.status-pill.warn {
+	background: #f5e7bc;
+	color: #8a5c16;
+}
+
+.status-pill.neutral {
+	background: #e3d5b8;
+	color: var(--muted);
+}
+
 .status-pill.bad {
 	background: #f3d2ca;
 	color: var(--danger);
+}
+
+.connection-hint {
+	margin: 10px 0 0;
+	color: var(--muted);
+	font-size: .88rem;
+	line-height: 1.5;
 }
 
 .actions {
@@ -296,6 +313,403 @@ h2 {
 	overflow: hidden;
 }
 
+.mob-farmer-card {
+	margin-bottom: 18px;
+}
+
+.skill-farmer-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+	gap: 18px;
+	margin-bottom: 18px;
+}
+
+.skill-farmer-card {
+	overflow: hidden;
+}
+
+#discovery-grid {
+	margin-bottom: 12px;
+}
+
+#discovery-attempts .table-wrap {
+	max-height: 280px;
+}
+
+.mob-farmer-header {
+	display: flex;
+	justify-content: space-between;
+	gap: 18px;
+	align-items: flex-start;
+	margin-bottom: 16px;
+}
+
+.section-lede {
+	margin: 6px 0 0;
+	color: var(--muted);
+}
+
+.mob-farmer-summary {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 8px;
+}
+
+.mob-farmer-decision {
+	max-width: 44rem;
+	color: var(--muted);
+	text-align: right;
+}
+
+.mob-farmer-controls {
+	display: grid;
+	grid-template-columns: minmax(180px, 1.6fr) minmax(140px, .7fr) auto;
+	gap: 12px;
+	align-items: end;
+	margin-bottom: 16px;
+}
+
+.skill-farmer-controls {
+	grid-template-columns: minmax(180px, 1.4fr) minmax(150px, 1fr) minmax(100px, .6fr) auto;
+}
+
+.mob-farmer-controls label {
+	display: grid;
+	gap: 6px;
+	font-size: .82rem;
+	color: var(--muted);
+}
+
+.mob-farmer-controls input,
+.mob-farmer-controls select {
+	width: 100%;
+	border: 1px solid var(--line);
+	border-radius: 16px;
+	padding: .7rem .9rem;
+	background: var(--panel-2);
+}
+
+.mob-farmer-buttons {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+}
+
+.mob-farmer-grid {
+	margin-bottom: 16px;
+}
+
+.mob-farmer-config-panel {
+	margin: 0 0 16px;
+	padding: 14px;
+	border: 1px solid var(--line);
+	border-radius: 24px;
+	background: linear-gradient(135deg, rgba(255, 251, 240, .72), rgba(223, 234, 208, .56));
+}
+
+.mob-farmer-config-panel summary,
+.mob-farmer-hotkeys summary,
+.mob-farmer-import-export summary {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	cursor: pointer;
+	color: var(--ink);
+	font-weight: 800;
+}
+
+.mob-farmer-config-panel summary small,
+.mob-farmer-hotkeys summary small,
+.mob-farmer-import-export summary small {
+	color: var(--muted);
+	font-weight: 600;
+}
+
+.mob-farmer-config-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	margin: 14px 0;
+}
+
+.profile-bar {
+	display: grid;
+	grid-template-columns: minmax(160px, 1fr) minmax(180px, 1.4fr) repeat(4, auto);
+	gap: 10px;
+	align-items: end;
+	margin: 0 0 14px;
+	padding: 12px;
+	border: 1px solid rgba(112, 122, 92, .28);
+	border-radius: 18px;
+	background: rgba(255, 255, 255, .42);
+}
+
+.profile-bar label {
+	display: grid;
+	gap: 5px;
+	color: var(--muted);
+	font-size: .82rem;
+}
+
+.profile-bar input,
+.profile-bar select {
+	width: 100%;
+	border: 1px solid var(--line);
+	border-radius: 14px;
+	padding: .62rem .7rem;
+	background: var(--panel-2);
+}
+
+.config-errors {
+	display: none;
+	margin: 0 0 12px;
+	padding: 10px 12px;
+	border: 1px solid #c25743;
+	border-radius: 16px;
+	background: #fff0ec;
+	color: #8c2c1d;
+	font-size: .88rem;
+}
+
+.config-errors.visible {
+	display: block;
+}
+
+.config-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+	gap: 12px;
+}
+
+.config-field {
+	display: grid;
+	gap: 6px;
+	padding: 10px;
+	border: 1px solid rgba(112, 122, 92, .28);
+	border-radius: 18px;
+	background: rgba(255, 255, 255, .46);
+}
+
+.config-field label {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	color: var(--ink);
+	font-weight: 800;
+	font-size: .88rem;
+}
+
+.config-field small {
+	color: var(--muted);
+	line-height: 1.35;
+}
+
+.config-field input,
+.config-field select,
+.config-field textarea,
+.action-slot-card input,
+.action-slot-card select,
+.mob-farmer-import-export textarea,
+.skill-farmer-card textarea {
+	width: 100%;
+	border: 1px solid var(--line);
+	border-radius: 14px;
+	padding: .62rem .7rem;
+	background: var(--panel-2);
+	font: inherit;
+}
+
+.config-field textarea {
+	min-height: 84px;
+	resize: vertical;
+}
+
+.config-field.checkbox-field {
+	grid-template-columns: auto 1fr;
+	align-items: center;
+}
+
+.config-field.checkbox-field label,
+.config-field.checkbox-field small {
+	grid-column: 2;
+}
+
+.config-field.checkbox-field input {
+	grid-row: 1 / span 2;
+	width: auto;
+	transform: scale(1.15);
+}
+
+.mob-farmer-hotkeys,
+.mob-farmer-import-export {
+	margin-top: 14px;
+	padding-top: 12px;
+	border-top: 1px solid rgba(112, 122, 92, .28);
+}
+
+.action-slot-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+	gap: 12px;
+	margin-top: 12px;
+	max-height: 520px;
+	overflow: auto;
+	padding-right: 4px;
+}
+
+.action-slot-card {
+	display: grid;
+	gap: 8px;
+	padding: 12px;
+	border: 1px solid rgba(112, 122, 92, .28);
+	border-radius: 18px;
+	background: rgba(255, 255, 255, .5);
+}
+
+.action-slot-card header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.action-slot-card h4 {
+	margin: 0;
+	font-size: .92rem;
+}
+
+.action-slot-card .slot-row {
+	display: grid;
+	grid-template-columns: 92px 1fr;
+	align-items: center;
+	gap: 8px;
+	font-size: .82rem;
+	color: var(--muted);
+}
+
+.mob-farmer-import-export textarea,
+.skill-farmer-card textarea {
+	min-height: 220px;
+	margin-top: 12px;
+	font-family: "Cascadia Code", "SFMono-Regular", monospace;
+	font-size: .82rem;
+	resize: vertical;
+}
+
+.mob-farmer-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 12px;
+}
+
+.mob-farmer-toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	color: var(--muted);
+	font-size: .88rem;
+}
+
+.secondary {
+	background: #425043;
+}
+
+.secondary:hover {
+	background: #627963;
+}
+
+.mob-farmer-log {
+	margin-bottom: 12px;
+	padding: 12px 14px;
+	border: 1px solid var(--line);
+	border-radius: 18px;
+	background: rgba(255, 251, 240, .7);
+}
+
+.mob-farmer-log .compact-list {
+	display: grid;
+	gap: 6px;
+}
+
+.mob-farmer-raw {
+	margin: 0 0 12px;
+	padding: 14px;
+	border-radius: 18px;
+	border: 1px solid var(--line);
+	background: #1b2117;
+	color: #e6efda;
+	max-height: 360px;
+	overflow: auto;
+	font-size: .82rem;
+	line-height: 1.45;
+}
+
+.mob-farmer-details {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+	gap: 12px;
+}
+
+.mob-farmer-block {
+	padding: 14px;
+	border: 1px solid var(--line);
+	border-radius: 22px;
+	background: rgba(255, 251, 240, .48);
+}
+
+.mob-farmer-block.wide-block {
+	grid-column: 1 / -1;
+}
+
+.compact-table {
+	max-height: 360px;
+}
+
+.compact-table td,
+.compact-table th {
+	font-size: .78rem;
+	padding: 8px;
+}
+
+.mob-farmer-block header {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 2px;
+	margin-bottom: 10px;
+}
+
+.mob-farmer-block h3 {
+	margin: 0;
+	font-size: 1rem;
+	text-transform: lowercase;
+}
+
+.mob-farmer-block pre {
+	margin: 0;
+	white-space: pre-wrap;
+	word-break: break-word;
+	font: inherit;
+	color: var(--ink);
+}
+
+.compact-list {
+	margin: 0;
+	padding-left: 18px;
+	color: var(--ink);
+}
+
+.empty.compact {
+	padding: 0;
+	margin: 0;
+}
+
 .surface header {
 	padding: 18px 20px 0;
 }
@@ -368,6 +782,20 @@ tr.warn td {
 	background: #fff0dd;
 }
 
+.port-chip {
+	border: 1px solid var(--line);
+	border-radius: 999px;
+	padding: .32rem .62rem;
+	background: #eef5e4;
+	color: var(--ink);
+	font-weight: 800;
+	cursor: pointer;
+}
+
+.port-chip:hover {
+	background: #d9eac8;
+}
+
 .warnings {
 	margin: 0;
 	padding-left: 20px;
@@ -387,5 +815,29 @@ tr.warn td {
 
 	.span-2 {
 		grid-column: auto;
+	}
+
+	.mob-farmer-header,
+	.mob-farmer-controls,
+	.skill-farmer-controls {
+		display: grid;
+		grid-template-columns: 1fr;
+	}
+
+	.mob-farmer-summary {
+		align-items: flex-start;
+	}
+
+	.mob-farmer-decision {
+		text-align: left;
+	}
+
+	.mob-farmer-toolbar {
+		align-items: flex-start;
+		justify-content: flex-start;
+	}
+
+	.profile-bar {
+		grid-template-columns: 1fr;
 	}
 }

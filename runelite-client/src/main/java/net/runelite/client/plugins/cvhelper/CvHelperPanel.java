@@ -536,6 +536,30 @@ class CvHelperPanel extends PluginPanel
 		lootItems.setToolTipText("Items to always loot even below the value threshold.");
 		JTextField lootBlacklist = new JTextField(plugin.getMobFarmerLootBlacklist());
 		lootBlacklist.setToolTipText("Items to never loot.");
+		JTextField lootMinSingleGe = new JTextField(String.valueOf(plugin.getMobFarmerLootMinSingleGe()));
+		lootMinSingleGe.setToolTipText("Minimum GE value per individual item before unlisted loot is eligible.");
+		JTextField lootMinStackGe = new JTextField(String.valueOf(plugin.getMobFarmerLootMinStackGe()));
+		lootMinStackGe.setToolTipText("Minimum total stack GE value before unlisted loot is eligible.");
+		JTextField lootMinStackQuantity = new JTextField(String.valueOf(plugin.getMobFarmerLootMinStackQuantity()));
+		lootMinStackQuantity.setToolTipText("Minimum quantity for stackable unlisted items.");
+		JTextField lootAlwaysStackGe = new JTextField(String.valueOf(plugin.getMobFarmerLootAlwaysStackGe()));
+		lootAlwaysStackGe.setToolTipText("Treat stacks at or above this GE value as high-priority loot.");
+		JTextField lootNeverStackBelowGe = new JTextField(String.valueOf(plugin.getMobFarmerLootNeverStackBelowGe()));
+		lootNeverStackBelowGe.setToolTipText("Reject unlisted stacks below this GE value even if broad rules allow them.");
+		JCheckBox highAlchEnabled = new JCheckBox("High Alch policy", plugin.getMobFarmerHighAlchEnabled());
+		styleCheckbox(highAlchEnabled);
+		highAlchEnabled.setToolTipText("Evaluate safe High Alchemy candidates while farming.");
+		highAlchEnabled.addActionListener(e -> plugin.setMobFarmerHighAlchEnabled(highAlchEnabled.isSelected()));
+		JTextField highAlchMinHa = new JTextField(String.valueOf(plugin.getMobFarmerHighAlchMinHa()));
+		highAlchMinHa.setToolTipText("Minimum single-item HA value for candidate reporting.");
+		JTextField highAlchMinDelta = new JTextField(String.valueOf(plugin.getMobFarmerHighAlchMinDelta()));
+		highAlchMinDelta.setToolTipText("Require HA value minus GE value to be at least this amount.");
+		JTextField highAlchMaxLoss = new JTextField(String.valueOf(plugin.getMobFarmerHighAlchMaxLoss()));
+		highAlchMaxLoss.setToolTipText("Maximum acceptable GE-to-HA loss per item when inventory space matters.");
+		JTextField highAlchItems = new JTextField(plugin.getMobFarmerHighAlchItems());
+		highAlchItems.setToolTipText("If non-empty, only these item names or id:<item id> are eligible for High Alchemy.");
+		JTextField highAlchBlacklist = new JTextField(plugin.getMobFarmerHighAlchBlacklist());
+		highAlchBlacklist.setToolTipText("Items that must never be high-alched.");
 		JComboBox<CvHelperLootOwnershipMode> lootOwnership = new JComboBox<>(CvHelperLootOwnershipMode.values());
 		lootOwnership.setSelectedItem(plugin.getMobFarmerLootOwnershipMode());
 		lootOwnership.addActionListener(e -> plugin.setMobFarmerLootOwnershipMode((CvHelperLootOwnershipMode) lootOwnership.getSelectedItem()));
@@ -592,6 +616,17 @@ class CvHelperPanel extends PluginPanel
 			plugin.setMobFarmerLootRadius(parseNonNegativeInt(lootRadius.getText(), plugin.getMobFarmerLootRadius()));
 			plugin.setMobFarmerLootItems(lootItems.getText());
 			plugin.setMobFarmerLootBlacklist(lootBlacklist.getText());
+			plugin.setMobFarmerLootMinSingleGe(parseNonNegativeInt(lootMinSingleGe.getText(), plugin.getMobFarmerLootMinSingleGe()));
+			plugin.setMobFarmerLootMinStackGe(parseNonNegativeInt(lootMinStackGe.getText(), plugin.getMobFarmerLootMinStackGe()));
+			plugin.setMobFarmerLootMinStackQuantity(parseNonNegativeInt(lootMinStackQuantity.getText(), plugin.getMobFarmerLootMinStackQuantity()));
+			plugin.setMobFarmerLootAlwaysStackGe(parseNonNegativeInt(lootAlwaysStackGe.getText(), plugin.getMobFarmerLootAlwaysStackGe()));
+			plugin.setMobFarmerLootNeverStackBelowGe(parseNonNegativeInt(lootNeverStackBelowGe.getText(), plugin.getMobFarmerLootNeverStackBelowGe()));
+			plugin.setMobFarmerHighAlchEnabled(highAlchEnabled.isSelected());
+			plugin.setMobFarmerHighAlchMinHa(parseNonNegativeInt(highAlchMinHa.getText(), plugin.getMobFarmerHighAlchMinHa()));
+			plugin.setMobFarmerHighAlchMinDelta(parseNonNegativeInt(highAlchMinDelta.getText(), plugin.getMobFarmerHighAlchMinDelta()));
+			plugin.setMobFarmerHighAlchMaxLoss(parseNonNegativeInt(highAlchMaxLoss.getText(), plugin.getMobFarmerHighAlchMaxLoss()));
+			plugin.setMobFarmerHighAlchItems(highAlchItems.getText());
+			plugin.setMobFarmerHighAlchBlacklist(highAlchBlacklist.getText());
 			plugin.setMobFarmerLootOwnershipMode((CvHelperLootOwnershipMode) lootOwnership.getSelectedItem());
 			plugin.setMobFarmerLootInteractionMode((CvHelperMobInteractionMode) lootInteraction.getSelectedItem());
 			plugin.setMobFarmerGroundItemsMode((CvHelperGroundItemsMode) groundItemsMode.getSelectedItem());
@@ -670,6 +705,16 @@ class CvHelperPanel extends PluginPanel
 			attackBeforeLoot,
 			label("Loot min GE value"),
 			lootMinValue,
+			label("Loot per-item GE"),
+			lootMinSingleGe,
+			label("Loot stack GE"),
+			lootMinStackGe,
+			label("Loot stack qty"),
+			lootMinStackQuantity,
+			label("Always loot stack GE"),
+			lootAlwaysStackGe,
+			label("Never loot below GE"),
+			lootNeverStackBelowGe,
 			label("High-priority GE value"),
 			highPriorityLootValue,
 			label("Urgent loot ticks"),
@@ -689,6 +734,18 @@ class CvHelperPanel extends PluginPanel
 			label("Ground Items lists"),
 			groundItemsMode,
 			respectGroundItemsHidden,
+			label("High Alchemy"),
+			highAlchEnabled,
+			label("Min HA value"),
+			highAlchMinHa,
+			label("Min HA delta"),
+			highAlchMinDelta,
+			label("Max HA loss"),
+			highAlchMaxLoss,
+			label("Alch allowlist"),
+			highAlchItems,
+			label("Never alch"),
+			highAlchBlacklist,
 			label("Intermediate actions"),
 			intermediateActions,
 			label("Intermediate items"),
