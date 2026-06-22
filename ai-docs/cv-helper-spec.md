@@ -204,7 +204,7 @@ Accepts the same readable JSON shape for WebHelper import/save. The plugin valid
 
 Mob-farmer config now includes stack-aware loot thresholds (`lootMinSingleGe`, `lootMinStackGe`, `lootMinStackQuantity`, `lootAlwaysStackGe`, `lootNeverStackBelowGe`) and a safe High Alchemy policy (`highAlchEnabled`, `highAlchMinHa`, `highAlchMinDelta`, `highAlchMaxLoss`, `highAlchItems`, `highAlchBlacklist`). Loot candidates report quantity, GE each, GE stack, HA each, HA stack, allowlist/denylist match, Ground Items classification, final decision, and rejection reasons. High Alchemy is currently diagnostic/policy-only and does not cast until spell/rune guards are live-verified.
 
-WebHelper stores named mob-farmer profiles locally in browser storage. Profiles are readable versioned JSON payloads and can be saved, loaded into the form, duplicated, deleted, imported, and exported. Loading a profile does not mutate RuneLite until the user clicks Save to client.
+WebHelper stores named mob-farmer profiles locally in browser storage. Profiles are readable versioned JSON payloads and can be saved, loaded into the draft, duplicated, deleted, imported, and exported. Loading a profile does not mutate RuneLite until the user clicks Apply draft.
 
 ### `POST /automation/mob-farmer/focus-click`
 
@@ -221,6 +221,8 @@ Returns or applies a versioned mining farmer config:
   "settings": {
     "target": "iron rocks|iron ore rocks",
     "live": false,
+    "scanRadiusTiles": 24,
+    "maxCandidates": 80,
     "protectedItems": "coins|rune pouch",
     "inventoryPolicy": "REPORT_ONLY"
   },
@@ -228,11 +230,11 @@ Returns or applies a versioned mining farmer config:
 }
 ```
 
-Mining status chooses the nearest reachable visible tile object with a matching name or `id:<object id>` and a `Mine` action. It scans relevant game/wall/decorative/ground object layers so odd object placements still appear in diagnostics. Status exposes selected rock, object type, tile, straight-line distance, path distance, reachability, candidate rejection reasons, inventory GE/HA value, and lowest safe drop candidate. Live mode invokes a guarded first-option object menu action; dropping ores and respawn-timer integration are report-only/follow-up in this pass.
+Mining status chooses the nearest reachable visible tile object with a matching name or `id:<object id>` and a `Mine` action. It scans relevant game/wall/decorative/ground object layers inside the configured `scanRadiusTiles` limit so odd object placements still appear in diagnostics without walking the entire scene. Status exposes selected rock, object type, tile, straight-line distance, path distance, reachability, visible flag, canvas bounds/click point, selected object menu action, candidate rejection reasons, inventory GE/HA value, scan radius, max candidate count, and lowest safe drop candidate. Live mode invokes the guarded object menu action for the matched action index; dropping ores and respawn-timer integration are report-only/follow-up in this pass.
 
 ### `GET/POST /automation/woodcutting/config`
 
-Woodcutting mirrors the mining config/status shape with target tree lists and presets for normal trees, oak, willow, maple, and custom targets. It requires a `Chop down` action, scans relevant visible tile-object layers instead of only plain game objects, chooses by path distance rather than straight-line distance, and exposes the same pathing/inventory diagnostics plus object type in candidate rows. Live mode invokes a guarded first-option object menu action; dropping logs and tree-respawn integration are report-only/follow-up in this pass.
+Woodcutting mirrors the mining config/status shape with target tree lists, configurable scan radius/candidate limit, and presets for normal trees, oak, willow, maple, and custom targets. It requires a `Chop down` action, scans relevant tile-object layers instead of only plain game objects, chooses by path distance rather than straight-line distance, and exposes the same pathing/inventory/visibility/bounds diagnostics plus object type in candidate rows. Live mode invokes the guarded object menu action for the matched action index; dropping logs and tree-respawn integration are report-only/follow-up in this pass. The RuneLite sidebar exposes `Skilling target boxes`, backed by the `showSkillFarmerTargets` config option, to draw latest mining/woodcutting candidate bounds after scans.
 
 ### `GET /targets/panels`
 
@@ -307,9 +309,11 @@ Current push events:
 
 Tracked by `OSR-6`.
 
-The first verifier is a static dashboard in `tools/cv-helper-verifier/`, served by `serve.ps1` at `http://127.0.0.1:8765/`. The helper exposes `/api/discover`, which probes `11777` first and then falls back through known browser ports and live local Java listeners until it finds a valid CV Helper `/status` response. The dashboard polls the active localhost endpoints, shows target counts and payload tables, and flags suspicious target geometry such as oversized inventory/equipment boxes or unnamed equipment slots.
+The first verifier is a static WebHelper app in `tools/cv-helper-verifier/`, served by `serve.ps1` at `http://127.0.0.1:8765/`. The helper exposes `/api/discover`, which probes `11777` first and then falls back through known browser ports and live local Java listeners until it finds a valid CV Helper `/status` response. The app uses top-level navigation for Dashboard, Farmers, Inventory, Actions, Configuration, Debug, and Raw Data, polls the active localhost endpoints, shows target counts and payload tables, and flags suspicious target geometry such as oversized inventory/equipment boxes or unnamed equipment slots.
 
 The plugin adds CORS headers to JSON responses so the browser can call `http://127.0.0.1:<port>` directly. The verifier UI must clearly separate "transport is broken" from "transport is healthy but RuneLite is at `LOGIN_SCREEN`", because empty widget-dependent targets are expected until login completes.
+
+Configuration editing in WebHelper separates Live State from Draft Config. Live state may refresh continuously, but editable draft fields must not be rebound to polling payloads once a draft exists. Users explicitly load current config into the draft, apply the draft, reset the draft, import JSON into the draft, or export the current draft. If the live config changes while a draft is dirty, WebHelper warns and preserves the draft. Raw payloads stay available in Raw Data or expandable debug views, while default views use structured cards/tables/badges.
 
 ## Hotkey Action Investigation
 
@@ -432,9 +436,9 @@ Known farmer follow-ups:
 - Add emergency teleport and configuration profiles/presets after the loop primitives are stable.
 - Add explicit world-switching/reconnect policy after the core combat loop is stable. Login-screen recovery already reuses the guarded `/login/click` helper when enabled.
 
-The verifier dashboard groups `/status` data into connection, vitals, wealth, and interface sections. It shows HP/prayer, run energy, special attack energy/enabled state, active prayers, current loot/equipment/total carried/risked-value approximation, selected widget state, and latest capture preview/path.
+The verifier dashboard groups `/status` data into connection, vitals, wealth, and interface sections. It shows HP/prayer, run energy, special attack energy/enabled state, active prayers, current loot/equipment/total carried/risked-value approximation, selected widget state, and latest capture preview/path. Inventory and equipment should have one authoritative default display with sortable/filterable rows for item name, quantity, slot, and available value fields; duplicate raw inventory dumps belong in Raw Data.
 
-The mob-farmer verifier panel syncs current settings from `/automation/mob-farmer/config`, renders structured config controls with labels/descriptions/tooltips instead of a raw dump, supports copy/paste JSON import/export, exposes a focus-click button, and allows action slot hotkey/options editing through WebHelper. Raw JSON remains available behind the advanced toggle for debugging.
+The mob-farmer verifier panel shows status, controls, runtime details, configuration entry points, and debug data as separate surfaces. Its config editor reads current settings from `/automation/mob-farmer/config` only into an explicit draft, renders structured config controls with labels/descriptions/tooltips instead of a raw dump, supports JSON import/export without implicit apply, exposes a focus-click button, and allows action slot hotkey/options editing through WebHelper. Raw JSON remains available behind debug/raw views.
 
 ## Debugging In Game
 
