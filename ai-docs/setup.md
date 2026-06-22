@@ -45,7 +45,7 @@ These tools are useful for the intended workflow:
 - Confirm GitHub authentication path.
 - Confirm Linear task workflow and labels.
 - Confirm browser verification workflow.
-- Confirm MCP server configuration for GitHub, Linear, and `agent-browser`.
+- MCP server configuration is documented and configured in `.agents/mcp-config.json`.
 - Document required environment variables with names and purpose, excluding secret values.
 - Add smoke-test commands for the server, Python bridge, and plugin once they exist.
 - Record recurring user workflow preferences here when they affect task intake, planning, or handoff so future sessions can reuse them by default.
@@ -119,3 +119,29 @@ For live checks, the practical login flow is: click `Play Now`, wait for the cli
 For prayer target verification, open the prayer tab in RuneLite before calling `/targets/prayer`. The endpoint reports canvas `bounds` and `center` points for visible prayer-related widgets.
 
 For runtime verification that depends on live game widgets, ask the user to log in to the newest launched custom client before interpreting endpoint output. Logged-out state commonly reports unavailable spellbook metadata and empty target surfaces.
+
+## MCP Server Configuration
+
+### Linear MCP
+
+Linear MCP server is configured in `.mcp-config.json` using the official Linear hosted server with `mcp-remote`.
+
+#### Setup Steps
+
+1. The MCP server configuration in `.mcp-config.json` uses:
+   - Command: `npx -y mcp-remote https://mcp.linear.app/mcp`
+   - Authentication: OAuth 2.1 with dynamic client registration (interactive flow)
+
+2. When you first use Linear MCP, you will be prompted to authenticate with your Linear account through an OAuth flow.
+
+3. The official Linear MCP server is centrally hosted and managed at `https://mcp.linear.app/mcp`
+
+### GitHub MCP
+
+GitHub MCP is configured in your GitHub Copilot IntelliJ config at `C:\Users\kaust\AppData\Local\github-copilot\intellij\mcp.json` using the HTTP endpoint at `https://api.githubcopilot.com/mcp/`.
+
+### GitHub CLI Fallback
+
+GitHub CLI (`gh`) is available as a fallback for repository operations:
+- Authenticated as KaustubhLall with repo, gist, read:org scopes
+- Use for branches, PRs, and CI operations when MCP is unavailable
