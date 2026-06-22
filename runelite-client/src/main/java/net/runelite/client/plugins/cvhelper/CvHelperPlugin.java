@@ -4965,137 +4965,6 @@ public class CvHelperPlugin extends Plugin
 		return sb.toString();
 	}
 
-	private void openWorldSwitcher()
-	{
-		clientThread.invokeLater(() ->
-		{
-			Widget worldSwitcherButton = client.getWidget(WidgetInfo.WORLD_SWITCHER_BUTTON);
-			if (worldSwitcherButton != null && isVisibleWidget(worldSwitcherButton))
-			{
-				Rectangle bounds = worldSwitcherButton.getBounds();
-				if (bounds != null)
-				{
-					Map<String, Object> canvasPoint = pointMap(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-					Point screenPoint = canvasPointToScreen(canvasPoint);
-					if (screenPoint != null)
-					{
-						try
-						{
-							Robot robot = new Robot();
-							clickScreenPoint(robot, screenPoint);
-							log.debug("Clicked world switcher button");
-							lastEvent.set("world-switcher-opened");
-						}
-						catch (AWTException e)
-						{
-							log.error("Failed to click world switcher button", e);
-							lastEvent.set("world-switcher-click-failed:" + e.getMessage());
-						}
-					}
-				}
-			}
-			else
-			{
-				log.debug("World switcher button not found or not visible");
-				lastEvent.set("world-switcher-button-not-found");
-			}
-		});
-	}
-
-	private boolean selectWorld(int worldId)
-	{
-		Widget worldSwitcherList = client.getWidget(WidgetInfo.WORLD_SWITCHER_LIST);
-		if (worldSwitcherList == null || !isVisibleWidget(worldSwitcherList))
-		{
-			log.debug("World switcher list not found or not visible");
-			return false;
-		}
-
-		// Search for the world widget by text
-		Widget[] children = worldSwitcherList.getChildren();
-		if (children == null)
-		{
-			return false;
-		}
-
-		for (Widget child : children)
-		{
-			if (child == null)
-			{
-				continue;
-			}
-
-			String text = child.getText();
-			if (text != null && text.contains(String.valueOf(worldId)))
-			{
-				Rectangle bounds = child.getBounds();
-				if (bounds != null)
-				{
-					Map<String, Object> canvasPoint = pointMap(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-					Point screenPoint = canvasPointToScreen(canvasPoint);
-					if (screenPoint != null)
-					{
-						try
-						{
-							Robot robot = new Robot();
-							clickScreenPoint(robot, screenPoint);
-							log.debug("Selected world {}", worldId);
-							lastEvent.set("world-selected:" + worldId);
-							return true;
-						}
-						catch (AWTException e)
-						{
-							log.error("Failed to select world {}", worldId, e);
-							lastEvent.set("world-select-failed:" + worldId + ":" + e.getMessage());
-						}
-					}
-				}
-				return false;
-			}
-
-			// Check children recursively
-			if (child.getChildren() != null)
-			{
-				for (Widget grandchild : child.getChildren())
-				{
-					if (grandchild != null)
-					{
-						String grandchildText = grandchild.getText();
-						if (grandchildText != null && grandchildText.contains(String.valueOf(worldId)))
-						{
-							Rectangle bounds = grandchild.getBounds();
-							if (bounds != null)
-							{
-								Map<String, Object> canvasPoint = pointMap(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-								Point screenPoint = canvasPointToScreen(canvasPoint);
-								if (screenPoint != null)
-								{
-									try
-									{
-										Robot robot = new Robot();
-										clickScreenPoint(robot, screenPoint);
-										log.debug("Selected world {}", worldId);
-										lastEvent.set("world-selected:" + worldId);
-										return true;
-									}
-									catch (AWTException e)
-									{
-										log.error("Failed to select world {}", worldId, e);
-										lastEvent.set("world-select-failed:" + worldId + ":" + e.getMessage());
-									}
-								}
-							}
-							return false;
-						}
-					}
-				}
-			}
-		}
-
-		log.debug("World {} not found in world switcher", worldId);
-		return false;
-	}
-
 	private void switchToWorld(int worldId)
 	{
 		clientThread.invokeLater(() ->
@@ -5104,10 +4973,11 @@ public class CvHelperPlugin extends Plugin
 			lastEvent.set("world-switch-attempt:" + worldId);
 			
 			// Use client.createWorld() to create a World object for the login screen
+			// Don't set types - let the client determine the world type from the server
 			World rsWorld = client.createWorld();
 			rsWorld.setId(worldId);
 			rsWorld.setActivity("Roleplaying");
-			rsWorld.setTypes(EnumSet.of(WorldType.MEMBERS));
+			// rsWorld.setTypes(EnumSet.of(WorldType.MEMBERS)); // Don't set types
 			
 			try
 			{
@@ -5121,60 +4991,6 @@ public class CvHelperPlugin extends Plugin
 				lastEvent.set("world-change-api-failed:" + e.getMessage());
 			}
 		});
-	}
-
-	private Widget searchAllWidgetsForWorldText(int currentWorld)
-	{
-		// Search for widgets containing "World" text or the current world number
-		String[] searchTerms = {"World", "world", String.valueOf(currentWorld)};
-		
-		// Get the root widget for the login screen
-		Widget rootWidget = client.getWidget(WidgetInfo.LOGIN_CLICK_TO_PLAY_SCREEN);
-		log.info("Root widget: {}", rootWidget != null ? "found" : "null");
-		
-		if (rootWidget != null)
-		{
-			for (String term : searchTerms)
-			{
-				Widget found = findWidgetContainingText(rootWidget, term);
-				if (found != null)
-				{
-					log.info("Found widget containing term: {}", term);
-					return found;
-				}
-			}
-		}
-		
-		return null;
-	}
-
-	private Widget findWidgetContainingText(Widget widget, String searchText)
-	{
-		if (widget == null)
-		{
-			return null;
-		}
-		
-		String text = widget.getText();
-		if (text != null && text.contains(searchText))
-		{
-			return widget;
-		}
-		
-		Widget[] children = widget.getChildren();
-		if (children != null)
-		{
-			for (Widget child : children)
-			{
-				Widget found = findWidgetContainingText(child, searchText);
-				if (found != null)
-				{
-					return found;
-				}
-			}
-		}
-		
-		return null;
 	}
 
 	private String detectedLoginScreen(GameState gameState)
