@@ -43,6 +43,7 @@ class CvHelperPanel extends PluginPanel
 	private final CvHelperPlugin plugin;
 	private final JLabel status = new JLabel("Ready");
 	private final JLabel serverStatus = new JLabel("Server: starting");
+	private final JLabel loginRecoveryStatus = new JLabel("Login: unknown");
 
 	CvHelperPanel(CvHelperPlugin plugin)
 	{
@@ -175,6 +176,19 @@ class CvHelperPanel extends PluginPanel
 		playerPanel.add(playerStatus, BorderLayout.CENTER);
 		playerPanel.add(refreshPlayer, BorderLayout.SOUTH);
 
+		JPanel loginRecoveryPanel = new JPanel(new BorderLayout(0, 4));
+		loginRecoveryPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		loginRecoveryPanel.setBorder(BorderFactory.createTitledBorder("Login Recovery"));
+		loginRecoveryStatus.setForeground(Color.LIGHT_GRAY);
+		JButton refreshLoginRecovery = new JButton("Refresh login status");
+		refreshLoginRecovery.addActionListener(e ->
+		{
+			loginRecoveryStatus.setText(plugin.getLoginRecoveryStatusText());
+			updateStatus("Login recovery status refreshed");
+		});
+		loginRecoveryPanel.add(loginRecoveryStatus, BorderLayout.CENTER);
+		loginRecoveryPanel.add(refreshLoginRecovery, BorderLayout.SOUTH);
+
 		JPanel center = new JPanel(new BorderLayout(0, 4));
 		center.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		center.add(toggles, BorderLayout.NORTH);
@@ -187,6 +201,7 @@ class CvHelperPanel extends PluginPanel
 		lower.add(mobFarmerSection);
 		lower.add(serverSettings);
 		lower.add(playerPanel);
+		lower.add(loginRecoveryPanel);
 		center.add(lower, BorderLayout.SOUTH);
 
 		JPanel content = new JPanel(new BorderLayout(0, 8));

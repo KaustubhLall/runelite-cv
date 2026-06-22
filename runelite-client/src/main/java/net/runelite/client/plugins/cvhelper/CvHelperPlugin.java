@@ -6,6 +6,7 @@ package net.runelite.client.plugins.cvhelper;
 
 import com.google.gson.Gson;
 import com.google.inject.Provides;
+import java.awt.AWTException;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
@@ -33,6 +34,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -75,6 +77,8 @@ import net.runelite.api.Tile;
 import net.runelite.api.TileItem;
 import net.runelite.api.TileObject;
 import net.runelite.api.VarPlayer;
+import net.runelite.api.World;
+import net.runelite.api.WorldType;
 import net.runelite.api.WorldView;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldArea;
@@ -162,8 +166,30 @@ public class CvHelperPlugin extends Plugin
 		"champion's scroll",
 		"long bone",
 		"curved bone",
-		"jar of"
-	);
+		"jar of");
+
+	private enum LoginRecoveryState
+	{
+		IN_GAME,
+		LOGIN_SCREEN,
+		DISCONNECTED,
+		CLICK_TO_PLAY,
+		PLAY_NOW,
+		WORLD_SELECT_REQUIRED,
+		WORLD_SWITCH_REQUIRED,
+		AUTH_REQUIRED_MANUAL,
+		LOADING,
+		RECOVERY_BLOCKED,
+		UNKNOWN_LOGIN_STATE
+	}
+
+	private static final int DEFAULT_F2P_WORLD = 301;
+	private static final int DEFAULT_P2P_WORLD = 318;
+	// Verified F2P worlds from RuneLite world list
+	private static final int[] FALLBACK_F2P_WORLDS = {301, 308, 316, 335, 381, 382, 383, 384, 393, 394, 395, 396, 498, 499};
+	// Verified P2P worlds from RuneLite world list  
+	private static final int[] FALLBACK_P2P_WORLDS = {318, 319, 320, 321, 322, 323, 324, 325, 326, 327, 328, 329, 330, 331, 332, 333, 334, 336, 337, 338, 339, 340, 341, 342, 343, 344, 345, 346, 347, 348, 349, 350, 351, 352, 353, 354, 355, 356, 357, 358, 359, 360, 361, 362, 363, 364, 365, 366, 367, 368, 369, 370, 371, 372, 373, 374, 375, 376, 377, 378, 379, 380, 381, 382, 383, 384, 385, 386, 387, 388, 389, 390, 391, 392, 393, 394, 395, 396, 397, 398, 399, 400, 401, 402, 403, 404, 405, 406, 407, 408, 409, 410, 411, 412, 413, 414, 415, 416, 417, 418, 419, 420, 421, 422, 423, 424, 425, 426, 427, 428, 429, 430, 431, 432, 433, 434, 435, 436, 437, 438, 439, 440, 441, 442, 443, 444, 445, 446, 447, 448, 449, 450, 451, 452, 453, 454, 455, 456, 457, 458, 459, 460, 461, 462, 463, 464, 465, 466, 467, 468, 469, 470, 471, 472, 473, 474, 475, 476, 477, 478, 479, 480, 481, 482, 483, 484, 485, 486, 487, 488, 489, 490, 491, 492, 493, 494, 495, 496, 497, 498, 499, 500};
+
 	private static final int[][] MOB_FARMER_PATH_DIRECTIONS = {
 		{1, 0},
 		{-1, 0},
@@ -4659,11 +4685,12 @@ public class CvHelperPlugin extends Plugin
 	private boolean tryMobFarmerLoginRecovery(boolean live, int generation, GameState gameState)
 	{
 		Map<String, Object> details = new LinkedHashMap<>();
+		LoginRecoveryState state = detectLoginRecoveryState();
+		
 		details.put("enabled", getMobFarmerLoginRecoveryEnabled());
-		details.put("loginRecoveryEnabled", getMobFarmerLoginRecoveryEnabled());
 		details.put("live", live);
 		details.put("gameState", gameState == null ? null : gameState.name());
-		details.put("detectedScreen", detectedLoginScreen(gameState));
+		details.put("recoveryState", state.name());
 		details.put("clickToPlayEnabled", getMobFarmerLoginClickToPlayEnabled());
 		details.put("disconnectRecoveryEnabled", getMobFarmerLoginDisconnectRecoveryEnabled());
 		details.put("autoResumeAfterLogin", getMobFarmerAutoResumeAfterLogin());
@@ -4672,8 +4699,9 @@ public class CvHelperPlugin extends Plugin
 		details.put("currentWorld", safeValue(() -> client.getWorld() > 0 ? client.getWorld() : -1, -1));
 		details.put("worldHost", safeValue(client::getWorldHost, null));
 		details.put("worldType", currentWorldTypeText());
-		details.put("antiIdle", false);
-		details.put("idleTimerGuidance", "Use RuneLite Logout Timer for longer idle windows; this only recovers after logout.");
+		details.put("worldSuitable", isWorldSuitableForAutomation());
+		details.put("worldBlockReason", mobFarmerLoginWorldBlockReason());
+		details.put("selectedFallbackWorld", isWorldSuitableForAutomation() ? null : selectFallbackWorld(getMobFarmerLoginRecoveryF2pOnly()));
 
 		if (!live || !getMobFarmerLoginRecoveryEnabled())
 		{
@@ -4681,7 +4709,15 @@ public class CvHelperPlugin extends Plugin
 			setMobFarmerLoginRecoveryDecision(live ? "disabled" : "dry-run-skip", details);
 			return false;
 		}
-		if (gameState == GameState.LOGGING_IN || gameState == GameState.LOADING || gameState == GameState.HOPPING)
+		
+		if (state == LoginRecoveryState.IN_GAME)
+		{
+			details.put("result", "already-logged-in");
+			setMobFarmerLoginRecoveryDecision("already-logged-in", details);
+			return false;
+		}
+		
+		if (state == LoginRecoveryState.LOADING)
 		{
 			details.put("result", "waiting");
 			setMobFarmerLoginRecoveryDecision("waiting:" + gameState, details);
@@ -4689,6 +4725,7 @@ public class CvHelperPlugin extends Plugin
 			setMobFarmerDecision("login-recovery-waiting", details);
 			return true;
 		}
+		
 		if (!getMobFarmerAutoResumeAfterLogin())
 		{
 			details.put("result", "auto-resume-disabled");
@@ -4699,46 +4736,45 @@ public class CvHelperPlugin extends Plugin
 			stopMobFarmer();
 			return true;
 		}
-		boolean clickToPlayState = gameState == GameState.LOGIN_SCREEN || gameState == GameState.LOGIN_SCREEN_AUTHENTICATOR;
-		boolean disconnectState = gameState == GameState.CONNECTION_LOST;
-		if (!clickToPlayState && !disconnectState)
+		
+		if (state == LoginRecoveryState.WORLD_SWITCH_REQUIRED)
 		{
-			details.put("result", "not-clickable-login-state");
-			setMobFarmerLoginRecoveryDecision("not-clickable-login-state", details);
-			return false;
-		}
-		if (clickToPlayState && !getMobFarmerLoginClickToPlayEnabled())
-		{
-			details.put("result", "click-to-play-disabled");
-			setMobFarmerLoginRecoveryDecision("click-to-play-disabled", details);
-			mobFarmerStatus.set("login-recovery-disabled:click-to-play");
-			setMobFarmerDecision("login-recovery-click-to-play-disabled", details);
+			details.put("result", "world-switch-required");
+			setMobFarmerLoginRecoveryDecision("world-switch-required", details);
+			mobFarmerStatus.set("login-recovery-blocked:world-switch-required");
+			setMobFarmerDecision("login-recovery-world-switch-required", details);
+			updatePanelStatus("Mob farmer login recovery blocked: world switch required to " + details.get("selectedFallbackWorld"));
 			return true;
 		}
-		if (disconnectState && !getMobFarmerLoginDisconnectRecoveryEnabled())
+		
+		if (state == LoginRecoveryState.LOGIN_SCREEN || state == LoginRecoveryState.AUTH_REQUIRED_MANUAL)
 		{
-			details.put("result", "disconnect-recovery-disabled");
-			setMobFarmerLoginRecoveryDecision("disconnect-recovery-disabled", details);
-			mobFarmerStatus.set("login-recovery-disabled:connection-lost");
-			setMobFarmerDecision("login-recovery-disconnect-disabled", details);
-			return true;
+			if (!getMobFarmerLoginClickToPlayEnabled())
+			{
+				details.put("result", "click-to-play-disabled");
+				setMobFarmerLoginRecoveryDecision("click-to-play-disabled", details);
+				mobFarmerStatus.set("login-recovery-disabled:click-to-play");
+				setMobFarmerDecision("login-recovery-click-to-play-disabled", details);
+				return true;
+			}
 		}
+		
+		if (state == LoginRecoveryState.DISCONNECTED)
+		{
+			if (!getMobFarmerLoginDisconnectRecoveryEnabled())
+			{
+				details.put("result", "disconnect-recovery-disabled");
+				setMobFarmerLoginRecoveryDecision("disconnect-recovery-disabled", details);
+				mobFarmerStatus.set("login-recovery-disabled:connection-lost");
+				setMobFarmerDecision("login-recovery-disconnect-disabled", details);
+				return true;
+			}
+		}
+		
 		if (isStaleMobFarmerLoop(generation))
 		{
 			details.put("result", "stale-loop");
 			setMobFarmerLoginRecoveryDecision("stale-loop", details);
-			return true;
-		}
-
-		String blockReason = mobFarmerLoginWorldBlockReason();
-		details.put("currentWorldAllowed", blockReason == null);
-		if (blockReason != null)
-		{
-			details.put("failureReason", blockReason);
-			setMobFarmerLoginRecoveryDecision("blocked:" + blockReason, details);
-			mobFarmerStatus.set("login-recovery-blocked:" + blockReason);
-			setMobFarmerDecision("login-recovery-blocked", details);
-			updatePanelStatus("Mob farmer login recovery blocked: " + blockReason);
 			return true;
 		}
 
@@ -4756,15 +4792,16 @@ public class CvHelperPlugin extends Plugin
 		}
 
 		lastMobFarmerLoginClickMillis = now;
-		details.put("intendedAction", disconnectState ? "Recover connection lost" : "Click login");
-		details.put("actualAction", disconnectState ? "enter-key-disconnect-recovery" : "guarded-login-widget-click");
+		boolean isDisconnect = state == LoginRecoveryState.DISCONNECTED;
+		details.put("intendedAction", isDisconnect ? "Recover connection lost" : "Click login");
+		details.put("actualAction", isDisconnect ? "enter-key-disconnect-recovery" : "guarded-login-widget-click");
 		details.put("result", "queued");
-		recordMobFarmerScheduledAction(MobFarmerActionKind.LOGIN_RECOVERY, details.get("detectedScreen") == null ? String.valueOf(details.get("gameState")) : String.valueOf(details.get("detectedScreen")), details.get("actualAction").toString());
+		recordMobFarmerScheduledAction(MobFarmerActionKind.LOGIN_RECOVERY, state.name(), details.get("actualAction").toString());
 		setMobFarmerLoginRecoveryDecision("queued", details);
-		mobFarmerStatus.set(disconnectState ? "login-disconnect-recovery-queued" : "login-recovery-click-queued");
-		setMobFarmerDecision(disconnectState ? "login-disconnect-recovery-queued" : "login-recovery-click-queued", details);
-		updatePanelStatus(disconnectState ? "Mob farmer queued connection-lost recovery" : "Mob farmer queued guarded login recovery click");
-		if (disconnectState)
+		mobFarmerStatus.set(isDisconnect ? "login-disconnect-recovery-queued" : "login-recovery-click-queued");
+		setMobFarmerDecision(isDisconnect ? "login-disconnect-recovery-queued" : "login-recovery-click-queued", details);
+		updatePanelStatus(isDisconnect ? "Mob farmer queued connection-lost recovery" : "Mob farmer queued guarded login recovery click");
+		if (isDisconnect)
 		{
 			pressLoginEnterFallback("login-disconnect-enter-fallback", "Pressed Enter on connection-lost screen");
 		}
@@ -4812,6 +4849,331 @@ public class CvHelperPlugin extends Plugin
 				return "unsafe-world-type:" + blocked + "@" + world;
 			}
 		}
+		return null;
+	}
+
+	private LoginRecoveryState detectLoginRecoveryState()
+	{
+		GameState gameState = safeValue(client::getGameState, GameState.UNKNOWN);
+		if (gameState == null)
+		{
+			return LoginRecoveryState.UNKNOWN_LOGIN_STATE;
+		}
+
+		switch (gameState)
+		{
+			case LOGGED_IN:
+				return LoginRecoveryState.IN_GAME;
+			case LOGIN_SCREEN:
+			case LOGIN_SCREEN_AUTHENTICATOR:
+				String worldBlockReason = mobFarmerLoginWorldBlockReason();
+				if (worldBlockReason != null)
+				{
+					return LoginRecoveryState.WORLD_SWITCH_REQUIRED;
+				}
+				Widget loginWidget = findLoginClickWidget();
+				if (isVisibleWidget(loginWidget))
+				{
+					return LoginRecoveryState.CLICK_TO_PLAY;
+				}
+				return LoginRecoveryState.LOGIN_SCREEN;
+			case CONNECTION_LOST:
+				return LoginRecoveryState.DISCONNECTED;
+			case LOGGING_IN:
+			case LOADING:
+			case HOPPING:
+				return LoginRecoveryState.LOADING;
+			case STARTING:
+				return LoginRecoveryState.LOADING;
+			default:
+				return LoginRecoveryState.UNKNOWN_LOGIN_STATE;
+		}
+	}
+
+	private boolean isWorldSuitableForAutomation()
+	{
+		return mobFarmerLoginWorldBlockReason() == null;
+	}
+
+	private int selectFallbackWorld(boolean preferF2P)
+	{
+		int currentWorld = safeValue(() -> client.getWorld() > 0 ? client.getWorld() : -1, -1);
+		int[] fallbacks = preferF2P ? FALLBACK_F2P_WORLDS : FALLBACK_P2P_WORLDS;
+		
+		for (int world : fallbacks)
+		{
+			if (world != currentWorld)
+			{
+				return world;
+			}
+		}
+		return preferF2P ? DEFAULT_F2P_WORLD : DEFAULT_P2P_WORLD;
+	}
+
+	private Map<String, Object> getLoginRecoveryDiagnostics()
+	{
+		Map<String, Object> diagnostics = new LinkedHashMap<>();
+		GameState gameState = safeValue(client::getGameState, GameState.UNKNOWN);
+		LoginRecoveryState state = detectLoginRecoveryState();
+		int currentWorld = safeValue(() -> client.getWorld() > 0 ? client.getWorld() : -1, -1);
+		String worldType = currentWorldTypeText();
+		boolean worldSuitable = isWorldSuitableForAutomation();
+		String worldBlockReason = mobFarmerLoginWorldBlockReason();
+		
+		diagnostics.put("state", state.name());
+		diagnostics.put("gameState", gameState == null ? null : gameState.name());
+		diagnostics.put("currentWorld", currentWorld);
+		diagnostics.put("worldType", worldType);
+		diagnostics.put("worldSuitable", worldSuitable);
+		diagnostics.put("worldBlockReason", worldBlockReason);
+		diagnostics.put("loggedIn", gameState == GameState.LOGGED_IN);
+		diagnostics.put("selectedFallbackWorld", worldSuitable ? null : selectFallbackWorld(getMobFarmerLoginRecoveryF2pOnly()));
+		
+		Widget loginWidget = findLoginClickWidget();
+		diagnostics.put("loginWidgetVisible", isVisibleWidget(loginWidget));
+		if (isVisibleWidget(loginWidget))
+		{
+			diagnostics.put("loginWidget", loginWidgetDiagnostics(loginWidget));
+		}
+		
+		return diagnostics;
+	}
+
+	String getLoginRecoveryStatusText()
+	{
+		Map<String, Object> diagnostics = getLoginRecoveryDiagnostics();
+		LoginRecoveryState state = (LoginRecoveryState) diagnostics.get("state");
+		int currentWorld = (int) diagnostics.get("currentWorld");
+		String worldType = (String) diagnostics.get("worldType");
+		boolean worldSuitable = (boolean) diagnostics.get("worldSuitable");
+		String worldBlockReason = (String) diagnostics.get("worldBlockReason");
+		boolean loggedIn = (boolean) diagnostics.get("loggedIn");
+		
+		StringBuilder sb = new StringBuilder();
+		sb.append("State: ").append(state.name());
+		if (loggedIn)
+		{
+			sb.append(" (logged in)");
+		}
+		sb.append(" | World: ").append(currentWorld > 0 ? currentWorld : "unknown");
+		sb.append(" | Type: ").append(worldType != null ? worldType : "unknown");
+		sb.append(" | Suitable: ").append(worldSuitable ? "yes" : "no");
+		if (!worldSuitable && worldBlockReason != null)
+		{
+			sb.append(" (").append(worldBlockReason).append(")");
+		}
+		return sb.toString();
+	}
+
+	private void openWorldSwitcher()
+	{
+		clientThread.invokeLater(() ->
+		{
+			Widget worldSwitcherButton = client.getWidget(WidgetInfo.WORLD_SWITCHER_BUTTON);
+			if (worldSwitcherButton != null && isVisibleWidget(worldSwitcherButton))
+			{
+				Rectangle bounds = worldSwitcherButton.getBounds();
+				if (bounds != null)
+				{
+					Map<String, Object> canvasPoint = pointMap(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+					Point screenPoint = canvasPointToScreen(canvasPoint);
+					if (screenPoint != null)
+					{
+						try
+						{
+							Robot robot = new Robot();
+							clickScreenPoint(robot, screenPoint);
+							log.debug("Clicked world switcher button");
+							lastEvent.set("world-switcher-opened");
+						}
+						catch (AWTException e)
+						{
+							log.error("Failed to click world switcher button", e);
+							lastEvent.set("world-switcher-click-failed:" + e.getMessage());
+						}
+					}
+				}
+			}
+			else
+			{
+				log.debug("World switcher button not found or not visible");
+				lastEvent.set("world-switcher-button-not-found");
+			}
+		});
+	}
+
+	private boolean selectWorld(int worldId)
+	{
+		Widget worldSwitcherList = client.getWidget(WidgetInfo.WORLD_SWITCHER_LIST);
+		if (worldSwitcherList == null || !isVisibleWidget(worldSwitcherList))
+		{
+			log.debug("World switcher list not found or not visible");
+			return false;
+		}
+
+		// Search for the world widget by text
+		Widget[] children = worldSwitcherList.getChildren();
+		if (children == null)
+		{
+			return false;
+		}
+
+		for (Widget child : children)
+		{
+			if (child == null)
+			{
+				continue;
+			}
+
+			String text = child.getText();
+			if (text != null && text.contains(String.valueOf(worldId)))
+			{
+				Rectangle bounds = child.getBounds();
+				if (bounds != null)
+				{
+					Map<String, Object> canvasPoint = pointMap(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+					Point screenPoint = canvasPointToScreen(canvasPoint);
+					if (screenPoint != null)
+					{
+						try
+						{
+							Robot robot = new Robot();
+							clickScreenPoint(robot, screenPoint);
+							log.debug("Selected world {}", worldId);
+							lastEvent.set("world-selected:" + worldId);
+							return true;
+						}
+						catch (AWTException e)
+						{
+							log.error("Failed to select world {}", worldId, e);
+							lastEvent.set("world-select-failed:" + worldId + ":" + e.getMessage());
+						}
+					}
+				}
+				return false;
+			}
+
+			// Check children recursively
+			if (child.getChildren() != null)
+			{
+				for (Widget grandchild : child.getChildren())
+				{
+					if (grandchild != null)
+					{
+						String grandchildText = grandchild.getText();
+						if (grandchildText != null && grandchildText.contains(String.valueOf(worldId)))
+						{
+							Rectangle bounds = grandchild.getBounds();
+							if (bounds != null)
+							{
+								Map<String, Object> canvasPoint = pointMap(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+								Point screenPoint = canvasPointToScreen(canvasPoint);
+								if (screenPoint != null)
+								{
+									try
+									{
+										Robot robot = new Robot();
+										clickScreenPoint(robot, screenPoint);
+										log.debug("Selected world {}", worldId);
+										lastEvent.set("world-selected:" + worldId);
+										return true;
+									}
+									catch (AWTException e)
+									{
+										log.error("Failed to select world {}", worldId, e);
+										lastEvent.set("world-select-failed:" + worldId + ":" + e.getMessage());
+									}
+								}
+							}
+							return false;
+						}
+					}
+				}
+			}
+		}
+
+		log.debug("World {} not found in world switcher", worldId);
+		return false;
+	}
+
+	private void switchToWorld(int worldId)
+	{
+		clientThread.invokeLater(() ->
+		{
+			log.info("Attempting to switch to world {}", worldId);
+			lastEvent.set("world-switch-attempt:" + worldId);
+			
+			// Use client.createWorld() to create a World object for the login screen
+			World rsWorld = client.createWorld();
+			rsWorld.setId(worldId);
+			rsWorld.setActivity("Roleplaying");
+			rsWorld.setTypes(EnumSet.of(WorldType.MEMBERS));
+			
+			try
+			{
+				client.changeWorld(rsWorld);
+				log.info("Successfully requested world change to {}", worldId);
+				lastEvent.set("world-change-requested:" + worldId);
+			}
+			catch (Exception e)
+			{
+				log.error("Failed to change world using client API", e);
+				lastEvent.set("world-change-api-failed:" + e.getMessage());
+			}
+		});
+	}
+
+	private Widget searchAllWidgetsForWorldText(int currentWorld)
+	{
+		// Search for widgets containing "World" text or the current world number
+		String[] searchTerms = {"World", "world", String.valueOf(currentWorld)};
+		
+		// Get the root widget for the login screen
+		Widget rootWidget = client.getWidget(WidgetInfo.LOGIN_CLICK_TO_PLAY_SCREEN);
+		log.info("Root widget: {}", rootWidget != null ? "found" : "null");
+		
+		if (rootWidget != null)
+		{
+			for (String term : searchTerms)
+			{
+				Widget found = findWidgetContainingText(rootWidget, term);
+				if (found != null)
+				{
+					log.info("Found widget containing term: {}", term);
+					return found;
+				}
+			}
+		}
+		
+		return null;
+	}
+
+	private Widget findWidgetContainingText(Widget widget, String searchText)
+	{
+		if (widget == null)
+		{
+			return null;
+		}
+		
+		String text = widget.getText();
+		if (text != null && text.contains(searchText))
+		{
+			return widget;
+		}
+		
+		Widget[] children = widget.getChildren();
+		if (children != null)
+		{
+			for (Widget child : children)
+			{
+				Widget found = findWidgetContainingText(child, searchText);
+				if (found != null)
+				{
+					return found;
+				}
+			}
+		}
+		
 		return null;
 	}
 
@@ -8868,8 +9230,67 @@ public class CvHelperPlugin extends Plugin
 			server.createContext("/automation/panic-stop", this::handlePanicStopRequest);
 			server.createContext("/login/click", exchange ->
 			{
-				clickLoginScreen();
-				writeResponse(exchange, 202, "{\"ok\":true,\"queued\":true,\"action\":\"login-click\"}");
+				Map<String, Object> response = new LinkedHashMap<>();
+				Map<String, Object> diagnostics = getLoginRecoveryDiagnostics();
+				LoginRecoveryState state = detectLoginRecoveryState();
+				
+				response.put("ok", state == LoginRecoveryState.CLICK_TO_PLAY || state == LoginRecoveryState.DISCONNECTED);
+				response.putAll(diagnostics);
+				
+				String reason = null;
+				String nextAction = null;
+				boolean manualRequired = false;
+				
+				switch (state)
+				{
+					case IN_GAME:
+						reason = "already-logged-in";
+						nextAction = "none";
+						break;
+					case WORLD_SWITCH_REQUIRED:
+						reason = (String) diagnostics.get("worldBlockReason");
+						int fallbackWorld = (int) diagnostics.get("selectedFallbackWorld");
+						nextAction = "switching-to-world-" + fallbackWorld;
+						manualRequired = false;
+						switchToWorld(fallbackWorld);
+						break;
+					case CLICK_TO_PLAY:
+						reason = "click-to-play-widget-visible";
+						nextAction = "click-login-widget";
+						clickLoginScreen();
+						break;
+					case DISCONNECTED:
+						reason = "connection-lost-screen";
+						nextAction = "press-enter-to-reconnect";
+						clickLoginScreen();
+						break;
+					case LOGIN_SCREEN:
+						reason = "login-widget-not-visible";
+						nextAction = "manual-auth-required";
+						manualRequired = true;
+						break;
+					case LOADING:
+						reason = "client-loading";
+						nextAction = "wait";
+						break;
+					case AUTH_REQUIRED_MANUAL:
+						reason = "authenticator-required";
+						nextAction = "manual-auth-required";
+						manualRequired = true;
+						break;
+					default:
+						reason = "unknown-login-state";
+						nextAction = "manual-intervention-required";
+						manualRequired = true;
+						break;
+				}
+				
+				response.put("reason", reason);
+				response.put("nextAction", nextAction);
+				response.put("manualRequired", manualRequired);
+				
+				int statusCode = (state == LoginRecoveryState.CLICK_TO_PLAY || state == LoginRecoveryState.DISCONNECTED) ? 202 : 200;
+				writeJson(exchange, statusCode, response);
 			});
 			server.createContext("/capture", exchange ->
 			{
@@ -8949,6 +9370,7 @@ public class CvHelperPlugin extends Plugin
 			body.put("combatTargets", lastCombatTargets.size());
 			body.put("entities", lastEntities.size());
 			body.put("targetSnapshots", snapshotStatuses());
+			body.put("loginRecovery", getLoginRecoveryDiagnostics());
 			writeJson(exchange, 200, body);
 		}
 		catch (RuntimeException e)
