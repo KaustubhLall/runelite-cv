@@ -122,23 +122,47 @@ For runtime verification that depends on live game widgets, ask the user to log 
 
 ## MCP Server Configuration
 
-### Linear MCP
+### Windsurf/Cascade MCP Configuration
 
-Linear MCP server is configured in `.mcp-config.json` using the official Linear hosted server with `mcp-remote`.
+MCP servers are configured in `~/.codeium/windsurf/mcp_config.json` for Windsurf/Cascade AI assistant.
 
 #### Setup Steps
 
-1. The MCP server configuration in `.mcp-config.json` uses:
-   - Command: `npx -y mcp-remote https://mcp.linear.app/mcp`
-   - Authentication: OAuth 2.1 with dynamic client registration (interactive flow)
+1. Ensure the config directory exists:
+   ```powershell
+   New-Item -ItemType Directory -Force -Path $env:USERPROFILE\.codeium\windsurf
+   ```
 
-2. When you first use Linear MCP, you will be prompted to authenticate with your Linear account through an OAuth flow.
+2. Create or edit `~/.codeium/windsurf/mcp_config.json` with the following:
+   ```json
+   {
+     "mcpServers": {
+       "linear": {
+         "serverUrl": "https://mcp.linear.app/mcp"
+       },
+       "github": {
+         "command": "npx",
+         "args": ["-y", "@modelcontextprotocol/server-github"],
+         "env": {
+           "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+         }
+       }
+     }
+   }
+   ```
 
-3. The official Linear MCP server is centrally hosted and managed at `https://mcp.linear.app/mcp`
+3. Set the GITHUB_TOKEN environment variable:
+   ```powershell
+   [Environment]::SetEnvironmentVariable("GITHUB_TOKEN", "your_github_token", "User")
+   ```
 
-### GitHub MCP
+4. Restart Windsurf to pick up the new configuration
 
-GitHub MCP is configured in your GitHub Copilot IntelliJ config at `C:\Users\kaust\AppData\Local\github-copilot\intellij\mcp.json` using the HTTP endpoint at `https://api.githubcopilot.com/mcp/`.
+5. Linear MCP will prompt for OAuth authentication on first use
+
+### Project-Level MCP Configuration
+
+The project also includes `.mcp-config.json` in the repository root for reference and potential project-specific MCP configuration.
 
 ### GitHub CLI Fallback
 

@@ -37,3 +37,6 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+### MCP Environment Variables ###
+.mcp.env

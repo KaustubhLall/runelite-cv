@@ -1,8 +1,14 @@
 {
   "mcpServers": {
     "linear": {
+      "serverUrl": "https://mcp.linear.app/mcp"
+    },
+    "github": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://mcp.linear.app/mcp"]
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      }
     }
   }
 }

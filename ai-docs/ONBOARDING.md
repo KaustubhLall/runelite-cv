@@ -11,9 +11,10 @@ This guide helps new developers and AI agents get started with the RuneLite CV p
    ```
 
 2. **Set up MCP tools** (for AI-assisted development)
-   - Linear MCP: Configured in `.mcp-config.json` using the official Linear hosted server with OAuth authentication
-   - GitHub MCP: Configured in your GitHub Copilot IntelliJ config at `C:\Users\kaust\AppData\Local\github-copilot\intellij\mcp.json`
+   - Linear MCP: Configured in `~/.codeium/windsurf/mcp_config.json` using `serverUrl` for remote HTTP with OAuth authentication
+   - GitHub MCP: Configured in `~/.codeium/windsurf/mcp_config.json` using stdio with GITHUB_TOKEN environment variable
    - GitHub CLI fallback: Already authenticated as KaustubhLall
+   - Restart Windsurf after MCP configuration changes
 
 3. **Install Java and Gradle**
    - Java 21+ required (auto-detected from `JAVA_HOME`, `C:\Program Files\Android\openjdk\jdk-21.0.8`, or `C:\Users\kaust\.jdks\corretto-22.0.2`)
