@@ -1306,7 +1306,7 @@ function renderSkillFarmer(skill, statusPayload, configPayload) {
 	].map(([label, value]) => statCard(label, String(value))).join("");
 	refs.details.innerHTML = [
 		renderSkillSelectedBlock(skill, selected),
-		renderSkillCandidateTable(skill, Array.isArray(status.candidates) ? status.candidates : []),
+		renderSkillCandidateTable(skill, Array.isArray(status.candidates) ? status.candidates : [], status.candidateSummary),
 	].join("");
 }
 
@@ -1650,9 +1650,15 @@ function renderSkillSelectedBlock(skill, selected) {
 		name: selected.name || selected.label,
 		objectType: selected.objectType,
 		id: selected.id,
+		objectOrigin: selected.objectOrigin,
+		objectSize: selected.objectSize,
+		objectFootprint: selected.objectFootprint,
+		interactionTile: selected.interactionTile,
 		worldLocation: selected.worldLocation,
 		straightDistance: selected.distance,
 		pathDistance: selected.pathDistance,
+		interactionPathDistance: selected.interactionPathDistance,
+		interactionReachable: selected.interactionReachable,
 		reachable: selected.reachable,
 		visible: selected.visible,
 		bounds: formatRect(selected.bounds || selected.canvasBounds || {}),
@@ -1665,10 +1671,35 @@ function renderSkillSelectedBlock(skill, selected) {
 		targetMatched: selected.targetMatched,
 		actionMatched: selected.actionMatched,
 		targetText: selected.targetText,
+		matchedCount: selected.evaluatedInteractionTiles,
+		walkableTiles: selected.walkableInteractionTiles,
+		blockedTiles: selected.blockedInteractionTiles,
 	});
 }
 
-function renderSkillCandidateTable(skill, candidates) {
+function renderSkillCandidateSummary(candidates, summary) {
+	if (!summary || typeof summary !== "object") {
+		return "";
+	}
+	const s = summary;
+	const selectable = candidates.filter(c => c.selectable).length;
+	const matched = candidates.filter(c => c.targetMatched).length;
+	const unreachable = candidates.filter(c => c.targetMatched && !c.reachable).length;
+	const missingAction = candidates.filter(c => !c.actionMatched).length;
+	return `
+		<div class="candidate-summary">
+			<strong>Candidate summary:</strong>
+			total ${candidates.length},
+			matched ${matched},
+			selectable ${selectable},
+			target mismatch ${s.targetMismatches ?? 0},
+			unreachable ${unreachable},
+			missing action ${missingAction}
+		</div>
+	`;
+}
+
+function renderSkillCandidateTable(skill, candidates, summary) {
 	const rows = candidates.slice(0, 40).map(candidate => `
 		<tr class="${candidate.selectable ? "" : "warn"}">
 			<td>${escapeHtml(candidate.name || candidate.label || "")}<br><small>${escapeHtml(candidate.id ?? "")}</small></td>
@@ -1690,6 +1721,7 @@ function renderSkillCandidateTable(skill, candidates) {
 				<h3>${escapeHtml(skill)} candidates</h3>
 				<small>${escapeHtml(candidates.length)} rocks/trees with path-distance filtering</small>
 			</header>
+			${renderSkillCandidateSummary(candidates, summary)}
 			${candidates.length ? `
 				<div class="table-wrap compact-table">
 					<table>
@@ -1703,6 +1735,7 @@ function renderSkillCandidateTable(skill, candidates) {
 								<th>Reachable</th>
 								<th>Visible</th>
 								<th>Box / click</th>
+								<th>Match</th>
 								<th>Decision</th>
 								<th>Reason</th>
 							</tr>

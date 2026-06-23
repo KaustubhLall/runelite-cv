@@ -452,6 +452,107 @@ public class CvHelperPlugin extends Plugin
 		}
 	}
 
+	private static final class InteractionPathingResult
+	{
+		private final boolean reachable;
+		private final int pathDistance;
+		private final int searchLimit;
+		private final int visited;
+		private final String failureReason;
+		private final WorldPoint interactionTile;
+		private final WorldArea objectFootprint;
+		private final int evaluatedInteractionTiles;
+		private final int walkableInteractionTiles;
+		private final int blockedInteractionTiles;
+		private final int blockedByCollision;
+		private final int blockedByScene;
+
+		private InteractionPathingResult(boolean reachable, int pathDistance, int searchLimit, int visited,
+			String failureReason, WorldPoint interactionTile, WorldArea objectFootprint,
+			int evaluatedInteractionTiles, int walkableInteractionTiles, int blockedInteractionTiles,
+			int blockedByCollision, int blockedByScene)
+		{
+			this.reachable = reachable;
+			this.pathDistance = pathDistance;
+			this.searchLimit = searchLimit;
+			this.visited = visited;
+			this.failureReason = failureReason;
+			this.interactionTile = interactionTile;
+			this.objectFootprint = objectFootprint;
+			this.evaluatedInteractionTiles = evaluatedInteractionTiles;
+			this.walkableInteractionTiles = walkableInteractionTiles;
+			this.blockedInteractionTiles = blockedInteractionTiles;
+			this.blockedByCollision = blockedByCollision;
+			this.blockedByScene = blockedByScene;
+		}
+
+		private static InteractionPathingResult reachable(int pathDistance, int searchLimit, int visited,
+			WorldPoint interactionTile, WorldArea objectFootprint,
+			int evaluatedInteractionTiles, int walkableInteractionTiles, int blockedInteractionTiles,
+			int blockedByCollision, int blockedByScene)
+		{
+			return new InteractionPathingResult(true, pathDistance, searchLimit, visited, null,
+				interactionTile, objectFootprint, evaluatedInteractionTiles, walkableInteractionTiles,
+				blockedInteractionTiles, blockedByCollision, blockedByScene);
+		}
+
+		private static InteractionPathingResult unreachable(String failureReason, int searchLimit, int visited,
+			WorldArea objectFootprint, int evaluatedInteractionTiles, int walkableInteractionTiles,
+			int blockedInteractionTiles, int blockedByCollision, int blockedByScene)
+		{
+			return new InteractionPathingResult(false, Integer.MAX_VALUE, searchLimit, visited, failureReason,
+				null, objectFootprint, evaluatedInteractionTiles, walkableInteractionTiles,
+				blockedInteractionTiles, blockedByCollision, blockedByScene);
+		}
+
+		private Map<String, Object> toMap()
+		{
+			Map<String, Object> map = new LinkedHashMap<>();
+			map.put("reachable", reachable);
+			map.put("pathDistance", reachable ? pathDistance : null);
+			map.put("searchLimit", searchLimit);
+			map.put("visited", visited);
+			map.put("failureReason", failureReason);
+			map.put("interactionTile", worldPointMap(interactionTile));
+			map.put("objectFootprint", footprintMap(objectFootprint));
+			map.put("evaluatedInteractionTiles", evaluatedInteractionTiles);
+			map.put("walkableInteractionTiles", walkableInteractionTiles);
+			map.put("blockedInteractionTiles", blockedInteractionTiles);
+			map.put("blockedByCollision", blockedByCollision);
+			map.put("blockedByScene", blockedByScene);
+			return map;
+		}
+	}
+
+	private static Map<String, Object> footprintMap(WorldArea footprint)
+	{
+		if (footprint == null)
+		{
+			return null;
+		}
+		Map<String, Object> map = new LinkedHashMap<>();
+		map.put("x", footprint.getX());
+		map.put("y", footprint.getY());
+		map.put("plane", footprint.getPlane());
+		map.put("width", footprint.getWidth());
+		map.put("height", footprint.getHeight());
+		return map;
+	}
+
+	private static Map<String, Object> worldPointMap(WorldPoint point)
+	{
+		if (point == null)
+		{
+			return null;
+		}
+		Map<String, Object> map = new LinkedHashMap<>();
+		map.put("x", point.getX());
+		map.put("y", point.getY());
+		map.put("plane", point.getPlane());
+		map.put("value", point.toString());
+		return map;
+	}
+
 	private static final class MobFarmerLootCandidate
 	{
 		private final Map<String, Object> item;
@@ -7212,9 +7313,62 @@ public class CvHelperPlugin extends Plugin
 		Map<String, Object> out = new LinkedHashMap<>();
 		List<Map<String, Object>> candidates = new ArrayList<>();
 		Map<String, Object> best = null;
+		int totalCandidates = 0;
+		int targetMatches = 0;
+		int targetMismatches = 0;
+		int matchedReachable = 0;
+		int matchedUnreachable = 0;
+		int missingAction = 0;
+		int noRoute = 0;
+		int collisionBlocked = 0;
+		int sceneBlocked = 0;
 		for (Map<String, Object> candidate : collectSkillFarmerObjects(skill, targetText, action, localPlayer))
 		{
+			totalCandidates++;
 			candidates.add(candidate);
+			boolean targetMatched = Boolean.TRUE.equals(candidate.get("targetMatched"));
+			boolean actionMatched = Boolean.TRUE.equals(candidate.get("actionMatched"));
+			boolean visible = Boolean.TRUE.equals(candidate.get("visible"));
+			boolean reachable = Boolean.TRUE.equals(candidate.get("reachable"));
+			List<String> reasons = listValue(candidate.get("reasons"));
+			if (targetMatched)
+			{
+				targetMatches++;
+			}
+			else
+			{
+				targetMismatches++;
+			}
+			if (targetMatched && actionMatched && visible)
+			{
+				if (reachable)
+				{
+					matchedReachable++;
+				}
+				else
+				{
+					matchedUnreachable++;
+				}
+			}
+			if (!actionMatched)
+			{
+				missingAction++;
+			}
+			for (String reason : reasons)
+			{
+				if (reason.startsWith("unreachable:"))
+				{
+					noRoute++;
+					if (reason.contains("collision-blocked"))
+					{
+						collisionBlocked++;
+					}
+					if (reason.contains("scene-blocked"))
+					{
+						sceneBlocked++;
+					}
+				}
+			}
 			if (!Boolean.TRUE.equals(candidate.get("selectable")))
 			{
 				continue;
@@ -7229,7 +7383,33 @@ public class CvHelperPlugin extends Plugin
 		out.put("scanRadiusTiles", getSkillFarmerScanRadius(skill));
 		out.put("maxCandidates", getSkillFarmerMaxCandidates(skill));
 		out.put("decision", best == null ? "no-valid-target" : "selected:" + targetLabelForMessage(best));
+		Map<String, Object> summary = new LinkedHashMap<>();
+		summary.put("totalCandidates", totalCandidates);
+		summary.put("targetMatches", targetMatches);
+		summary.put("targetMismatches", targetMismatches);
+		summary.put("matchedReachable", matchedReachable);
+		summary.put("matchedUnreachable", matchedUnreachable);
+		summary.put("missingAction", missingAction);
+		summary.put("noRoute", noRoute);
+		summary.put("collisionBlocked", collisionBlocked);
+		summary.put("sceneBlocked", sceneBlocked);
+		out.put("candidateSummary", summary);
 		return out;
+	}
+
+	private List<String> listValue(Object value)
+	{
+		if (value instanceof List)
+		{
+			List<?> list = (List<?>) value;
+			List<String> result = new ArrayList<>(list.size());
+			for (Object item : list)
+			{
+				result.add(String.valueOf(item));
+			}
+			return result;
+		}
+		return new ArrayList<>();
 	}
 
 	private List<Map<String, Object>> collectSkillFarmerObjects(String skill, String targetText, String action, Player localPlayer)
@@ -7383,6 +7563,7 @@ public class CvHelperPlugin extends Plugin
 			reasons.add("not-visible");
 		}
 		Map<String, Object> target = new LinkedHashMap<>();
+		WorldArea objectFootprint = new WorldArea(object.getWorldLocation(), sizeX, sizeY);
 		target.put("skill", skill);
 		target.put("surface", skill);
 		target.put("objectType", object.getClass().getSimpleName());
@@ -7394,6 +7575,9 @@ public class CvHelperPlugin extends Plugin
 		target.put("localLocation", pointValue(object.getLocalLocation()));
 		target.put("sceneMinLocation", sceneMin);
 		target.put("sceneMaxLocation", sceneMax);
+		target.put("objectOrigin", pointValue(object.getWorldLocation()));
+		target.put("objectSize", footprintMap(objectFootprint));
+		target.put("objectFootprint", footprintMap(objectFootprint));
 		target.put("bounds", canvasBounds);
 		target.put("canvasBounds", canvasBounds);
 		target.put("clickPoint", pointValue(canvasLocation));
@@ -7413,9 +7597,17 @@ public class CvHelperPlugin extends Plugin
 		target.put("targetText", targetText);
 		if (targetMatch && actionMatch && visible)
 		{
-			PathingResult pathing = pathDistanceToWorldArea(localPlayer, new WorldArea(object.getWorldLocation(), sizeX, sizeY), Math.max(SKILL_FARMER_PATH_SEARCH_TILES, getSkillFarmerScanRadius(skill)));
+			InteractionPathingResult pathing = pathDistanceToInteractionArea(localPlayer, objectFootprint, Math.max(SKILL_FARMER_PATH_SEARCH_TILES, getSkillFarmerScanRadius(skill)));
 			target.put("reachable", pathing.reachable);
 			target.put("pathDistance", pathing.reachable ? pathing.pathDistance : null);
+			target.put("interactionPathDistance", pathing.reachable ? pathing.pathDistance : null);
+			target.put("interactionReachable", pathing.reachable);
+			target.put("interactionTile", pointValue(pathing.interactionTile));
+			target.put("evaluatedInteractionTiles", pathing.evaluatedInteractionTiles);
+			target.put("walkableInteractionTiles", pathing.walkableInteractionTiles);
+			target.put("blockedInteractionTiles", pathing.blockedInteractionTiles);
+			target.put("blockedByCollision", pathing.blockedByCollision);
+			target.put("blockedByScene", pathing.blockedByScene);
 			target.put("pathSearchLimit", pathing.searchLimit);
 			target.put("pathVisited", pathing.visited);
 			target.put("pathFailureReason", pathing.failureReason);
@@ -7428,6 +7620,14 @@ public class CvHelperPlugin extends Plugin
 		{
 			target.put("reachable", false);
 			target.put("pathDistance", null);
+			target.put("interactionPathDistance", null);
+			target.put("interactionReachable", false);
+			target.put("interactionTile", null);
+			target.put("evaluatedInteractionTiles", 0);
+			target.put("walkableInteractionTiles", 0);
+			target.put("blockedInteractionTiles", 0);
+			target.put("blockedByCollision", 0);
+			target.put("blockedByScene", 0);
 			target.put("pathSearchLimit", 0);
 			target.put("pathVisited", 0);
 			target.put("pathFailureReason", reasons.isEmpty() ? null : "not-pathing:" + String.join(",", reasons));
@@ -7747,6 +7947,192 @@ public class CvHelperPlugin extends Plugin
 			failureReason += ",collision-blocked:" + blockedByCollision;
 		}
 		return PathingResult.unreachable(failureReason, searchLimit, visited);
+	}
+
+	private boolean isInsideFootprint(WorldArea footprint, WorldPoint point)
+	{
+		return point.getPlane() == footprint.getPlane()
+			&& point.getX() >= footprint.getX()
+			&& point.getX() < footprint.getX() + footprint.getWidth()
+			&& point.getY() >= footprint.getY()
+			&& point.getY() < footprint.getY() + footprint.getHeight();
+	}
+
+	private boolean canStandOnTile(WorldView worldView, WorldPoint point)
+	{
+		if (worldView == null)
+		{
+			return false;
+		}
+		WorldArea area = new WorldArea(point, 1, 1);
+		for (int[] direction : MOB_FARMER_PATH_DIRECTIONS)
+		{
+			if (canTravelSafely(worldView, area, direction[0], direction[1]))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private InteractionPathingResult pathDistanceToInteractionArea(Player localPlayer, WorldArea footprint, int maxDistance)
+	{
+		if (localPlayer == null || footprint == null || localPlayer.getWorldArea() == null)
+		{
+			return InteractionPathingResult.unreachable("missing-area", 0, 0, footprint,
+				0, 0, 0, 0, 0);
+		}
+		WorldArea start = localPlayer.getWorldArea();
+		if (start.getPlane() != footprint.getPlane())
+		{
+			return InteractionPathingResult.unreachable("different-plane", 0, 0, footprint,
+				0, 0, 0, 0, 0);
+		}
+		WorldView worldView = localPlayer.getWorldView();
+		if (worldView == null)
+		{
+			worldView = client.getTopLevelWorldView();
+		}
+		if (worldView == null)
+		{
+			return InteractionPathingResult.unreachable("world-view-unavailable", 0, 0, footprint,
+				0, 0, 0, 0, 0);
+		}
+
+		WorldPoint startPoint = start.toWorldPoint();
+		if (LocalPoint.fromWorld(worldView, startPoint) == null)
+		{
+			return InteractionPathingResult.unreachable("start-outside-scene", 0, 0, footprint,
+				0, 0, 0, 0, 0);
+		}
+
+		int straightDistance = start.distanceTo(footprint);
+		int searchLimit = Math.max(1, Math.min(MOB_FARMER_PATHING_MAX_SEARCH_TILES,
+			(maxDistance > 0 ? maxDistance : straightDistance) + MOB_FARMER_PATHING_SLACK_TILES));
+
+		int minX = footprint.getX() - 1;
+		int maxX = footprint.getX() + footprint.getWidth();
+		int minY = footprint.getY() - 1;
+		int maxY = footprint.getY() + footprint.getHeight();
+
+		int evaluatedInteractionTiles = 0;
+		int blockedByScene = 0;
+		int blockedByCollision = 0;
+		int walkableInteractionTiles = 0;
+		Set<WorldPoint> interactionCandidates = new HashSet<>();
+
+		for (int x = minX; x <= maxX; x++)
+		{
+			for (int y = minY; y <= maxY; y++)
+			{
+				WorldPoint point = new WorldPoint(x, y, footprint.getPlane());
+				if (isInsideFootprint(footprint, point))
+				{
+					continue;
+				}
+				evaluatedInteractionTiles++;
+				if (LocalPoint.fromWorld(worldView, point) == null)
+				{
+					blockedByScene++;
+					continue;
+				}
+				if (!canStandOnTile(worldView, point))
+				{
+					blockedByCollision++;
+					continue;
+				}
+				walkableInteractionTiles++;
+				interactionCandidates.add(point);
+			}
+		}
+
+		if (interactionCandidates.isEmpty())
+		{
+			String failureReason = "matched-but-no-interaction-tile";
+			if (blockedByScene > 0)
+			{
+				failureReason += ",scene-blocked:" + blockedByScene;
+			}
+			if (blockedByCollision > 0)
+			{
+				failureReason += ",collision-blocked:" + blockedByCollision;
+			}
+			return InteractionPathingResult.unreachable(failureReason, searchLimit, 0,
+				footprint, evaluatedInteractionTiles, walkableInteractionTiles,
+				blockedByCollision + blockedByScene, blockedByCollision, blockedByScene);
+		}
+
+		ArrayDeque<WorldPoint> queue = new ArrayDeque<>();
+		Map<WorldPoint, Integer> distances = new HashMap<>();
+		queue.add(startPoint);
+		distances.put(startPoint, 0);
+		int visited = 0;
+		int pathBlockedByCollision = 0;
+		int pathBlockedByScene = 0;
+		WorldPoint reachedTile = null;
+		int reachedDistance = Integer.MAX_VALUE;
+
+		while (!queue.isEmpty())
+		{
+			WorldPoint point = queue.remove();
+			int pathDistance = distances.get(point);
+			visited++;
+
+			if (interactionCandidates.contains(point) && pathDistance < reachedDistance)
+			{
+				reachedTile = point;
+				reachedDistance = pathDistance;
+				break;
+			}
+
+			if (pathDistance >= searchLimit)
+			{
+				continue;
+			}
+
+			WorldArea area = new WorldArea(point, 1, 1);
+			for (int[] direction : MOB_FARMER_PATH_DIRECTIONS)
+			{
+				if (!canTravelSafely(worldView, area, direction[0], direction[1]))
+				{
+					pathBlockedByCollision++;
+					continue;
+				}
+				WorldPoint next = new WorldPoint(point.getX() + direction[0], point.getY() + direction[1], point.getPlane());
+				if (distances.containsKey(next))
+				{
+					continue;
+				}
+				if (LocalPoint.fromWorld(worldView, next) == null)
+				{
+					pathBlockedByScene++;
+					continue;
+				}
+				distances.put(next, pathDistance + 1);
+				queue.add(next);
+			}
+		}
+
+		if (reachedTile != null)
+		{
+			return InteractionPathingResult.reachable(reachedDistance, searchLimit, visited,
+				reachedTile, footprint, evaluatedInteractionTiles, walkableInteractionTiles,
+				blockedByCollision + blockedByScene + (walkableInteractionTiles - 1),
+				blockedByCollision, blockedByScene);
+		}
+
+		String failureReason = "matched-but-no-route-to-interaction-tile";
+		if (pathBlockedByScene > 0)
+		{
+			failureReason += ",scene-blocked:" + pathBlockedByScene;
+		}
+		if (pathBlockedByCollision > 0)
+		{
+			failureReason += ",collision-blocked:" + pathBlockedByCollision;
+		}
+		return InteractionPathingResult.unreachable(failureReason, searchLimit, visited,
+			footprint, evaluatedInteractionTiles, walkableInteractionTiles,
+			blockedByCollision + blockedByScene, blockedByCollision, blockedByScene);
 	}
 
 	private void setSkillFarmerStatus(String skill, Map<String, Object> status)
@@ -8839,27 +9225,9 @@ public class CvHelperPlugin extends Plugin
 		{
 			return false;
 		}
-		for (int tx = target.getX(); tx < target.getX() + target.getWidth(); tx++)
-		{
-			for (int ty = target.getY(); ty < target.getY() + target.getHeight(); ty++)
-			{
-				WorldArea targetTile = new WorldArea(tx, ty, target.getPlane(), 1, 1);
-				if (from.intersectsWith(targetTile))
-				{
-					return true;
-				}
-				if (from.isInMeleeDistance(targetTile))
-				{
-					int dx = directionToRange(from.getX(), from.getX() + from.getWidth() - 1, tx, tx);
-					int dy = directionToRange(from.getY(), from.getY() + from.getHeight() - 1, ty, ty);
-					if (canTravelSafely(worldView, from, dx, dy))
-					{
-						return true;
-					}
-				}
-			}
-		}
-		return false;
+		int dx = directionToRange(from.getX(), from.getX() + from.getWidth() - 1, target.getX(), target.getX() + target.getWidth() - 1);
+		int dy = directionToRange(from.getY(), from.getY() + from.getHeight() - 1, target.getY(), target.getY() + target.getHeight() - 1);
+		return canTravelSafely(worldView, from, dx, dy);
 	}
 
 	private int directionToRange(int fromMin, int fromMax, int targetMin, int targetMax)
