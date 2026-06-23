@@ -8839,9 +8839,27 @@ public class CvHelperPlugin extends Plugin
 		{
 			return false;
 		}
-		int dx = directionToRange(from.getX(), from.getX() + from.getWidth() - 1, target.getX(), target.getX() + target.getWidth() - 1);
-		int dy = directionToRange(from.getY(), from.getY() + from.getHeight() - 1, target.getY(), target.getY() + target.getHeight() - 1);
-		return canTravelSafely(worldView, from, dx, dy);
+		for (int tx = target.getX(); tx < target.getX() + target.getWidth(); tx++)
+		{
+			for (int ty = target.getY(); ty < target.getY() + target.getHeight(); ty++)
+			{
+				WorldArea targetTile = new WorldArea(tx, ty, target.getPlane(), 1, 1);
+				if (from.intersectsWith(targetTile))
+				{
+					return true;
+				}
+				if (from.isInMeleeDistance(targetTile))
+				{
+					int dx = directionToRange(from.getX(), from.getX() + from.getWidth() - 1, tx, tx);
+					int dy = directionToRange(from.getY(), from.getY() + from.getHeight() - 1, ty, ty);
+					if (canTravelSafely(worldView, from, dx, dy))
+					{
+						return true;
+					}
+				}
+			}
+		}
+		return false;
 	}
 
 	private int directionToRange(int fromMin, int fromMax, int targetMin, int targetMax)
