@@ -130,3 +130,27 @@ The woodcutting farmer was selecting the best tree every tick and re-clicking it
 
 - Apply the same pattern to mining once a mining animation list is added.
 - Consider a small post-animation cooldown/hold window to avoid re-clicking during the brief gap between tree depletion and the next animation.
+
+## 2026-06-22: Fix DeduplicationFilter NoClassDefFoundError Crash
+
+- Status: accepted
+- Related: `OSR-10`
+
+### Context
+
+During combat (and occasionally elsewhere), the client crashed with `java.lang.NoClassDefFoundError: net/runelite/client/util/DeduplicationFilter$LogException` thrown from the logback deduplication turbo filter. The outer class and its inner class were both present in the shaded jar, but the context classloader used during some logging calls could not resolve the private static inner class.
+
+### Decision
+
+1. Convert the `LogException` private static inner class to a package-private top-level class named `DeduplicationLogException`.
+2. Remove Lombok annotations (`@RequiredArgsConstructor`, `@EqualsAndHashCode`) and write the constructor, `equals`, and `hashCode` explicitly.
+3. Wrap the `decide()` body in a try/catch that returns `FilterReply.NEUTRAL` on any `Throwable`, so a class-loading failure in the filter cannot take down the client thread.
+
+### Tradeoffs
+
+- Loses the convenience of Lombok annotations on this tiny class; the explicit code is small and easier to reason about.
+- The safety catch means deduplication might be disabled in the rare case the class still cannot load, but the game keeps running.
+
+### Follow-up
+
+- Monitor whether the crash reappears; if it does, investigate whether the RuneLite launcher/plugin classloader is missing the `runelite-client` jar from its delegation chain during some client ticks.
