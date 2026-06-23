@@ -142,6 +142,8 @@ class CvHelperPanel extends PluginPanel
 		JPanel spellSection = createNestedSection("Spellbook toggles", plugin.getSpellbookNames(), false, true);
 		JPanel actionSection = createActionSection();
 		JPanel mobFarmerSection = createMobFarmerSection();
+		JPanel woodcuttingSection = createWoodcuttingSection();
+		JPanel miningSection = createMiningSection();
 
 		JPanel serverSettings = new JPanel(new BorderLayout(0, 4));
 		serverSettings.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -199,6 +201,8 @@ class CvHelperPanel extends PluginPanel
 		lower.add(spellSection);
 		lower.add(actionSection);
 		lower.add(mobFarmerSection);
+		lower.add(woodcuttingSection);
+		lower.add(miningSection);
 		lower.add(serverSettings);
 		lower.add(playerPanel);
 		lower.add(loginRecoveryPanel);
@@ -772,6 +776,184 @@ class CvHelperPanel extends PluginPanel
 			startDry,
 			startLive,
 			stop
+		})
+		{
+			stretch(component);
+			body.add(component);
+		}
+
+		JToggleButton expand = new JToggleButton("Expand");
+		body.setVisible(false);
+		expand.setSelected(true);
+		expand.addActionListener(e ->
+		{
+			boolean isCollapsed = expand.isSelected();
+			expand.setText(isCollapsed ? "Expand" : "Collapse");
+			body.setVisible(!isCollapsed);
+			section.revalidate();
+		});
+		expand.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		expand.setForeground(Color.LIGHT_GRAY);
+
+		section.add(expand, BorderLayout.NORTH);
+		section.add(body, BorderLayout.CENTER);
+		setCompact(section);
+		return section;
+	}
+
+	private JPanel createWoodcuttingSection()
+	{
+		JPanel section = new JPanel(new BorderLayout(0, 4));
+		section.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		section.setBorder(BorderFactory.createTitledBorder("Woodcutting farmer"));
+
+		JPanel body = new JPanel();
+		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
+		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
+
+		JTextField target = new JTextField(plugin.getWoodcuttingFarmerTarget());
+		target.setToolTipText("Partial name or id:<object id>, for example oak|tree|willow|maple");
+
+		JLabel statusLabel = new JLabel("Status: " + (plugin.getWoodcuttingFarmerRunning() ? "Running" : "Stopped"));
+		statusLabel.setForeground(Color.LIGHT_GRAY);
+
+		JButton dryStep = new JButton("Dry step");
+		dryStep.addActionListener(e ->
+		{
+			plugin.setWoodcuttingFarmerTarget(target.getText());
+			plugin.runWoodcuttingFarmerStep(false);
+		});
+		JButton liveStep = new JButton("Live chop step");
+		liveStep.addActionListener(e ->
+		{
+			plugin.setWoodcuttingFarmerTarget(target.getText());
+			plugin.runWoodcuttingFarmerStep(true);
+		});
+		JButton startDry = new JButton("Start dry loop");
+		startDry.addActionListener(e ->
+		{
+			plugin.setWoodcuttingFarmerTarget(target.getText());
+			plugin.startWoodcuttingFarmer(false);
+		});
+		JButton startLive = new JButton("Start live loop");
+		startLive.addActionListener(e ->
+		{
+			plugin.setWoodcuttingFarmerTarget(target.getText());
+			plugin.startWoodcuttingFarmer(true);
+		});
+		JButton stop = new JButton("Stop loop");
+		stop.addActionListener(e -> plugin.stopWoodcuttingFarmer());
+
+		JButton refreshStatus = new JButton("Refresh status");
+		refreshStatus.addActionListener(e ->
+		{
+			statusLabel.setText("Status: " + (plugin.getWoodcuttingFarmerRunning() ? "Running" : "Stopped"));
+			updateStatus("Woodcutting status refreshed");
+		});
+
+		JLabel help = new JLabel("<html>Woodcutting farmer: selects nearest reachable tree, chops until inventory full or tree depleted. Drop policy is enabled by default - configure in RuneLite plugin config (woodcutter section) or WebHelper.</html>");
+		help.setForeground(Color.LIGHT_GRAY);
+
+		for (JComponent component : new JComponent[]{
+			help,
+			label("Target trees"),
+			target,
+			statusLabel,
+			dryStep,
+			liveStep,
+			startDry,
+			startLive,
+			stop,
+			refreshStatus
+		})
+		{
+			stretch(component);
+			body.add(component);
+		}
+
+		JToggleButton expand = new JToggleButton("Expand");
+		body.setVisible(false);
+		expand.setSelected(true);
+		expand.addActionListener(e ->
+		{
+			boolean isCollapsed = expand.isSelected();
+			expand.setText(isCollapsed ? "Expand" : "Collapse");
+			body.setVisible(!isCollapsed);
+			section.revalidate();
+		});
+		expand.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		expand.setForeground(Color.LIGHT_GRAY);
+
+		section.add(expand, BorderLayout.NORTH);
+		section.add(body, BorderLayout.CENTER);
+		setCompact(section);
+		return section;
+	}
+
+	private JPanel createMiningSection()
+	{
+		JPanel section = new JPanel(new BorderLayout(0, 4));
+		section.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		section.setBorder(BorderFactory.createTitledBorder("Mining farmer"));
+
+		JPanel body = new JPanel();
+		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
+		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
+
+		JTextField target = new JTextField(plugin.getMiningFarmerTarget());
+		target.setToolTipText("Partial name or id:<object id>, for example iron rocks|iron ore rocks|rocks");
+
+		JLabel statusLabel = new JLabel("Status: " + (plugin.getMiningFarmerRunning() ? "Running" : "Stopped"));
+		statusLabel.setForeground(Color.LIGHT_GRAY);
+
+		JButton dryStep = new JButton("Dry step");
+		dryStep.addActionListener(e ->
+		{
+			plugin.setMiningFarmerTarget(target.getText());
+			plugin.runMiningFarmerStep(false);
+		});
+		JButton liveStep = new JButton("Live mine step");
+		liveStep.addActionListener(e ->
+		{
+			plugin.setMiningFarmerTarget(target.getText());
+			plugin.runMiningFarmerStep(true);
+		});
+		JButton startDry = new JButton("Start dry loop");
+		startDry.addActionListener(e ->
+		{
+			plugin.setMiningFarmerTarget(target.getText());
+			plugin.startMiningFarmer(false);
+		});
+		JButton startLive = new JButton("Start live loop");
+		startLive.addActionListener(e ->
+		{
+			plugin.setMiningFarmerTarget(target.getText());
+			plugin.startMiningFarmer(true);
+		});
+		JButton stop = new JButton("Stop loop");
+		stop.addActionListener(e -> plugin.stopMiningFarmer());
+
+		JButton refreshStatus = new JButton("Refresh status");
+		refreshStatus.addActionListener(e ->
+		{
+			statusLabel.setText("Status: " + (plugin.getMiningFarmerRunning() ? "Running" : "Stopped"));
+			updateStatus("Mining status refreshed");
+		});
+
+		JLabel help = new JLabel("<html>Mining farmer: selects nearest reachable rock, mines until inventory full or rock depleted. Drop policy is enabled by default - configure in RuneLite plugin config (woodcutter section) or WebHelper.</html>");
+		help.setForeground(Color.LIGHT_GRAY);
+
+		for (JComponent component : new JComponent[]{
+			help,
+			label("Target rocks"),
+			target,
+			statusLabel,
+			dryStep,
+			liveStep,
+			startDry,
+			startLive,
+			stop,
+			refreshStatus
 		})
 		{
 			stretch(component);

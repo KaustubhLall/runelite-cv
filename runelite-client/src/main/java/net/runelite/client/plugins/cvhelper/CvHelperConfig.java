@@ -1185,7 +1185,7 @@ public interface CvHelperConfig extends Config
 	)
 	default boolean dropPolicyEnabled()
 	{
-		return false;
+		return true;
 	}
 
 	@ConfigItem(

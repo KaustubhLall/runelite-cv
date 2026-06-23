@@ -2950,6 +2950,66 @@ public class CvHelperPlugin extends Plugin
 		updatePanelStatus("Mob farmer target: " + mobFarmerTarget);
 	}
 
+	String getWoodcuttingFarmerTarget()
+	{
+		return woodcuttingFarmerTarget;
+	}
+
+	void setWoodcuttingFarmerTarget(String target)
+	{
+		woodcuttingFarmerTarget = target.trim();
+	}
+
+	boolean getWoodcuttingFarmerRunning()
+	{
+		return woodcuttingFarmerRunning.get();
+	}
+
+	void startWoodcuttingFarmer(boolean live)
+	{
+		startSkillFarmer("woodcutting", live);
+	}
+
+	void stopWoodcuttingFarmer()
+	{
+		stopSkillFarmer("woodcutting");
+	}
+
+	void runWoodcuttingFarmerStep(boolean live)
+	{
+		runSkillFarmerStep("woodcutting", live, "manual-step");
+	}
+
+	String getMiningFarmerTarget()
+	{
+		return miningFarmerTarget;
+	}
+
+	void setMiningFarmerTarget(String target)
+	{
+		miningFarmerTarget = target.trim();
+	}
+
+	boolean getMiningFarmerRunning()
+	{
+		return miningFarmerRunning.get();
+	}
+
+	void startMiningFarmer(boolean live)
+	{
+		startSkillFarmer("mining", live);
+	}
+
+	void stopMiningFarmer()
+	{
+		stopSkillFarmer("mining");
+	}
+
+	void runMiningFarmerStep(boolean live)
+	{
+		runSkillFarmerStep("mining", live, "manual-step");
+	}
+
 	int getMobFarmerRecoveryLoopDelayMs()
 	{
 		return Math.max(250, Math.min(10000, config.mobFarmerRecoveryLoopDelayMs()));
