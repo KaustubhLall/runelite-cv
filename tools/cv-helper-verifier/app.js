@@ -1612,7 +1612,12 @@ function applySkillFarmerPreset(skill, preset) {
 		modeDirty: presetLive !== undefined,
 	});
 	if (skillFarmerDraftPayloads[skill]) {
+		skillFarmerDraftPayloads[skill].settings.target = preset.target;
+		if (presetLive !== undefined) {
+			skillFarmerDraftPayloads[skill].settings.live = presetLive;
+		}
 		markSkillFarmerDraftDirty(skill);
+		renderSkillFarmerConfig(skill, skillFarmerDraftPayloads[skill], "Draft modified", "warn");
 	}
 }
 

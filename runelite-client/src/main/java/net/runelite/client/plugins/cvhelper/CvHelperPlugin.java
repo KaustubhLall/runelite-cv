@@ -6881,6 +6881,8 @@ public class CvHelperPlugin extends Plugin
 		status.put("running", mining ? miningFarmerRunning.get() : woodcuttingFarmerRunning.get());
 		status.put("live", mining ? miningFarmerLiveMode : woodcuttingFarmerLiveMode);
 		status.put("target", target);
+		status.put("runtimeTarget", target);
+		status.put("configSource", "runtime-config");
 		status.put("scanRadiusTiles", getSkillFarmerScanRadius(skill));
 		status.put("maxCandidates", getSkillFarmerMaxCandidates(skill));
 		status.put("inventory", inventoryPolicyStatus());
@@ -6910,7 +6912,7 @@ public class CvHelperPlugin extends Plugin
 		schema.add(settingSchema("scanRadiusTiles", "Scan radius tiles", "number", "Scene search radius around the player. Increase this if RuneLite is rendering targets farther out; lower it if scans feel heavy.", null));
 		schema.add(settingSchema("maxCandidates", "Max candidates", "number", "Maximum object candidates returned to WebHelper and overlay. Higher values show more boxes but can be heavier.", null));
 		schema.add(settingSchema("protectedItems", "Protected inventory items", "textarea", "Shared never-drop/protected list from the mob farmer. Skill farmers expose it for drop/replacement decisions.", null));
-		schema.add(settingSchema("inventoryPolicy", "Inventory policy", "select", "Currently reports the shared inventory policy and safest drop candidate; destructive dropping is not auto-invoked yet.", Arrays.asList("REPORT_ONLY")));
+		schema.add(settingSchema("inventoryPolicy", "Inventory policy", "select", "Shared inventory policy reference. Actual dropping behavior is controlled by the drop policy settings below.", Arrays.asList("REPORT_ONLY")));
 		schema.add(settingSchema("dropPolicyEnabled", "Drop policy enabled", "boolean", "Enable the conditional drop policy for skill farmers. When disabled, farmers use their legacy inventory handling.", null));
 		schema.add(settingSchema("dropPolicyMode", "Drop mode", "select", "When to drop items: NEVER disables dropping; WHEN_FULL drops only when inventory is full; AFTER_TARGET drops after each target cycle completes; AFTER_GATHER drops after each successful gather action; CLEANUP_ONLY drops only during explicit cleanup phases; MANUAL_ONLY requires manual invocation.", Arrays.asList("NEVER", "WHEN_FULL", "AFTER_TARGET", "AFTER_GATHER", "CLEANUP_ONLY", "MANUAL_ONLY")));
 		schema.add(settingSchema("dropPolicyThresholdSlots", "Drop threshold slots", "number", "Minimum occupied inventory slots before dropping is considered. For WHEN_FULL mode, this is typically 28. For other modes, lower values allow earlier cleanup.", null));
@@ -7045,7 +7047,7 @@ public class CvHelperPlugin extends Plugin
 	private List<Map<String, Object>> woodcuttingProfiles()
 	{
 		List<Map<String, Object>> profiles = new ArrayList<>();
-		profiles.add(skillProfile("Normal trees", "tree|dead tree|evergreen"));
+		profiles.add(skillProfile("Normal trees", "exact:Tree|exact:Dead tree|exact:Evergreen"));
 		profiles.add(skillProfile("Oak", "oak"));
 		profiles.add(skillProfile("Willow", "willow"));
 		profiles.add(skillProfile("Maple", "maple"));
@@ -7290,6 +7292,7 @@ public class CvHelperPlugin extends Plugin
 				addSkillFarmerCandidate(objects, skillFarmerObjectTarget(skill, tile.getGroundObject(), targetText, action, localPlayer));
 			}
 		}
+		objects = deduplicateSkillFarmerCandidates(objects);
 		objects.sort((left, right) -> Integer.compare(intValue(left.get("distance"), Integer.MAX_VALUE), intValue(right.get("distance"), Integer.MAX_VALUE)));
 		return objects.size() > maxCandidates ? new ArrayList<>(objects.subList(0, maxCandidates)) : objects;
 	}
@@ -7300,6 +7303,24 @@ public class CvHelperPlugin extends Plugin
 		{
 			objects.add(candidate);
 		}
+	}
+
+	private List<Map<String, Object>> deduplicateSkillFarmerCandidates(List<Map<String, Object>> objects)
+	{
+		Map<String, Map<String, Object>> seen = new LinkedHashMap<>();
+		for (Map<String, Object> candidate : objects)
+		{
+			String skill = String.valueOf(candidate.get("skill"));
+			int id = intValue(candidate.get("id"), -1);
+			Map<String, Object> worldLocation = mapValue(candidate.get("worldLocation"));
+			String objectType = String.valueOf(candidate.get("objectType"));
+			String key = skill + ":" + id + ":" + (worldLocation == null ? "" : worldLocation.get("x") + "," + worldLocation.get("y") + "," + worldLocation.get("plane")) + ":" + objectType;
+			if (!seen.containsKey(key))
+			{
+				seen.put(key, candidate);
+			}
+		}
+		return new ArrayList<>(seen.values());
 	}
 
 	private Map<String, Object> skillFarmerObjectTarget(String skill, TileObject object, String targetText, String action, Player localPlayer)
@@ -7319,7 +7340,8 @@ public class CvHelperPlugin extends Plugin
 		{
 			return null;
 		}
-		boolean targetMatch = matchesTargetText(name, object.getId(), targetText);
+		Map<String, String> matchInfo = matchesTargetTextWithInfo(name, object.getId(), targetText);
+		boolean targetMatch = matchInfo != null;
 		int actionIndex = objectActionIndex(composition, action);
 		boolean actionMatch = actionIndex >= 0;
 		if (!targetMatch && !actionMatch)
@@ -7381,6 +7403,14 @@ public class CvHelperPlugin extends Plugin
 		target.put("actionIndex", actionIndex);
 		MenuAction menuAction = gameObjectMenuActionForIndex(actionIndex);
 		target.put("menuAction", menuAction == null ? null : menuAction.name());
+		target.put("targetMatched", targetMatch);
+		target.put("actionMatched", actionMatch);
+		if (matchInfo != null)
+		{
+			target.put("matchedToken", matchInfo.get("token"));
+			target.put("matchType", matchInfo.get("type"));
+		}
+		target.put("targetText", targetText);
 		if (targetMatch && actionMatch && visible)
 		{
 			PathingResult pathing = pathDistanceToWorldArea(localPlayer, new WorldArea(object.getWorldLocation(), sizeX, sizeY), Math.max(SKILL_FARMER_PATH_SEARCH_TILES, getSkillFarmerScanRadius(skill)));
@@ -7409,6 +7439,11 @@ public class CvHelperPlugin extends Plugin
 
 	private boolean matchesTargetText(String name, int id, String targetText)
 	{
+		return matchesTargetTextWithInfo(name, id, targetText) != null;
+	}
+
+	private Map<String, String> matchesTargetTextWithInfo(String name, int id, String targetText)
+	{
 		for (String token : actionTargetCandidates(targetText))
 		{
 			String trimmed = token.trim();
@@ -7416,16 +7451,34 @@ public class CvHelperPlugin extends Plugin
 			{
 				if (String.valueOf(id).equals(trimmed.substring(3).trim()))
 				{
-					return true;
+					Map<String, String> info = new LinkedHashMap<>();
+					info.put("token", trimmed);
+					info.put("type", "id");
+					return info;
+				}
+				continue;
+			}
+			if (trimmed.toLowerCase().startsWith("exact:"))
+			{
+				String exactPattern = trimmed.substring(6).trim();
+				if (!exactPattern.isEmpty() && normalize(name).equals(normalize(exactPattern)))
+				{
+					Map<String, String> info = new LinkedHashMap<>();
+					info.put("token", trimmed);
+					info.put("type", "exact");
+					return info;
 				}
 				continue;
 			}
 			if (!trimmed.isEmpty() && normalize(name).contains(normalize(trimmed)))
 			{
-				return true;
+				Map<String, String> info = new LinkedHashMap<>();
+				info.put("token", trimmed);
+				info.put("type", "contains");
+				return info;
 			}
 		}
-		return false;
+		return null;
 	}
 
 	private int objectActionIndex(ObjectComposition composition, String action)
