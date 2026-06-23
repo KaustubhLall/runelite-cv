@@ -7700,6 +7700,8 @@ public class CvHelperPlugin extends Plugin
 		queue.add(startPoint);
 		distances.put(startPoint, 0);
 		int visited = 0;
+		int blockedByCollision = 0;
+		int blockedByScene = 0;
 		while (!queue.isEmpty())
 		{
 			WorldPoint point = queue.remove();
@@ -7718,18 +7720,33 @@ public class CvHelperPlugin extends Plugin
 			{
 				if (!canTravelSafely(worldView, area, direction[0], direction[1]))
 				{
+					blockedByCollision++;
 					continue;
 				}
 				WorldPoint next = new WorldPoint(point.getX() + direction[0], point.getY() + direction[1], point.getPlane());
-				if (distances.containsKey(next) || LocalPoint.fromWorld(worldView, next) == null)
+				if (distances.containsKey(next))
 				{
+					continue;
+				}
+				if (LocalPoint.fromWorld(worldView, next) == null)
+				{
+					blockedByScene++;
 					continue;
 				}
 				distances.put(next, pathDistance + 1);
 				queue.add(next);
 			}
 		}
-		return PathingResult.unreachable("no-route-within:" + searchLimit, searchLimit, visited);
+		String failureReason = "no-route-within:" + searchLimit;
+		if (blockedByScene > 0)
+		{
+			failureReason += ",scene-blocked:" + blockedByScene;
+		}
+		if (blockedByCollision > 0)
+		{
+			failureReason += ",collision-blocked:" + blockedByCollision;
+		}
+		return PathingResult.unreachable(failureReason, searchLimit, visited);
 	}
 
 	private void setSkillFarmerStatus(String skill, Map<String, Object> status)
