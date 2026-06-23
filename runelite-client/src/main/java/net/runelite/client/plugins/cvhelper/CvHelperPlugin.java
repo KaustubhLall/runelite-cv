@@ -200,6 +200,18 @@ public class CvHelperPlugin extends Plugin
 		{-1, 1},
 		{-1, -1}
 	};
+	private static final int[] WOODCUTTING_ANIMATION_IDS = {
+		879,
+		880,
+		881,
+		882,
+		883,
+		884,
+		885,
+		11965,
+		11966,
+		11967
+	};
 	private static final String GROUND_ITEMS_CONFIG_GROUP = "grounditems";
 	private static final String GROUND_ITEMS_HIGHLIGHTED_ITEMS = "highlightedItems";
 	private static final String GROUND_ITEMS_HIDDEN_ITEMS = "hiddenItems";
@@ -7015,7 +7027,7 @@ public class CvHelperPlugin extends Plugin
 		schema.add(settingSchema("protectedItems", "Protected inventory items", "textarea", "Shared never-drop/protected list from the mob farmer. Skill farmers expose it for drop/replacement decisions.", null));
 		schema.add(settingSchema("inventoryPolicy", "Inventory policy", "select", "Shared inventory policy reference. Actual dropping behavior is controlled by the drop policy settings below.", Arrays.asList("REPORT_ONLY")));
 		schema.add(settingSchema("dropPolicyEnabled", "Drop policy enabled", "boolean", "Enable the conditional drop policy for skill farmers. When disabled, farmers use their legacy inventory handling.", null));
-		schema.add(settingSchema("dropPolicyMode", "Drop mode", "select", "When to drop items: NEVER disables dropping; WHEN_FULL drops only when inventory is full; AFTER_TARGET drops after each target cycle completes; AFTER_GATHER drops after each successful gather action; CLEANUP_ONLY drops only during explicit cleanup phases; MANUAL_ONLY requires manual invocation.", Arrays.asList("NEVER", "WHEN_FULL", "AFTER_TARGET", "AFTER_GATHER", "CLEANUP_ONLY", "MANUAL_ONLY")));
+		schema.add(settingSchema("dropPolicyMode", "Drop mode", "select", "When to drop items: NEVER disables dropping; WHEN_FULL drops only when inventory is full; WHEN_IDLE drops when not actively chopping (batch drop while moving between trees); AFTER_TARGET drops after each target cycle completes; AFTER_GATHER drops after each successful gather action; CLEANUP_ONLY drops only during explicit cleanup phases; MANUAL_ONLY requires manual invocation.", Arrays.asList("NEVER", "WHEN_FULL", "WHEN_IDLE", "AFTER_TARGET", "AFTER_GATHER", "CLEANUP_ONLY", "MANUAL_ONLY")));
 		schema.add(settingSchema("dropPolicyThresholdSlots", "Drop threshold slots", "number", "Minimum occupied inventory slots before dropping is considered. For WHEN_FULL mode, this is typically 28. For other modes, lower values allow earlier cleanup.", null));
 		schema.add(settingSchema("dropPolicyItems", "Droppable items", "textarea", "Items that are safe to drop when conditions are met. If empty, any non-protected item below max value is a candidate. Separated by |, comma, semicolon, or newlines.", null));
 		schema.add(settingSchema("dropPolicyProtectedItems", "Protected items", "textarea", "Items that must never be dropped. Tools, food, teleport items, runes, and valuable items should be listed here. Built-in safeguards always protect clue/rare unique items.", null));
@@ -7216,6 +7228,24 @@ public class CvHelperPlugin extends Plugin
 		}
 	}
 
+	private boolean isActivelyChopping()
+	{
+		Player localPlayer = client.getLocalPlayer();
+		if (localPlayer == null)
+		{
+			return false;
+		}
+		int animationId = localPlayer.getAnimation();
+		for (int id : WOODCUTTING_ANIMATION_IDS)
+		{
+			if (animationId == id)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private void runSkillFarmerStep(String skill, boolean live, String source)
 	{
 		if (client.getGameState() != GameState.LOGGED_IN || client.getLocalPlayer() == null)
@@ -7228,6 +7258,8 @@ public class CvHelperPlugin extends Plugin
 		}
 		Map<String, Object> inventory = inventoryPolicyStatus();
 		String target = "mining".equals(skill) ? miningFarmerTarget : woodcuttingFarmerTarget;
+		boolean woodcutting = "woodcutting".equals(skill);
+		boolean activelyChopping = woodcutting && isActivelyChopping();
 
 		boolean dropPolicyEnabled = config.dropPolicyEnabled();
 		CvHelperDropMode dropMode = config.dropPolicyMode();
@@ -7237,9 +7269,19 @@ public class CvHelperPlugin extends Plugin
 		int dropMaxValue = config.dropPolicyMaxValue();
 
 		InventoryDropService.DropOpportunity opportunity = InventoryDropService.DropOpportunity.NONE;
-		if (Boolean.TRUE.equals(inventory.get("full")))
+		boolean inventoryFull = Boolean.TRUE.equals(inventory.get("full"));
+		boolean aboveThreshold = intValue(inventory.get("occupiedSlots"), 0) >= dropThreshold;
+		if (dropMode == CvHelperDropMode.WHEN_IDLE && woodcutting && !activelyChopping && aboveThreshold)
+		{
+			opportunity = InventoryDropService.DropOpportunity.NOT_CHOPPING;
+		}
+		else if (inventoryFull)
 		{
 			opportunity = InventoryDropService.DropOpportunity.INVENTORY_FULL;
+		}
+		else if (woodcutting && !activelyChopping && aboveThreshold)
+		{
+			opportunity = InventoryDropService.DropOpportunity.NOT_CHOPPING;
 		}
 
 		InventoryDropService.DropPolicyStatus dropStatus = inventoryDropService.evaluateDropOpportunity(

@@ -8,6 +8,7 @@ public enum CvHelperDropMode
 {
 	NEVER,
 	WHEN_FULL,
+	WHEN_IDLE,
 	AFTER_TARGET,
 	AFTER_GATHER,
 	CLEANUP_ONLY,

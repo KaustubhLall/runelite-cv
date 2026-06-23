@@ -37,6 +37,7 @@ public class InventoryDropService
 	{
 		NONE,
 		INVENTORY_FULL,
+		NOT_CHOPPING,
 		TARGET_COMPLETED,
 		GATHER_COMPLETED,
 		CLEANUP_PHASE,
@@ -190,6 +191,9 @@ public class InventoryDropService
 		{
 			case WHEN_FULL:
 				opportunityMatches = (opportunity == DropOpportunity.INVENTORY_FULL);
+				break;
+			case WHEN_IDLE:
+				opportunityMatches = (opportunity == DropOpportunity.NOT_CHOPPING);
 				break;
 			case AFTER_TARGET:
 				opportunityMatches = (opportunity == DropOpportunity.TARGET_COMPLETED);
