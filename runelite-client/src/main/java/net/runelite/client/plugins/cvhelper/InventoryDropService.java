@@ -17,6 +17,7 @@ import javax.inject.Singleton;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Singleton
 public class InventoryDropService
@@ -89,8 +90,8 @@ public class InventoryDropService
 			map.put("currentSlots", currentSlots);
 			map.put("opportunity", opportunity.name());
 			map.put("decision", decision.name());
-			map.put("candidates", candidates.stream().map(DropCandidate::toMap).toList());
-			map.put("protectedSkipped", protectedSkipped.stream().map(DropCandidate::toMap).toList());
+			map.put("candidates", candidates.stream().map(DropCandidate::toMap).collect(Collectors.toList()));
+			map.put("protectedSkipped", protectedSkipped.stream().map(DropCandidate::toMap).collect(Collectors.toList()));
 			map.put("lastFailureReason", lastFailureReason);
 			map.put("lastActionAttempt", lastActionAttempt);
 			return map;
@@ -104,7 +105,7 @@ public class InventoryDropService
 		public String itemName;
 		public int quantity;
 		public int geValue;
-		public boolean protected;
+		public boolean protectedItem;
 
 		public DropCandidate(int slot, int itemId, String itemName, int quantity, int geValue, boolean protectedItem)
 		{
@@ -113,7 +114,7 @@ public class InventoryDropService
 			this.itemName = itemName;
 			this.quantity = quantity;
 			this.geValue = geValue;
-			this.protected = protectedItem;
+			this.protectedItem = protectedItem;
 		}
 
 		public Map<String, Object> toMap()
@@ -124,7 +125,7 @@ public class InventoryDropService
 			map.put("itemName", itemName);
 			map.put("quantity", quantity);
 			map.put("geValue", geValue);
-			map.put("protected", protected);
+			map.put("protected", protectedItem);
 			return map;
 		}
 	}
