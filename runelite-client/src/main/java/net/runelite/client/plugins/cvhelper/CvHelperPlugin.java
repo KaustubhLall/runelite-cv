@@ -83,6 +83,7 @@ import net.runelite.api.WorldView;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldArea;
 import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.MenuEntryAdded;
@@ -297,6 +298,9 @@ public class CvHelperPlugin extends Plugin
 	@Inject
 	private InventoryDropService inventoryDropService;
 
+	@Inject
+	private ChatResponderService chatResponderService;
+
 	private NavigationButton navButton;
 	private CvHelperPanel panel;
 	private HttpServer server;
@@ -378,6 +382,8 @@ public class CvHelperPlugin extends Plugin
 	private volatile int woodcuttingFarmerMaxCandidates = SKILL_FARMER_MAX_CANDIDATES;
 	private volatile Map<String, Object> lastMiningFarmerStatus = new LinkedHashMap<>();
 	private volatile Map<String, Object> lastWoodcuttingFarmerStatus = new LinkedHashMap<>();
+	private volatile Map<String, Object> lastSelectedWoodcuttingTarget = null;
+	private volatile long lastWoodcuttingTargetClickTime = 0L;
 	private final Map<String, Integer> lastMobFarmerActionTickByKey = new LinkedHashMap<>();
 	private final Map<String, Integer> mobFarmerLootSkipUntilTickByKey = new LinkedHashMap<>();
 
@@ -725,6 +731,7 @@ public class CvHelperPlugin extends Plugin
 		clientToolbar.addNavigation(navButton);
 		registerHotkeys();
 		KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(cvHotkeyDispatcher);
+		chatResponderService.start();
 		startServer();
 	}
 
@@ -736,6 +743,7 @@ public class CvHelperPlugin extends Plugin
 		KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(cvHotkeyDispatcher);
 		preDispatcherPressedKeys.clear();
 		unregisterHotkeys();
+		chatResponderService.stop();
 		stopServer();
 		overlayManager.remove(overlay);
 		if (navButton != null)
@@ -838,6 +846,12 @@ public class CvHelperPlugin extends Plugin
 				event.getWidget()
 			);
 		}
+	}
+
+	@Subscribe
+	public void onChatMessage(ChatMessage event)
+	{
+		chatResponderService.onChatMessage(event);
 	}
 
 	private void rememberMobFarmerMenuEntry(String source, MenuEntry entry)
@@ -7018,6 +7032,8 @@ public class CvHelperPlugin extends Plugin
 		settings.put("dropPolicyItems", config.dropPolicyItems());
 		settings.put("dropPolicyProtectedItems", config.dropPolicyProtectedItems());
 		settings.put("dropPolicyMaxValue", config.dropPolicyMaxValue());
+		settings.put("woodcuttingStickToTarget", config.woodcuttingStickToTarget());
+		settings.put("woodcuttingReclickWhenActivelyChopping", config.woodcuttingReclickWhenActivelyChopping());
 
 		List<Map<String, Object>> schema = new ArrayList<>();
 		schema.add(settingSchema("target", mining ? "Target rocks/ores" : "Target trees/logs", "text", "Pipe/comma/newline separated names or id:123 object ids. The farmer selects the nearest reachable matching object with the correct menu action.", null));
@@ -7026,6 +7042,8 @@ public class CvHelperPlugin extends Plugin
 		schema.add(settingSchema("maxCandidates", "Max candidates", "number", "Maximum object candidates returned to WebHelper and overlay. Higher values show more boxes but can be heavier.", null));
 		schema.add(settingSchema("protectedItems", "Protected inventory items", "textarea", "Shared never-drop/protected list from the mob farmer. Skill farmers expose it for drop/replacement decisions.", null));
 		schema.add(settingSchema("inventoryPolicy", "Inventory policy", "select", "Shared inventory policy reference. Actual dropping behavior is controlled by the drop policy settings below.", Arrays.asList("REPORT_ONLY")));
+		schema.add(settingSchema("woodcuttingStickToTarget", "Stick to current tree", "boolean", "While actively chopping a tree that still matches the target list, do not switch to a different tree. This avoids wasting ticks re-targeting and prevents re-clicking the same tree.", null));
+		schema.add(settingSchema("woodcuttingReclickWhenActivelyChopping", "Re-click while chopping", "boolean", "When enabled, the farmer will continue sending Chop down clicks while the woodcutting animation is running. Most players want this OFF because the click interrupts are slower than letting the axe swing uninterrupted.", null));
 		schema.add(settingSchema("dropPolicyEnabled", "Drop policy enabled", "boolean", "Enable the conditional drop policy for skill farmers. When disabled, farmers use their legacy inventory handling.", null));
 		schema.add(settingSchema("dropPolicyMode", "Drop mode", "select", "When to drop items: NEVER disables dropping; WHEN_FULL drops only when inventory is full; WHEN_IDLE drops when not actively chopping (batch drop while moving between trees); AFTER_TARGET drops after each target cycle completes; AFTER_GATHER drops after each successful gather action; CLEANUP_ONLY drops only during explicit cleanup phases; MANUAL_ONLY requires manual invocation.", Arrays.asList("NEVER", "WHEN_FULL", "WHEN_IDLE", "AFTER_TARGET", "AFTER_GATHER", "CLEANUP_ONLY", "MANUAL_ONLY")));
 		schema.add(settingSchema("dropPolicyThresholdSlots", "Drop threshold slots", "number", "Minimum occupied inventory slots before dropping is considered. For WHEN_FULL mode, this is typically 28. For other modes, lower values allow earlier cleanup.", null));
@@ -7139,6 +7157,15 @@ public class CvHelperPlugin extends Plugin
 		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.DROP_POLICY_ITEMS, dropPolicyItems);
 		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.DROP_POLICY_PROTECTED_ITEMS, dropPolicyProtectedItems);
 		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.DROP_POLICY_MAX_VALUE, dropPolicyMaxValue);
+
+		Boolean woodcuttingStickToTarget = settings.containsKey("woodcuttingStickToTarget")
+			? booleanSettingValue(settings.get("woodcuttingStickToTarget"), "woodcuttingStickToTarget", errors)
+			: config.woodcuttingStickToTarget();
+		Boolean woodcuttingReclickWhenActivelyChopping = settings.containsKey("woodcuttingReclickWhenActivelyChopping")
+			? booleanSettingValue(settings.get("woodcuttingReclickWhenActivelyChopping"), "woodcuttingReclickWhenActivelyChopping", errors)
+			: config.woodcuttingReclickWhenActivelyChopping();
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.WOODCUTTING_STICK_TO_TARGET, woodcuttingStickToTarget);
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.WOODCUTTING_RECLICK_WHEN_ACTIVE, woodcuttingReclickWhenActivelyChopping);
 
 		result.put("ok", true);
 		result.put("applied", true);
@@ -7278,6 +7305,53 @@ public class CvHelperPlugin extends Plugin
 		return false;
 	}
 
+	private boolean selectedMatchesLastTarget(Map<String, Object> selected, Map<String, Object> last)
+	{
+		if (selected == null || last == null)
+		{
+			return false;
+		}
+		int selectedId = intValue(selected.get("id"), -1);
+		int lastId = intValue(last.get("id"), -1);
+		if (selectedId < 0 || lastId < 0 || selectedId != lastId)
+		{
+			return false;
+		}
+		Map<String, Object> selectedWorld = mapValue(selected.get("worldLocation"));
+		Map<String, Object> lastWorld = mapValue(last.get("worldLocation"));
+		int selectedX = intValue(selectedWorld.get("x"), Integer.MIN_VALUE);
+		int selectedY = intValue(selectedWorld.get("y"), Integer.MIN_VALUE);
+		int selectedPlane = intValue(selectedWorld.get("plane"), Integer.MIN_VALUE);
+		int lastX = intValue(lastWorld.get("x"), Integer.MIN_VALUE);
+		int lastY = intValue(lastWorld.get("y"), Integer.MIN_VALUE);
+		int lastPlane = intValue(lastWorld.get("plane"), Integer.MIN_VALUE);
+		return selectedX == lastX && selectedY == lastY && selectedPlane == lastPlane;
+	}
+
+	private boolean lastSelectedWoodcuttingTargetStillValid(String skill, String targetText, String action)
+	{
+		if (lastSelectedWoodcuttingTarget == null)
+		{
+			return false;
+		}
+		Map<String, Object> lastWorld = mapValue(lastSelectedWoodcuttingTarget.get("worldLocation"));
+		int lastX = intValue(lastWorld.get("x"), Integer.MIN_VALUE);
+		int lastY = intValue(lastWorld.get("y"), Integer.MIN_VALUE);
+		int lastPlane = intValue(lastWorld.get("plane"), Integer.MIN_VALUE);
+		if (lastX == Integer.MIN_VALUE || lastY == Integer.MIN_VALUE || lastPlane == Integer.MIN_VALUE)
+		{
+			return false;
+		}
+		for (Map<String, Object> candidate : collectSkillFarmerObjects(skill, targetText, action, client.getLocalPlayer()))
+		{
+			if (selectedMatchesLastTarget(candidate, lastSelectedWoodcuttingTarget))
+			{
+				return Boolean.TRUE.equals(candidate.get("selectable"));
+			}
+		}
+		return false;
+	}
+
 	private void runSkillFarmerStep(String skill, boolean live, String source)
 	{
 		if (client.getGameState() != GameState.LOGGED_IN || client.getLocalPlayer() == null)
@@ -7375,19 +7449,46 @@ public class CvHelperPlugin extends Plugin
 		selection.put("live", live);
 		selection.put("inventory", inventory);
 		selection.put("dropPolicy", dropStatus.toMap());
-		if (selection.get("selected") == null)
+		Map<String, Object> selected = mapValue(selection.get("selected"));
+		boolean isWoodcutting = "woodcutting".equals(skill);
+		if (selected == null)
 		{
 			selection.put("currentAction", "no-target");
 			setSkillFarmerStatus(skill, selection);
 			return;
 		}
-		selection.put("currentAction", live ? "interacting" : "dry-selected");
+		boolean selectedMatchesLast = isWoodcutting && lastSelectedWoodcuttingTarget != null
+			&& selectedMatchesLastTarget(selected, lastSelectedWoodcuttingTarget);
+		boolean shouldStickToLast = isWoodcutting && config.woodcuttingStickToTarget()
+			&& activelyChopping && lastSelectedWoodcuttingTarget != null
+			&& lastSelectedWoodcuttingTargetStillValid(skill, target, action);
+		if (shouldStickToLast)
+		{
+			selected = lastSelectedWoodcuttingTarget;
+			selection.put("selected", selected);
+			selection.put("decision", "sticking:" + targetLabelForMessage(selected));
+			selection.put("stickingToTarget", true);
+		}
+		selection.put("activelyChopping", activelyChopping);
+		selection.put("currentAction", live ? (activelyChopping ? "chopping" : "interacting") : "dry-selected");
 		setSkillFarmerStatus(skill, selection);
 		if (!live)
 		{
+			lastSelectedWoodcuttingTarget = selected;
 			return;
 		}
-		invokeSkillFarmerObject(skill, action, mapValue(selection.get("selected")));
+		boolean shouldReclick = !isWoodcutting || !activelyChopping || config.woodcuttingReclickWhenActivelyChopping();
+		boolean shouldSkip = isWoodcutting && activelyChopping && !config.woodcuttingReclickWhenActivelyChopping() && selectedMatchesLast;
+		if (shouldSkip)
+		{
+			return;
+		}
+		invokeSkillFarmerObject(skill, action, selected);
+		if (isWoodcutting)
+		{
+			lastSelectedWoodcuttingTarget = selected;
+			lastWoodcuttingTargetClickTime = System.currentTimeMillis();
+		}
 	}
 
 	private Map<String, Object> selectSkillFarmerObject(String skill, String targetText, String action)
@@ -9900,6 +10001,7 @@ public class CvHelperPlugin extends Plugin
 			server.createContext("/automation/woodcutting/start", exchange -> handleSkillFarmerRequest(exchange, "woodcutting", "start"));
 			server.createContext("/automation/woodcutting/stop", exchange -> handleSkillFarmerRequest(exchange, "woodcutting", "stop"));
 			server.createContext("/automation/panic-stop", this::handlePanicStopRequest);
+			server.createContext("/chat/responder", this::handleChatResponderRequest);
 			server.createContext("/login/click", exchange ->
 			{
 				Map<String, Object> response = new LinkedHashMap<>();
@@ -10023,7 +10125,7 @@ public class CvHelperPlugin extends Plugin
 			body.put("status", lastEvent.get());
 			body.put("port", localPort());
 			body.put("preferredPort", config.localPort() > 0 ? config.localPort() : DEFAULT_LOCAL_PORT);
-			body.put("endpoints", new String[]{"/status", "/login/click", "/capture", "/capture/screen", "/capture/minimap", "/capture/latest/client-frame", "/capture/latest/screen", "/capture/latest/minimap", "/player/status", "/targets/prayer", "/targets/spell", "/targets/minimap", "/targets/inventory", "/targets/equipment", "/targets/panels", "/targets/combat", "/targets", "/entities", "/entities/nearest", "/automation/mob-farmer/status", "/automation/mob-farmer/config", "/automation/mob-farmer/focus-click", "/automation/mob-farmer/step", "/automation/mob-farmer/start", "/automation/mob-farmer/stop", "/automation/mining/status", "/automation/mining/config", "/automation/mining/step", "/automation/mining/start", "/automation/mining/stop", "/automation/woodcutting/status", "/automation/woodcutting/config", "/automation/woodcutting/step", "/automation/woodcutting/start", "/automation/woodcutting/stop", "/automation/panic-stop"});
+			body.put("endpoints", new String[]{"/status", "/login/click", "/capture", "/capture/screen", "/capture/minimap", "/capture/latest/client-frame", "/capture/latest/screen", "/capture/latest/minimap", "/player/status", "/targets/prayer", "/targets/spell", "/targets/minimap", "/targets/inventory", "/targets/equipment", "/targets/panels", "/targets/combat", "/targets", "/entities", "/entities/nearest", "/automation/mob-farmer/status", "/automation/mob-farmer/config", "/automation/mob-farmer/focus-click", "/automation/mob-farmer/step", "/automation/mob-farmer/start", "/automation/mob-farmer/stop", "/automation/mining/status", "/automation/mining/config", "/automation/mining/step", "/automation/mining/start", "/automation/mining/stop", "/automation/woodcutting/status", "/automation/woodcutting/config", "/automation/woodcutting/step", "/automation/woodcutting/start", "/automation/woodcutting/stop", "/automation/panic-stop", "/chat/responder"});
 			Map<String, Object> playerStatus = getPlayerStatusOnClientThread();
 			body.put("player", playerStatus);
 			body.put("spellbook", playerStatus.get("spellbook"));
@@ -10043,6 +10145,7 @@ public class CvHelperPlugin extends Plugin
 			body.put("entities", lastEntities.size());
 			body.put("targetSnapshots", snapshotStatuses());
 			body.put("loginRecovery", getLoginRecoveryDiagnosticsOnClientThread());
+			body.put("chatResponder", chatResponderService.getStatus());
 			writeJson(exchange, 200, body);
 		}
 		catch (RuntimeException e)
@@ -10076,6 +10179,23 @@ public class CvHelperPlugin extends Plugin
 		{
 			Thread.currentThread().interrupt();
 			writeResponse(exchange, 503, "{\"error\":\"interrupted\"}");
+		}
+	}
+
+	private void handleChatResponderRequest(HttpExchange exchange) throws IOException
+	{
+		try
+		{
+			Map<String, Object> body = new LinkedHashMap<>();
+			body.put("surface", "chat-responder");
+			body.put("generatedAt", Instant.now().toString());
+			body.put("chatResponder", chatResponderService.getStatus());
+			writeJson(exchange, 200, body);
+		}
+		catch (RuntimeException e)
+		{
+			log.warn("CV Helper chat responder request failed", e);
+			writeResponse(exchange, 500, "{\"error\":\"chat-responder-failed\"}");
 		}
 	}
 

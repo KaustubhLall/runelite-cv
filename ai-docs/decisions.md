@@ -101,3 +101,32 @@ Woodcutting and mining farmers were shipping with only a handful of target prese
 
 - Add a mining animation list and extend `WHEN_IDLE` to mining when that skill farmer is validated.
 - For every new skill farmer (fishing, hunter, etc.), repeat the preset exercise: enumerate all trainable targets from the OSRS wiki and add them as default profiles before the feature is considered complete.
+
+## 2026-06-22: Woodcutting Farmer Target Sticking and No Re-click
+
+- Status: accepted
+- Related: `OSR-10`, `OSR-12`
+
+### Context
+
+The woodcutting farmer was selecting the best tree every tick and re-clicking it every tick. This repeatedly interrupted the active chopping animation, wasted ticks, and made the player slower than clicking once and letting the axe swing.
+
+### Decision
+
+1. **Track the current target**: Store the last selected woodcutting target (ID + world location) and compare it against the current scan.
+2. **Stick to the current tree while chopping**: If the player is in a woodcutting animation and the last target still matches the configured target list and is reachable, the farmer keeps that target instead of switching to a closer/different tree.
+3. **No re-click while chopping**: When the active animation matches the same target, the farmer does not send another `Chop down` menu action unless the user explicitly enables `woodcuttingReclickWhenActivelyChopping`.
+4. **Configurable**: Two new settings are exposed in the WebHelper config and schema:
+   - `woodcuttingStickToTarget` (default true): don't switch trees while actively chopping.
+   - `woodcuttingReclickWhenActivelyChopping` (default false): allow repeated clicks while the axe animation is running.
+
+### Tradeoffs
+
+- Prevents the animation-interrupting re-click problem and improves XP/hour.
+- May delay a switch to a closer tree if the current tree is still animating; the user can disable stick-to-target if they prefer aggressive re-targeting.
+- Animation detection is the sole signal, so brief lag or animation gaps can cause a re-click; this is acceptable because the alternative is worse.
+
+### Follow-up
+
+- Apply the same pattern to mining once a mining animation list is added.
+- Consider a small post-animation cooldown/hold window to avoid re-clicking during the brief gap between tree depletion and the next animation.

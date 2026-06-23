@@ -26,6 +26,13 @@ public interface CvHelperConfig extends Config
 	String ACTION_SECTION = "actionSection";
 	String MOB_FARMER_SECTION = "mobFarmerSection";
 	String WOODCUTTER_SECTION = "woodcutterSection";
+	String CHAT_RESPONDER_SECTION = "chatResponderSection";
+	String CHAT_RESPONDER_ENABLED = "chatResponderEnabled";
+	String CHAT_RESPONDER_MIN_MESSAGES = "chatResponderMinMessages";
+	String CHAT_RESPONDER_WINDOW_SECONDS = "chatResponderWindowSeconds";
+	String CHAT_RESPONDER_COOLDOWN_SECONDS = "chatResponderCooldownSeconds";
+	String CHAT_RESPONDER_MODEL = "chatResponderModel";
+	String CHAT_RESPONDER_PROMPT = "chatResponderPrompt";
 	String SHOW_HOVER_OVERLAY = "showHoverOverlay";
 	String SHOW_WIDGET_INFO = "showWidgetInfo";
 	String SHOW_PRAYER_TARGETS = "showPrayerTargets";
@@ -163,6 +170,8 @@ public interface CvHelperConfig extends Config
 	String DROP_POLICY_ITEMS = "dropPolicyItems";
 	String DROP_POLICY_PROTECTED_ITEMS = "dropPolicyProtectedItems";
 	String DROP_POLICY_MAX_VALUE = "dropPolicyMaxValue";
+	String WOODCUTTING_STICK_TO_TARGET = "woodcuttingStickToTarget";
+	String WOODCUTTING_RECLICK_WHEN_ACTIVE = "woodcuttingReclickWhenActivelyChopping";
 
 	@ConfigSection(
 		name = "Action hotkeys",
@@ -184,6 +193,13 @@ public interface CvHelperConfig extends Config
 		position = 115
 	)
 	String woodcutterSection = WOODCUTTER_SECTION;
+
+	@ConfigSection(
+		name = "Chat responder",
+		description = "Experimental AI chat responder that reads public chat and replies using OpenAI. Toggle off to disable completely.",
+		position = 120
+	)
+	String chatResponderSection = CHAT_RESPONDER_SECTION;
 
 	@ConfigItem(
 		keyName = SHOW_HOVER_OVERLAY,
@@ -1178,6 +1194,28 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "woodcuttingStickToTarget",
+		name = "Stick to current tree",
+		description = "While actively chopping a tree that still matches the target list, do not switch to a different tree. This avoids wasting ticks re-targeting and prevents re-clicking the same tree.",
+		section = woodcutterSection
+	)
+	default boolean woodcuttingStickToTarget()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "woodcuttingReclickWhenActivelyChopping",
+		name = "Re-click while chopping",
+		description = "When enabled, the farmer will continue sending Chop down clicks while the woodcutting animation is running. Most players want this OFF because the click interrupts are slower than letting the axe swing uninterrupted.",
+		section = woodcutterSection
+	)
+	default boolean woodcuttingReclickWhenActivelyChopping()
+	{
+		return false;
+	}
+
+	@ConfigItem(
 		keyName = DROP_POLICY_ENABLED,
 		name = "Drop policy enabled",
 		description = "Enable the conditional drop policy for skill farmers. When disabled, farmers use their legacy inventory handling.",
@@ -1729,5 +1767,71 @@ public interface CvHelperConfig extends Config
 	default boolean actionReturnMouseCenter4()
 	{
 		return true;
+	}
+
+	@ConfigItem(
+		keyName = CHAT_RESPONDER_ENABLED,
+		name = "Enable chat responder",
+		description = "Enable the experimental AI chat responder. Requires OPENAI_API_KEY environment variable.",
+		section = chatResponderSection
+	)
+	default boolean chatResponderEnabled()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = CHAT_RESPONDER_MIN_MESSAGES,
+		name = "Minimum messages",
+		description = "Wait until this many non-self messages are seen in the window before generating a response.",
+		section = chatResponderSection
+	)
+	default int chatResponderMinMessages()
+	{
+		return 3;
+	}
+
+	@ConfigItem(
+		keyName = CHAT_RESPONDER_WINDOW_SECONDS,
+		name = "Message window seconds",
+		description = "Only consider messages from the last N seconds when deciding whether to respond.",
+		section = chatResponderSection
+	)
+	default int chatResponderWindowSeconds()
+	{
+		return 20;
+	}
+
+	@ConfigItem(
+		keyName = CHAT_RESPONDER_COOLDOWN_SECONDS,
+		name = "Cooldown seconds",
+		description = "Minimum time between AI responses.",
+		section = chatResponderSection
+	)
+	default int chatResponderCooldownSeconds()
+	{
+		return 15;
+	}
+
+	@ConfigItem(
+		keyName = CHAT_RESPONDER_MODEL,
+		name = "OpenAI model",
+		description = "Chat model to use. Leave empty for the default smallest model (gpt-4o-mini).",
+		section = chatResponderSection
+	)
+	default String chatResponderModel()
+	{
+		return "gpt-4o-mini";
+	}
+
+	@ConfigItem(
+		keyName = CHAT_RESPONDER_PROMPT,
+		name = "Custom prompt",
+		description = "Optional override for the system prompt. Leave empty for the built-in OSRS personality prompt.",
+		section = chatResponderSection
+	)
+	default String chatResponderPrompt()
+	{
+		return "";
 	}
 }
