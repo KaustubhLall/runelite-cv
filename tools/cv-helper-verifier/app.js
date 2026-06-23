@@ -1660,6 +1660,11 @@ function renderSkillSelectedBlock(skill, selected) {
 		menuAction: selected.menuAction,
 		pathFailureReason: selected.pathFailureReason,
 		reasons: selected.reasons,
+		matchedToken: selected.matchedToken,
+		matchType: selected.matchType,
+		targetMatched: selected.targetMatched,
+		actionMatched: selected.actionMatched,
+		targetText: selected.targetText,
 	});
 }
 
@@ -1674,6 +1679,7 @@ function renderSkillCandidateTable(skill, candidates) {
 			<td>${candidate.reachable ? "yes" : "no"}</td>
 			<td>${candidate.visible ? "yes" : "no"}</td>
 			<td>${formatRect(candidate.bounds || candidate.canvasBounds || {})}<br><small>${escapeHtml(formatPoint(candidate.clickPoint))}</small></td>
+			<td>${candidate.matchedToken ? escapeHtml(candidate.matchedToken) : ""}<br><small>${escapeHtml(candidate.matchType || "")}</small></td>
 			<td>${candidate.selectable ? "selectable" : "skip"}</td>
 			<td>${escapeHtml((candidate.reasons || []).join(", ") || candidate.pathFailureReason || "")}</td>
 		</tr>
