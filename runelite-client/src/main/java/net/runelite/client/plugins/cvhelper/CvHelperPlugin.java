@@ -279,6 +279,12 @@ public class CvHelperPlugin extends Plugin
 	@Inject
 	private ItemManager itemManager;
 
+	@Inject
+	private ItemSafetyService itemSafetyService;
+
+	@Inject
+	private InventoryDropService inventoryDropService;
+
 	private NavigationButton navButton;
 	private CvHelperPanel panel;
 	private HttpServer server;
@@ -704,6 +710,21 @@ public class CvHelperPlugin extends Plugin
 	public void onMenuOptionClicked(MenuOptionClicked event)
 	{
 		rememberMobFarmerMenuEntry("clicked", event.getMenuEntry());
+		if ("Drop".equalsIgnoreCase(event.getMenuOption()))
+		{
+			log.info(
+				"MANUAL DROP: option={} target={} action={} id={} itemId={} itemOp={} p0={} p1={} widget={}",
+				event.getMenuOption(),
+				event.getMenuTarget(),
+				event.getMenuAction(),
+				event.getId(),
+				event.getItemId(),
+				event.isItemOp() ? event.getItemOp() : -1,
+				event.getParam0(),
+				event.getParam1(),
+				event.getWidget()
+			);
+		}
 	}
 
 	private void rememberMobFarmerMenuEntry(String source, MenuEntry entry)
@@ -3381,6 +3402,26 @@ public class CvHelperPlugin extends Plugin
 		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_NEVER_DROP_ITEMS, items == null ? "" : items.trim());
 	}
 
+	String getMobFarmerDropItems()
+	{
+		return config.mobFarmerDropItems() == null ? "" : config.mobFarmerDropItems();
+	}
+
+	void setMobFarmerDropItems(String items)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_DROP_ITEMS, items == null ? "" : items.trim());
+	}
+
+	int getMobFarmerMaxDropValue()
+	{
+		return config.mobFarmerMaxDropValue();
+	}
+
+	void setMobFarmerMaxDropValue(int value)
+	{
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.MOB_FARMER_MAX_DROP_VALUE, value);
+	}
+
 	boolean getMobFarmerHighAlchEnabled()
 	{
 		return config.mobFarmerHighAlchEnabled();
@@ -4650,6 +4691,10 @@ public class CvHelperPlugin extends Plugin
 		mobFarmerGeneration.incrementAndGet();
 		mobFarmerRunning.set(false);
 		mobFarmerLiveMode = false;
+		miningFarmerRunning.set(false);
+		miningFarmerLiveMode = false;
+		woodcuttingFarmerRunning.set(false);
+		woodcuttingFarmerLiveMode = false;
 		clearMobFarmerReattackAfterPickup("panic-stop");
 		clearMobFarmerStabilization("panic-stop");
 		mobFarmerFocusClickNeeded = false;
@@ -4658,7 +4703,7 @@ public class CvHelperPlugin extends Plugin
 		actionInProgress.set(false);
 		mobFarmerStatus.set("panic-stopped");
 		lastEvent.set("panic-stop@" + Instant.now());
-		String message = "CV Helper panic stop: loops stopped and action guard cleared";
+		String message = "CV Helper panic stop: all loops stopped and action guard cleared";
 		updatePanelStatus(message);
 		clientThread.invokeLater(() -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, ""));
 	}
@@ -6450,10 +6495,10 @@ public class CvHelperPlugin extends Plugin
 
 	private InventoryMenuAction inventoryMenuAction(Map<String, Object> target, String[] actions, String... preferredActions)
 	{
-		int widgetId = intValue(target.get("parentId"), -1);
+		int widgetId = intValue(target.get("widgetId"), -1);
 		if (widgetId <= 0)
 		{
-			widgetId = intValue(target.get("widgetId"), -1);
+			widgetId = intValue(target.get("parentId"), -1);
 		}
 		int itemId = intValue(target.get("itemId"), -1);
 		int param0 = intValue(target.get("index"), -1);
@@ -6485,9 +6530,12 @@ public class CvHelperPlugin extends Plugin
 			{
 				continue;
 			}
-			int componentOpId = i + 2;
-			MenuAction menuAction = componentOpId >= 6 ? MenuAction.CC_OP_LOW_PRIORITY : MenuAction.CC_OP;
-			return new InventoryMenuAction(i, componentOpId, param0, widgetId, menuAction, componentOpId, itemId, action);
+			// Component ops in the inventory widget are offset by 3:
+			// op1=Use, op2=Use(menu), op3=action[0], op4=action[1], ... op7=action[4](Drop)
+			// Empirically confirmed: manual Drop on index 4 logs id=7 = i+3
+			int opId = i + 3;
+			MenuAction menuAction = opId >= 6 ? MenuAction.CC_OP_LOW_PRIORITY : MenuAction.CC_OP;
+			return new InventoryMenuAction(i, opId, param0, widgetId, menuAction, opId, itemId, action);
 		}
 		return null;
 	}
@@ -6789,6 +6837,12 @@ public class CvHelperPlugin extends Plugin
 		settings.put("maxCandidates", getSkillFarmerMaxCandidates(skill));
 		settings.put("protectedItems", getMobFarmerNeverDropItems());
 		settings.put("inventoryPolicy", "REPORT_ONLY");
+		settings.put("dropPolicyEnabled", config.dropPolicyEnabled());
+		settings.put("dropPolicyMode", config.dropPolicyMode().name());
+		settings.put("dropPolicyThresholdSlots", config.dropPolicyThresholdSlots());
+		settings.put("dropPolicyItems", config.dropPolicyItems());
+		settings.put("dropPolicyProtectedItems", config.dropPolicyProtectedItems());
+		settings.put("dropPolicyMaxValue", config.dropPolicyMaxValue());
 
 		List<Map<String, Object>> schema = new ArrayList<>();
 		schema.add(settingSchema("target", mining ? "Target rocks/ores" : "Target trees/logs", "text", "Pipe/comma/newline separated names or id:123 object ids. The farmer selects the nearest reachable matching object with the correct menu action.", null));
@@ -6797,6 +6851,12 @@ public class CvHelperPlugin extends Plugin
 		schema.add(settingSchema("maxCandidates", "Max candidates", "number", "Maximum object candidates returned to WebHelper and overlay. Higher values show more boxes but can be heavier.", null));
 		schema.add(settingSchema("protectedItems", "Protected inventory items", "textarea", "Shared never-drop/protected list from the mob farmer. Skill farmers expose it for drop/replacement decisions.", null));
 		schema.add(settingSchema("inventoryPolicy", "Inventory policy", "select", "Currently reports the shared inventory policy and safest drop candidate; destructive dropping is not auto-invoked yet.", Arrays.asList("REPORT_ONLY")));
+		schema.add(settingSchema("dropPolicyEnabled", "Drop policy enabled", "boolean", "Enable the conditional drop policy for skill farmers. When disabled, farmers use their legacy inventory handling.", null));
+		schema.add(settingSchema("dropPolicyMode", "Drop mode", "select", "When to drop items: NEVER disables dropping; WHEN_FULL drops only when inventory is full; AFTER_TARGET drops after each target cycle completes; AFTER_GATHER drops after each successful gather action; CLEANUP_ONLY drops only during explicit cleanup phases; MANUAL_ONLY requires manual invocation.", Arrays.asList("NEVER", "WHEN_FULL", "AFTER_TARGET", "AFTER_GATHER", "CLEANUP_ONLY", "MANUAL_ONLY")));
+		schema.add(settingSchema("dropPolicyThresholdSlots", "Drop threshold slots", "number", "Minimum occupied inventory slots before dropping is considered. For WHEN_FULL mode, this is typically 28. For other modes, lower values allow earlier cleanup.", null));
+		schema.add(settingSchema("dropPolicyItems", "Droppable items", "textarea", "Items that are safe to drop when conditions are met. If empty, any non-protected item below max value is a candidate. Separated by |, comma, semicolon, or newlines.", null));
+		schema.add(settingSchema("dropPolicyProtectedItems", "Protected items", "textarea", "Items that must never be dropped. Tools, food, teleport items, runes, and valuable items should be listed here. Built-in safeguards always protect clue/rare unique items.", null));
+		schema.add(settingSchema("dropPolicyMaxValue", "Max drop value", "number", "Maximum GE value of an item that can be dropped automatically. Items above this value are protected even if not in the protected list.", null));
 
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("version", 1);
@@ -6869,6 +6929,42 @@ public class CvHelperPlugin extends Plugin
 		{
 			setMobFarmerNeverDropItems((String) protectedItems);
 		}
+		Boolean dropPolicyEnabled = settings.containsKey("dropPolicyEnabled")
+			? booleanSettingValue(settings.get("dropPolicyEnabled"), "dropPolicyEnabled", errors)
+			: config.dropPolicyEnabled();
+		String dropPolicyModeStr = settings.containsKey("dropPolicyMode")
+			? String.valueOf(settings.get("dropPolicyMode")).trim()
+			: config.dropPolicyMode().name();
+		CvHelperDropMode dropPolicyMode;
+		try
+		{
+			dropPolicyMode = CvHelperDropMode.valueOf(dropPolicyModeStr);
+		}
+		catch (IllegalArgumentException e)
+		{
+			errors.add("Invalid dropPolicyMode: " + dropPolicyModeStr);
+			dropPolicyMode = config.dropPolicyMode();
+		}
+		int dropPolicyThresholdSlots = settings.containsKey("dropPolicyThresholdSlots")
+			? Math.max(1, Math.min(28, intSettingValue(settings.get("dropPolicyThresholdSlots"), config.dropPolicyThresholdSlots(), "dropPolicyThresholdSlots", errors)))
+			: config.dropPolicyThresholdSlots();
+		String dropPolicyItems = settings.containsKey("dropPolicyItems")
+			? String.valueOf(settings.get("dropPolicyItems")).trim()
+			: config.dropPolicyItems();
+		String dropPolicyProtectedItems = settings.containsKey("dropPolicyProtectedItems")
+			? String.valueOf(settings.get("dropPolicyProtectedItems")).trim()
+			: config.dropPolicyProtectedItems();
+		int dropPolicyMaxValue = settings.containsKey("dropPolicyMaxValue")
+			? Math.max(0, intSettingValue(settings.get("dropPolicyMaxValue"), config.dropPolicyMaxValue(), "dropPolicyMaxValue", errors))
+			: config.dropPolicyMaxValue();
+
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.DROP_POLICY_ENABLED, dropPolicyEnabled);
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.DROP_POLICY_MODE, dropPolicyMode);
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.DROP_POLICY_THRESHOLD_SLOTS, dropPolicyThresholdSlots);
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.DROP_POLICY_ITEMS, dropPolicyItems);
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.DROP_POLICY_PROTECTED_ITEMS, dropPolicyProtectedItems);
+		configManager.setConfiguration(CvHelperConfig.GROUP, CvHelperConfig.DROP_POLICY_MAX_VALUE, dropPolicyMaxValue);
+
 		result.put("ok", true);
 		result.put("applied", true);
 		result.put("errors", errors);
@@ -6967,12 +7063,72 @@ public class CvHelperPlugin extends Plugin
 			setSkillFarmerStatus(skill, status);
 			return;
 		}
+		Map<String, Object> inventory = inventoryPolicyStatus();
 		String target = "mining".equals(skill) ? miningFarmerTarget : woodcuttingFarmerTarget;
+
+		boolean dropPolicyEnabled = config.dropPolicyEnabled();
+		CvHelperDropMode dropMode = config.dropPolicyMode();
+		int dropThreshold = config.dropPolicyThresholdSlots();
+		String dropItems = config.dropPolicyItems();
+		String dropProtected = config.dropPolicyProtectedItems();
+		int dropMaxValue = config.dropPolicyMaxValue();
+
+		InventoryDropService.DropOpportunity opportunity = InventoryDropService.DropOpportunity.NONE;
+		if (Boolean.TRUE.equals(inventory.get("full")))
+		{
+			opportunity = InventoryDropService.DropOpportunity.INVENTORY_FULL;
+		}
+
+		InventoryDropService.DropPolicyStatus dropStatus = inventoryDropService.evaluateDropOpportunity(
+			dropPolicyEnabled,
+			dropMode,
+			dropThreshold,
+			dropItems,
+			dropProtected,
+			dropMaxValue,
+			opportunity
+		);
+
+		if (dropStatus.decision == InventoryDropService.DropDecision.DROP_ALLOWED && live && !dropStatus.candidates.isEmpty())
+		{
+			InventoryDropService.DropCandidate candidate = dropStatus.candidates.get(0);
+			Map<String, Object> status = getSkillFarmerStatus(skill);
+			status.put("currentAction", "dropping");
+			status.put("lastFailureReason", null);
+			status.put("inventory", inventory);
+			status.put("dropPolicy", dropStatus.toMap());
+			status.put("dropTarget", candidate.toMap());
+			status.put("droppableRemaining", dropStatus.candidates.size());
+			setSkillFarmerStatus(skill, status);
+			dropInventorySlot(candidate.slot, candidate.itemId);
+			return;
+		}
+
+		if (Boolean.TRUE.equals(inventory.get("full")))
+		{
+			Map<String, Object> status = getSkillFarmerStatus(skill);
+			status.put("currentAction", "inventory-full");
+			status.put("lastFailureReason", dropStatus.lastFailureReason != null ? dropStatus.lastFailureReason : "inventory-full-no-safe-drops");
+			status.put("inventory", inventory);
+			status.put("dropPolicy", dropStatus.toMap());
+			setSkillFarmerStatus(skill, status);
+			if ("mining".equals(skill))
+			{
+				miningFarmerRunning.set(false);
+			}
+			else
+			{
+				woodcuttingFarmerRunning.set(false);
+			}
+			return;
+		}
+
 		String action = "mining".equals(skill) ? "Mine" : "Chop down";
 		Map<String, Object> selection = selectSkillFarmerObject(skill, target, action);
 		selection.put("source", source);
 		selection.put("live", live);
-		selection.put("inventory", inventoryPolicyStatus());
+		selection.put("inventory", inventory);
+		selection.put("dropPolicy", dropStatus.toMap());
 		if (selection.get("selected") == null)
 		{
 			selection.put("currentAction", "no-target");
@@ -7311,6 +7467,86 @@ public class CvHelperPlugin extends Plugin
 		}
 	}
 
+	private boolean dropInventorySlot(int slotIndex, int itemId)
+	{
+		if (!actionInProgress.compareAndSet(false, true))
+		{
+			return false;
+		}
+		try
+		{
+			clientThread.invokeLater(() ->
+			{
+				try
+				{
+					ItemContainer inventory = client.getItemContainer(InventoryID.INVENTORY);
+					if (inventory == null || slotIndex < 0 || slotIndex >= inventory.size())
+					{
+						return;
+					}
+					Item item = inventory.getItem(slotIndex);
+					if (item == null || item.getId() != itemId)
+					{
+						return;
+					}
+					Map<String, Object> target = inventoryTargetForSlot(slotIndex, itemId);
+					if (target == null)
+					{
+						return;
+					}
+					InventoryMenuAction menu = inventoryMenuAction(target, "Drop");
+					if (menu == null)
+					{
+						log.warn("CV Helper no Drop menu action for slot {} item {}", slotIndex, itemId);
+						return;
+					}
+					log.info(
+						"CV DROP: slot={} itemId={} parentId={} widgetId={} opIndex={} componentOpId={} param0={} param1={} menuAction={} identifier={} option={}",
+						slotIndex,
+						itemId,
+						target.get("parentId"),
+						target.get("widgetId"),
+						menu.opIndex,
+						menu.componentOpId,
+						menu.param0,
+						menu.param1,
+						menu.menuAction,
+						menu.identifier,
+						menu.option
+					);
+					client.menuAction(menu.param0, menu.param1, menu.menuAction, menu.componentOpId, menu.itemId, menu.option, "");
+				}
+				finally
+				{
+					actionInProgress.set(false);
+				}
+			});
+			return true;
+		}
+		catch (Exception e)
+		{
+			actionInProgress.set(false);
+			return false;
+		}
+	}
+
+	private Map<String, Object> inventoryTargetForSlot(int slotIndex, int itemId)
+	{
+		List<Map<String, Object>> targets = getLiveInventoryTargets();
+		for (Map<String, Object> t : targets)
+		{
+			if ("inventory".equals(t.get("surface")) && intValue(t.get("index"), -1) == slotIndex)
+			{
+				Object targetItemId = t.get("itemId");
+				if (targetItemId instanceof Number && ((Number) targetItemId).intValue() == itemId)
+				{
+					return t;
+				}
+			}
+		}
+		return null;
+	}
+
 	private MenuAction menuActionFromName(String name, MenuAction fallback)
 	{
 		if (name == null || name.isEmpty() || "null".equals(name))
@@ -7405,6 +7641,9 @@ public class CvHelperPlugin extends Plugin
 		inventory.put("full", occupied >= slotCount && slotCount > 0);
 		inventory.put("neverDropItems", getMobFarmerNeverDropItems());
 		inventory.put("dropCandidate", lowestSafeDropCandidate(inventory));
+		inventory.put("safeDroppableSlots", safeDroppableSlots(inventory));
+		inventory.put("protectedSlots", protectedSlots(inventory));
+		inventory.put("rejectedSlots", rejectedSlots(inventory));
 		return inventory;
 	}
 
@@ -7426,8 +7665,7 @@ public class CvHelperPlugin extends Plugin
 			Map<String, Object> item = (Map<String, Object>) itemValue;
 			String name = String.valueOf(item.get("name"));
 			int itemId = intValue(item.get("id"), -1);
-			int quantity = intValue(item.get("quantity"), 1);
-			if (isMobFarmerProtectedInventoryItem(name, itemId, quantity))
+			if (itemSafetyService.isProtectedItem(name, itemId, getMobFarmerNeverDropItems()))
 			{
 				continue;
 			}
@@ -11417,5 +11655,139 @@ public class CvHelperPlugin extends Plugin
 				response.close();
 			}
 		});
+	}
+
+	private List<Map<String, Object>> safeDroppableSlots(Map<String, Object> inventory)
+	{
+		List<Map<String, Object>> safe = new ArrayList<>();
+		Object itemsValue = inventory.get("items");
+		if (!(itemsValue instanceof List))
+		{
+			return safe;
+		}
+		for (Object itemValue : (List<?>) itemsValue)
+		{
+			if (!(itemValue instanceof Map))
+			{
+				continue;
+			}
+			Map<String, Object> item = (Map<String, Object>) itemValue;
+			String name = String.valueOf(item.get("name"));
+			int itemId = intValue(item.get("id"), -1);
+			if (itemSafetyService.isAllowedToDrop(name, itemId, getMobFarmerDropItems(), getMobFarmerNeverDropItems(), getMobFarmerMaxDropValue()))
+			{
+				safe.add(item);
+			}
+		}
+		return safe;
+	}
+
+	private List<Map<String, Object>> protectedSlots(Map<String, Object> inventory)
+	{
+		List<Map<String, Object>> protectedItems = new ArrayList<>();
+		Object itemsValue = inventory.get("items");
+		if (!(itemsValue instanceof List))
+		{
+			return protectedItems;
+		}
+		for (Object itemValue : (List<?>) itemsValue)
+		{
+			if (!(itemValue instanceof Map))
+			{
+				continue;
+			}
+			Map<String, Object> item = (Map<String, Object>) itemValue;
+			String name = String.valueOf(item.get("name"));
+			int itemId = intValue(item.get("id"), -1);
+			if (itemSafetyService.isProtectedItem(name, itemId, getMobFarmerNeverDropItems()))
+			{
+				protectedItems.add(item);
+			}
+		}
+		return protectedItems;
+	}
+
+	private List<Map<String, Object>> rejectedSlots(Map<String, Object> inventory)
+	{
+		List<Map<String, Object>> rejected = new ArrayList<>();
+		Object itemsValue = inventory.get("items");
+		if (!(itemsValue instanceof List))
+		{
+			return rejected;
+		}
+		for (Object itemValue : (List<?>) itemsValue)
+		{
+			if (!(itemValue instanceof Map))
+			{
+				continue;
+			}
+			Map<String, Object> item = (Map<String, Object>) itemValue;
+			String name = String.valueOf(item.get("name"));
+			int itemId = intValue(item.get("id"), -1);
+			Map<String, Object> rejection = new LinkedHashMap<>();
+			rejection.putAll(item);
+			String reason = null;
+			if (itemSafetyService.isProtectedItem(name, itemId, getMobFarmerNeverDropItems()))
+			{
+				reason = "PROTECTED_ITEM";
+			}
+			else if (itemSafetyService.isValuable(itemId, getMobFarmerMaxDropValue()))
+			{
+				reason = "TOO_VALUABLE";
+			}
+			else if (!itemSafetyService.isAllowedToDrop(name, itemId, getMobFarmerDropItems(), getMobFarmerNeverDropItems(), getMobFarmerMaxDropValue()))
+			{
+				reason = "NOT_ALLOWLISTED";
+			}
+			if (reason != null)
+			{
+				rejection.put("reason", reason);
+				rejected.add(rejection);
+			}
+		}
+		return rejected;
+	}
+
+	private List<Map<String, Object>> droppableLogSlots(Map<String, Object> inventory, String woodcuttingTarget)
+	{
+		List<Map<String, Object>> droppable = new ArrayList<>();
+		Object itemsValue = inventory.get("items");
+		if (!(itemsValue instanceof List))
+		{
+			return droppable;
+		}
+		String[] targetWords = woodcuttingTarget == null ? new String[0] : woodcuttingTarget.split("\\s*(?:\\||,|;|\\r?\\n)\\s*");
+		for (Object itemValue : (List<?>) itemsValue)
+		{
+			if (!(itemValue instanceof Map))
+			{
+				continue;
+			}
+			Map<String, Object> item = (Map<String, Object>) itemValue;
+			String name = String.valueOf(item.get("name")).toLowerCase();
+			int itemId = intValue(item.get("id"), -1);
+			if (itemSafetyService.isProtectedItem(name, itemId, getMobFarmerNeverDropItems()))
+			{
+				continue;
+			}
+			boolean isLog = name.contains("logs") || name.equals("log");
+			if (!isLog)
+			{
+				for (String word : targetWords)
+				{
+					String w = word.trim().toLowerCase();
+					if (!w.isEmpty() && name.contains(w) && (name.contains("log") || name.contains("logs")))
+					{
+						isLog = true;
+						break;
+					}
+				}
+			}
+			if (isLog)
+			{
+				droppable.add(item);
+			}
+		}
+		return droppable;
 	}
 }

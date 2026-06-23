@@ -515,10 +515,6 @@ class CvHelperPanel extends PluginPanel
 		styleCheckbox(loginRecoveryF2p);
 		loginRecoveryF2p.setToolTipText("Blocks autonomous login recovery on member, PvP, Deadman, seasonal, or minigame/special worlds.");
 		loginRecoveryF2p.addActionListener(e -> plugin.setMobFarmerLoginRecoveryF2pOnly(loginRecoveryF2p.isSelected()));
-		JCheckBox clickToPlayRecovery = new JCheckBox("Click-to-play recovery", plugin.getMobFarmerLoginClickToPlayEnabled());
-		styleCheckbox(clickToPlayRecovery);
-		clickToPlayRecovery.setToolTipText("Clicks the visible login widget or presses Enter on the click-to-play screen.");
-		clickToPlayRecovery.addActionListener(e -> plugin.setMobFarmerLoginClickToPlayEnabled(clickToPlayRecovery.isSelected()));
 		JCheckBox disconnectRecovery = new JCheckBox("Inactivity disconnect recovery", plugin.getMobFarmerLoginDisconnectRecoveryEnabled());
 		styleCheckbox(disconnectRecovery);
 		disconnectRecovery.setToolTipText("Handles RuneLite CONNECTION_LOST with a guarded Enter press. This is not anti-idle input.");
@@ -619,7 +615,6 @@ class CvHelperPanel extends PluginPanel
 			plugin.setMobFarmerSurvivalPreemptsActions(survivalPreempts.isSelected());
 			plugin.setMobFarmerLoginRecoveryEnabled(loginRecovery.isSelected());
 			plugin.setMobFarmerLoginRecoveryF2pOnly(loginRecoveryF2p.isSelected());
-			plugin.setMobFarmerLoginClickToPlayEnabled(clickToPlayRecovery.isSelected());
 			plugin.setMobFarmerLoginDisconnectRecoveryEnabled(disconnectRecovery.isSelected());
 			plugin.setMobFarmerAutoResumeAfterLogin(autoResumeAfterLogin.isSelected());
 			plugin.setMobFarmerPreferredLoginWorld(parseNonNegativeInt(preferredLoginWorld.getText(), plugin.getMobFarmerPreferredLoginWorld()));
@@ -710,7 +705,6 @@ class CvHelperPanel extends PluginPanel
 			label("Login recovery"),
 			loginRecovery,
 			loginRecoveryF2p,
-			clickToPlayRecovery,
 			disconnectRecovery,
 			autoResumeAfterLogin,
 			label("Preferred login world"),

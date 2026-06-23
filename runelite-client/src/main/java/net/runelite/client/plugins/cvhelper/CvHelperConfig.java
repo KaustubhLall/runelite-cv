@@ -25,6 +25,7 @@ public interface CvHelperConfig extends Config
 	String GROUP = "cvhelper";
 	String ACTION_SECTION = "actionSection";
 	String MOB_FARMER_SECTION = "mobFarmerSection";
+	String WOODCUTTER_SECTION = "woodcutterSection";
 	String SHOW_HOVER_OVERLAY = "showHoverOverlay";
 	String SHOW_WIDGET_INFO = "showWidgetInfo";
 	String SHOW_PRAYER_TARGETS = "showPrayerTargets";
@@ -123,6 +124,7 @@ public interface CvHelperConfig extends Config
 	String MOB_FARMER_LOGIN_DISCONNECT_RECOVERY_ENABLED = "mobFarmerLoginDisconnectRecoveryEnabled";
 	String MOB_FARMER_AUTO_RESUME_AFTER_LOGIN = "mobFarmerAutoResumeAfterLogin";
 	String MOB_FARMER_PREFERRED_LOGIN_WORLD = "mobFarmerPreferredLoginWorld";
+	String AUTO_LOGIN_ON_LAUNCH = "autoLoginOnLaunch";
 	String MOB_FARMER_LOOT_ENABLED = "mobFarmerLootEnabled";
 	String MOB_FARMER_LOOT_DURING_COMBAT = "mobFarmerLootDuringCombat";
 	String MOB_FARMER_ATTACK_BEFORE_LOOT = "mobFarmerAttackBeforeLoot";
@@ -140,6 +142,8 @@ public interface CvHelperConfig extends Config
 	String MOB_FARMER_LOOT_BLACKLIST = "mobFarmerLootBlacklist";
 	String MOB_FARMER_LOOT_OWNERSHIP_MODE = "mobFarmerLootOwnershipMode";
 	String MOB_FARMER_NEVER_DROP_ITEMS = "mobFarmerNeverDropItems";
+	String MOB_FARMER_DROP_ITEMS = "mobFarmerDropItems";
+	String MOB_FARMER_MAX_DROP_VALUE = "mobFarmerMaxDropValue";
 	String MOB_FARMER_ATTACK_INTERACTION_MODE = "mobFarmerAttackInteractionMode";
 	String MOB_FARMER_LOOT_INTERACTION_MODE = "mobFarmerLootInteractionMode";
 	String MOB_FARMER_GROUND_ITEMS_MODE = "mobFarmerGroundItemsMode";
@@ -153,6 +157,12 @@ public interface CvHelperConfig extends Config
 	String MOB_FARMER_HIGH_ALCH_MAX_LOSS = "mobFarmerHighAlchMaxLoss";
 	String MOB_FARMER_HIGH_ALCH_ITEMS = "mobFarmerHighAlchItems";
 	String MOB_FARMER_HIGH_ALCH_BLACKLIST = "mobFarmerHighAlchBlacklist";
+	String DROP_POLICY_ENABLED = "dropPolicyEnabled";
+	String DROP_POLICY_MODE = "dropPolicyMode";
+	String DROP_POLICY_THRESHOLD_SLOTS = "dropPolicyThresholdSlots";
+	String DROP_POLICY_ITEMS = "dropPolicyItems";
+	String DROP_POLICY_PROTECTED_ITEMS = "dropPolicyProtectedItems";
+	String DROP_POLICY_MAX_VALUE = "dropPolicyMaxValue";
 
 	@ConfigSection(
 		name = "Action hotkeys",
@@ -167,6 +177,13 @@ public interface CvHelperConfig extends Config
 		position = 110
 	)
 	String mobFarmerSection = MOB_FARMER_SECTION;
+
+	@ConfigSection(
+		name = "Woodcutter",
+		description = "Woodcutting automation and inventory management options.",
+		position = 115
+	)
+	String woodcutterSection = WOODCUTTER_SECTION;
 
 	@ConfigItem(
 		keyName = SHOW_HOVER_OVERLAY,
@@ -700,8 +717,8 @@ public interface CvHelperConfig extends Config
 
 	@ConfigItem(
 		keyName = MOB_FARMER_LOGIN_CLICK_TO_PLAY_ENABLED,
-		name = "Click-to-play recovery",
-		description = "Allow login recovery to click or press Enter on RuneLite's click-to-play login screen.",
+		name = "Click-to-play on login screen",
+		description = "When RuneLite is on the login screen, queue a guarded click-to-play action. This is recovery only, not anti-idle input.",
 		section = mobFarmerSection
 	)
 	default boolean mobFarmerLoginClickToPlayEnabled()
@@ -739,7 +756,18 @@ public interface CvHelperConfig extends Config
 	)
 	default int mobFarmerPreferredLoginWorld()
 	{
-		return 301;
+		return 326;
+	}
+
+	@ConfigItem(
+		keyName = AUTO_LOGIN_ON_LAUNCH,
+		name = "Auto-login on launch",
+		description = "Automatically attempt login when RuneLite launches and detects the login screen. Works independently of macro state.",
+		section = mobFarmerSection
+	)
+	default boolean autoLoginOnLaunch()
+	{
+		return false;
 	}
 
 	@ConfigItem(
@@ -1007,6 +1035,28 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = MOB_FARMER_DROP_ITEMS,
+		name = "Drop allowlist",
+		description = "Items that are safe to drop when inventory space is needed. If empty, any non-protected item below the max drop value is a candidate.",
+		section = mobFarmerSection
+	)
+	default String mobFarmerDropItems()
+	{
+		return "";
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_MAX_DROP_VALUE,
+		name = "Max drop value",
+		description = "Maximum GE value of an item that can be dropped automatically. Items above this value are protected even if not in the protected list.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerMaxDropValue()
+	{
+		return 100;
+	}
+
+	@ConfigItem(
 		keyName = MOB_FARMER_HIGH_ALCH_ENABLED,
 		name = "High Alch policy",
 		description = "Evaluate safe High Alchemy candidates while farming. Current pass reports candidates and safety/availability; invocation stays disabled unless all guards pass in a future live-cast pass.",
@@ -1070,6 +1120,127 @@ public interface CvHelperConfig extends Config
 	default String mobFarmerHighAlchBlacklist()
 	{
 		return "coins|rune pouch|law rune|nature rune|air rune|fire rune|water rune|earth rune|mind rune|body rune|chaos rune|death rune|blood rune|soul rune|astral rune|wrath rune|teleport|tab|shark|lobster|swordfish|monkfish|karambwan";
+	}
+
+	@ConfigItem(
+		keyName = "woodcutterInventoryMode",
+		name = "Inventory Handling",
+		description = "What to do when the inventory is full: do nothing, drop logs, or bank.",
+		section = woodcutterSection
+	)
+	default CvHelperWoodcutterInventoryMode woodcutterInventoryMode()
+	{
+		return CvHelperWoodcutterInventoryMode.DROP;
+	}
+
+	@ConfigItem(
+		keyName = "woodcutterDropItemNames",
+		name = "Drop Items",
+		description = "Comma-separated item names that the woodcutter is allowed to drop.",
+		section = woodcutterSection
+	)
+	default String woodcutterDropItemNames()
+	{
+		return "Logs, Oak logs, Willow logs, Teak logs, Maple logs, Mahogany logs, Yew logs, Magic logs, Redwood logs";
+	}
+
+	@ConfigItem(
+		keyName = "woodcutterMaxDropValue",
+		name = "Max Drop Value",
+		description = "Do not drop items worth more than this many GP.",
+		section = woodcutterSection
+	)
+	default int woodcutterMaxDropValue()
+	{
+		return 1000;
+	}
+
+	@ConfigItem(
+		keyName = "woodcutterInventoryTriggerSlots",
+		name = "Inventory Trigger Slots",
+		description = "Start dropping or banking when this many inventory slots are occupied.",
+		section = woodcutterSection
+	)
+	default int woodcutterInventoryTriggerSlots()
+	{
+		return 28;
+	}
+
+	@ConfigItem(
+		keyName = "woodcutterBankItemNames",
+		name = "Bank Items",
+		description = "Comma-separated item names that the woodcutter should deposit when banking.",
+		section = woodcutterSection
+	)
+	default String woodcutterBankItemNames()
+	{
+		return "Logs, Oak logs, Willow logs, Teak logs, Maple logs, Mahogany logs, Yew logs, Magic logs, Redwood logs";
+	}
+
+	@ConfigItem(
+		keyName = DROP_POLICY_ENABLED,
+		name = "Drop policy enabled",
+		description = "Enable the conditional drop policy for skill farmers. When disabled, farmers use their legacy inventory handling.",
+		section = woodcutterSection
+	)
+	default boolean dropPolicyEnabled()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = DROP_POLICY_MODE,
+		name = "Drop mode",
+		description = "When to drop items: NEVER disables dropping; WHEN_FULL drops only when inventory is full; AFTER_TARGET drops after each target cycle completes; AFTER_GATHER drops after each successful gather action; CLEANUP_ONLY drops only during explicit cleanup phases; MANUAL_ONLY requires manual invocation.",
+		section = woodcutterSection
+	)
+	default CvHelperDropMode dropPolicyMode()
+	{
+		return CvHelperDropMode.WHEN_FULL;
+	}
+
+	@ConfigItem(
+		keyName = DROP_POLICY_THRESHOLD_SLOTS,
+		name = "Drop threshold slots",
+		description = "Minimum occupied inventory slots before dropping is considered. For WHEN_FULL mode, this is typically 28. For other modes, lower values allow earlier cleanup.",
+		section = woodcutterSection
+	)
+	default int dropPolicyThresholdSlots()
+	{
+		return 28;
+	}
+
+	@ConfigItem(
+		keyName = DROP_POLICY_ITEMS,
+		name = "Droppable items",
+		description = "Items that are safe to drop when conditions are met. If empty, any non-protected item below max value is a candidate. Separated by |, comma, semicolon, or newlines.",
+		section = woodcutterSection
+	)
+	default String dropPolicyItems()
+	{
+		return "";
+	}
+
+	@ConfigItem(
+		keyName = DROP_POLICY_PROTECTED_ITEMS,
+		name = "Protected items",
+		description = "Items that must never be dropped. Tools, food, teleport items, runes, and valuable items should be listed here. Built-in safeguards always protect clue/rare unique items.",
+		section = woodcutterSection
+	)
+	default String dropPolicyProtectedItems()
+	{
+		return "bronze pickaxe|iron pickaxe|steel pickaxe|mithril pickaxe|adamant pickaxe|rune pickaxe|bronze axe|iron axe|steel axe|mithril axe|adamant axe|rune axe|bronze hatchet|iron hatchet|steel hatchet|mithril hatchet|adamant hatchet|rune hatchet|shrimp|trout|salmon|tuna|lobster|swordfish|monkfish|shark|manta ray|anglerfish|cake|jug of wine|karambwan|meat|chicken|bread|pizza|pie|teleport|tab|rune pouch|coins";
+	}
+
+	@ConfigItem(
+		keyName = DROP_POLICY_MAX_VALUE,
+		name = "Max drop value",
+		description = "Maximum GE value of an item that can be dropped automatically. Items above this value are protected even if not in the protected list.",
+		section = woodcutterSection
+	)
+	default int dropPolicyMaxValue()
+	{
+		return 1000;
 	}
 
 	@ConfigItem(
