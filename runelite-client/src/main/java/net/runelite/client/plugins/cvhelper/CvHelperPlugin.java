@@ -9901,10 +9901,6 @@ public class CvHelperPlugin extends Plugin
 		{
 			woodcuttingFarmerTarget = target.trim();
 		}
-		Map<String, Object> status = getSkillFarmerStatus(skill);
-		status.put("requestTarget", target.trim());
-		status.put("configSource", "query-param");
-		setSkillFarmerStatus(skill, status);
 	}
 
 	private void handleLatestCaptureImageRequest(HttpExchange exchange, String captureType) throws IOException
