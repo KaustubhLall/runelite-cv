@@ -1191,12 +1191,12 @@ public interface CvHelperConfig extends Config
 	@ConfigItem(
 		keyName = DROP_POLICY_MODE,
 		name = "Drop mode",
-		description = "When to drop items: NEVER disables dropping; WHEN_FULL drops only when inventory is full; AFTER_TARGET drops after each target cycle completes; AFTER_GATHER drops after each successful gather action; CLEANUP_ONLY drops only during explicit cleanup phases; MANUAL_ONLY requires manual invocation.",
+		description = "When to drop items: NEVER disables dropping; WHEN_FULL drops only when inventory is full; WHEN_IDLE drops when not actively chopping (batch drop while moving between trees); AFTER_TARGET drops after each target cycle completes; AFTER_GATHER drops after each successful gather action; CLEANUP_ONLY drops only during explicit cleanup phases; MANUAL_ONLY requires manual invocation.",
 		section = woodcutterSection
 	)
 	default CvHelperDropMode dropPolicyMode()
 	{
-		return CvHelperDropMode.WHEN_FULL;
+		return CvHelperDropMode.WHEN_IDLE;
 	}
 
 	@ConfigItem(

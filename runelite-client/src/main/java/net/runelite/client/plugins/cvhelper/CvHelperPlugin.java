@@ -7150,9 +7150,29 @@ public class CvHelperPlugin extends Plugin
 	private List<Map<String, Object>> miningProfiles()
 	{
 		List<Map<String, Object>> profiles = new ArrayList<>();
-		profiles.add(skillProfile("Copper/tin", "copper rocks|tin rocks|copper ore rocks|tin ore rocks|id:11361|id:11360"));
-		profiles.add(skillProfile("Iron", "iron rocks|iron ore rocks|id:11364|id:11365"));
-		profiles.add(skillProfile("Coal", "coal rocks|coal ore rocks|id:11366"));
+		profiles.add(skillProfile("Clay", "exact:Clay rocks|clay"));
+		profiles.add(skillProfile("Copper/tin", "exact:Copper rocks|exact:Tin rocks|copper|tin|id:11361|id:11360|id:11362|id:11363"));
+		profiles.add(skillProfile("Blurite", "exact:Blurite rocks|blurite"));
+		profiles.add(skillProfile("Iron", "exact:Iron rocks|iron ore rocks|iron|id:11364|id:11365"));
+		profiles.add(skillProfile("Silver", "exact:Silver rocks|silver|id:11368|id:11369"));
+		profiles.add(skillProfile("Coal", "exact:Coal rocks|coal ore rocks|coal|id:11366|id:11367"));
+		profiles.add(skillProfile("Gold", "exact:Gold rocks|gold ore rocks|gold|id:11370|id:11371"));
+		profiles.add(skillProfile("Mithril", "exact:Mithril rocks|mithril ore rocks|mithril|id:11372|id:11373"));
+		profiles.add(skillProfile("Adamantite", "exact:Adamantite rocks|adamantite ore rocks|adamantite|id:11374|id:11375"));
+		profiles.add(skillProfile("Runite", "exact:Runite rocks|runite ore rocks|runite|id:11376|id:11377"));
+		profiles.add(skillProfile("Amethyst", "exact:Amethyst crystals|amethyst"));
+		profiles.add(skillProfile("Gem rocks", "exact:Gem rocks|gem"));
+		profiles.add(skillProfile("Granite", "exact:Granite rocks|granite"));
+		profiles.add(skillProfile("Sandstone", "exact:Sandstone rocks|sandstone"));
+		profiles.add(skillProfile("Lovakite", "exact:Lovakite rocks|lovakite"));
+		profiles.add(skillProfile("Daeyalt", "exact:Daeyalt rocks|daeyalt"));
+		profiles.add(skillProfile("Limestone", "exact:Limestone|limestone"));
+		profiles.add(skillProfile("Volcanic sulphur", "exact:Volcanic sulphur|volcanic sulphur"));
+		profiles.add(skillProfile("Rune essence", "exact:Rune essence|rune essence"));
+		profiles.add(skillProfile("Pure essence", "exact:Pure essence|pure essence"));
+		profiles.add(skillProfile("Lead", "exact:Lead rocks|lead"));
+		profiles.add(skillProfile("Nickel", "exact:Nickel rocks|nickel"));
+		profiles.add(skillProfile("Ancient essence", "exact:Ancient essence|ancient essence"));
 		profiles.add(skillProfile("Custom", miningFarmerTarget));
 		return profiles;
 	}
@@ -7160,10 +7180,22 @@ public class CvHelperPlugin extends Plugin
 	private List<Map<String, Object>> woodcuttingProfiles()
 	{
 		List<Map<String, Object>> profiles = new ArrayList<>();
-		profiles.add(skillProfile("Normal trees", "exact:Tree|exact:Dead tree|exact:Evergreen"));
-		profiles.add(skillProfile("Oak", "oak"));
-		profiles.add(skillProfile("Willow", "willow"));
-		profiles.add(skillProfile("Maple", "maple"));
+		profiles.add(skillProfile("Normal trees", "exact:Tree|exact:Dead tree|exact:Dying tree|exact:Evergreen tree|exact:Jungle tree|tree"));
+		profiles.add(skillProfile("Achey", "exact:Achey tree|achey"));
+		profiles.add(skillProfile("Oak", "exact:Oak tree|oak"));
+		profiles.add(skillProfile("Willow", "exact:Willow tree|willow"));
+		profiles.add(skillProfile("Teak", "exact:Teak tree|teak"));
+		profiles.add(skillProfile("Maple", "exact:Maple tree|maple"));
+		profiles.add(skillProfile("Arctic pine", "exact:Arctic pine tree|arctic pine"));
+		profiles.add(skillProfile("Hollow", "exact:Hollow tree|hollow"));
+		profiles.add(skillProfile("Mahogany", "exact:Mahogany tree|mahogany"));
+		profiles.add(skillProfile("Yew", "exact:Yew tree|yew"));
+		profiles.add(skillProfile("Blisterwood", "exact:Blisterwood tree|blisterwood"));
+		profiles.add(skillProfile("Camphor", "exact:Camphor tree|camphor"));
+		profiles.add(skillProfile("Magic", "exact:Magic tree|magic"));
+		profiles.add(skillProfile("Ironwood", "exact:Ironwood tree|ironwood"));
+		profiles.add(skillProfile("Redwood", "exact:Redwood tree|redwood"));
+		profiles.add(skillProfile("Rosewood", "exact:Rosewood tree|rosewood"));
 		profiles.add(skillProfile("Custom", woodcuttingFarmerTarget));
 		return profiles;
 	}
@@ -7297,15 +7329,24 @@ public class CvHelperPlugin extends Plugin
 		if (dropStatus.decision == InventoryDropService.DropDecision.DROP_ALLOWED && live && !dropStatus.candidates.isEmpty())
 		{
 			InventoryDropService.DropCandidate candidate = dropStatus.candidates.get(0);
+			List<Integer> sameItemSlots = new ArrayList<>();
+			for (InventoryDropService.DropCandidate c : dropStatus.candidates)
+			{
+				if (c.itemId == candidate.itemId)
+				{
+					sameItemSlots.add(c.slot);
+				}
+			}
 			Map<String, Object> status = getSkillFarmerStatus(skill);
 			status.put("currentAction", "dropping");
 			status.put("lastFailureReason", null);
 			status.put("inventory", inventory);
 			status.put("dropPolicy", dropStatus.toMap());
 			status.put("dropTarget", candidate.toMap());
+			status.put("dropSlots", sameItemSlots.size());
 			status.put("droppableRemaining", dropStatus.candidates.size());
 			setSkillFarmerStatus(skill, status);
-			dropInventorySlot(candidate.slot, candidate.itemId);
+			dropInventorySlots(sameItemSlots, candidate.itemId);
 			return;
 		}
 
@@ -7824,6 +7865,15 @@ public class CvHelperPlugin extends Plugin
 
 	private boolean dropInventorySlot(int slotIndex, int itemId)
 	{
+		return dropInventorySlots(java.util.Collections.singletonList(slotIndex), itemId);
+	}
+
+	private boolean dropInventorySlots(List<Integer> slotIndices, int itemId)
+	{
+		if (slotIndices == null || slotIndices.isEmpty())
+		{
+			return false;
+		}
 		if (!actionInProgress.compareAndSet(false, true))
 		{
 			return false;
@@ -7835,41 +7885,51 @@ public class CvHelperPlugin extends Plugin
 				try
 				{
 					ItemContainer inventory = client.getItemContainer(InventoryID.INVENTORY);
-					if (inventory == null || slotIndex < 0 || slotIndex >= inventory.size())
+					if (inventory == null)
 					{
 						return;
 					}
-					Item item = inventory.getItem(slotIndex);
-					if (item == null || item.getId() != itemId)
+					int dropped = 0;
+					for (int slotIndex : slotIndices)
 					{
-						return;
+						if (slotIndex < 0 || slotIndex >= inventory.size())
+						{
+							continue;
+						}
+						Item item = inventory.getItem(slotIndex);
+						if (item == null || item.getId() != itemId)
+						{
+							continue;
+						}
+						Map<String, Object> target = inventoryTargetForSlot(slotIndex, itemId);
+						if (target == null)
+						{
+							continue;
+						}
+						InventoryMenuAction menu = inventoryMenuAction(target, "Drop");
+						if (menu == null)
+						{
+							log.warn("CV Helper no Drop menu action for slot {} item {}", slotIndex, itemId);
+							continue;
+						}
+						log.info(
+							"CV DROP: slot={} itemId={} parentId={} widgetId={} opIndex={} componentOpId={} param0={} param1={} menuAction={} identifier={} option={}",
+							slotIndex,
+							itemId,
+							target.get("parentId"),
+							target.get("widgetId"),
+							menu.opIndex,
+							menu.componentOpId,
+							menu.param0,
+							menu.param1,
+							menu.menuAction,
+							menu.identifier,
+							menu.option
+						);
+						client.menuAction(menu.param0, menu.param1, menu.menuAction, menu.componentOpId, menu.itemId, menu.option, "");
+						dropped++;
 					}
-					Map<String, Object> target = inventoryTargetForSlot(slotIndex, itemId);
-					if (target == null)
-					{
-						return;
-					}
-					InventoryMenuAction menu = inventoryMenuAction(target, "Drop");
-					if (menu == null)
-					{
-						log.warn("CV Helper no Drop menu action for slot {} item {}", slotIndex, itemId);
-						return;
-					}
-					log.info(
-						"CV DROP: slot={} itemId={} parentId={} widgetId={} opIndex={} componentOpId={} param0={} param1={} menuAction={} identifier={} option={}",
-						slotIndex,
-						itemId,
-						target.get("parentId"),
-						target.get("widgetId"),
-						menu.opIndex,
-						menu.componentOpId,
-						menu.param0,
-						menu.param1,
-						menu.menuAction,
-						menu.identifier,
-						menu.option
-					);
-					client.menuAction(menu.param0, menu.param1, menu.menuAction, menu.componentOpId, menu.itemId, menu.option, "");
+					log.info("CV DROP batch: dropped {} slots for itemId {}", dropped, itemId);
 				}
 				finally
 				{

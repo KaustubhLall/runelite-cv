@@ -75,3 +75,29 @@ This avoids mutating Maven project version or dependency coordinates just to tal
 ### Follow-up
 
 If Plugin Hub/config sync still fails after launch overrides, inspect the latest RuneLite log for the actual HTTP URL/status before changing credentials or account-login flow.
+
+## 2026-06-22: Skill Farmer Presets and Batch Drop Policy
+
+- Status: accepted
+- Related: `OSR-10`, `OSR-12`
+
+### Context
+
+Woodcutting and mining farmers were shipping with only a handful of target presets and a single-slot drop policy. Users had to manually type targets for common trees/rocks, and dropping while woodcutting interrupted the chopping animation because the policy only dropped one item per tick and triggered while the axe was still animating.
+
+### Decision
+
+1. **Exhaustive presets**: Every skill farmer must ship with presets for all trainable targets in that skill. For woodcutting this means every tree type from the OSRS wiki that has a `Chop down` option; for mining this means every ore/rock type. Presets are added to `CvHelperPlugin` in `woodcuttingProfiles()` and `miningProfiles()` and exposed through the existing `/automation/woodcutting/config` and `/automation/mining/config` endpoints.
+2. **Batch drop**: Inventory dropping is not tick-limited for `Drop` menu actions. The plugin should drop all slots of the same droppable item in a single client-thread invocation, issuing one `client.menuAction` per slot. This is implemented in `dropInventorySlots(List<Integer>, int)`.
+3. **Idle-only drop for woodcutting**: The default woodcutting drop policy is `WHEN_IDLE`, which only triggers when the player is not in a woodcutting animation. This avoids interrupting active chopping and naturally batches drops during the movement window between depleted and next trees.
+
+### Tradeoffs
+
+- Presets make the UI longer but remove manual target entry for common training spots.
+- Batch drop can empty the inventory very quickly; protected-items and max-value guards remain the safety layer.
+- `WHEN_IDLE` delays drops until the tree finishes, so a player could fill up while chopping a very long tree. The user can switch to `WHEN_FULL` if they prefer the old behavior.
+
+### Follow-up
+
+- Add a mining animation list and extend `WHEN_IDLE` to mining when that skill farmer is validated.
+- For every new skill farmer (fishing, hunter, etc.), repeat the preset exercise: enumerate all trainable targets from the OSRS wiki and add them as default profiles before the feature is considered complete.
