@@ -40,3 +40,6 @@ bin/
 
 ### MCP Environment Variables ###
 .mcp.env
+
+### Local build logs ###
+compile.log
