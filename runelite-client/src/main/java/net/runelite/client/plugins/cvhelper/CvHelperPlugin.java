@@ -9537,7 +9537,7 @@ public class CvHelperPlugin extends Plugin
 			body.put("combatTargets", lastCombatTargets.size());
 			body.put("entities", lastEntities.size());
 			body.put("targetSnapshots", snapshotStatuses());
-			body.put("loginRecovery", getLoginRecoveryDiagnostics());
+			body.put("loginRecovery", getLoginRecoveryDiagnosticsOnClientThread());
 			writeJson(exchange, 200, body);
 		}
 		catch (RuntimeException e)
@@ -9940,6 +9940,24 @@ public class CvHelperPlugin extends Plugin
 		clientThread.invokeLater(() ->
 		{
 			result.set(getPlayerStatus());
+			latch.countDown();
+		});
+		if (!latch.await(1500, TimeUnit.MILLISECONDS))
+		{
+			Map<String, Object> timeout = new LinkedHashMap<>();
+			timeout.put("error", "client-thread-timeout");
+			return timeout;
+		}
+		return result.get();
+	}
+
+	private Map<String, Object> getLoginRecoveryDiagnosticsOnClientThread() throws InterruptedException
+	{
+		CountDownLatch latch = new CountDownLatch(1);
+		AtomicReference<Map<String, Object>> result = new AtomicReference<>();
+		clientThread.invokeLater(() ->
+		{
+			result.set(getLoginRecoveryDiagnostics());
 			latch.countDown();
 		});
 		if (!latch.await(1500, TimeUnit.MILLISECONDS))
