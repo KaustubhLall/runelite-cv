@@ -293,6 +293,9 @@ abstract class CvHelperModData extends Plugin
 	protected InventoryDropService inventoryDropService;
 
 	@Inject
+	protected PathfindingService pathfinding;
+
+	@Inject
 	protected ChatResponderService chatResponderService;
 
 	protected NavigationButton navButton;
