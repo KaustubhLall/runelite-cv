@@ -79,12 +79,17 @@ public class ChatResponderService
 	@Inject
 	private CvHelperModConfig config;
 
-	private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r ->
+	private ScheduledExecutorService scheduler = newScheduler();
+
+	private static ScheduledExecutorService newScheduler()
 	{
-		Thread t = new Thread(r, "cvhelper-chat-responder");
-		t.setDaemon(true);
-		return t;
-	});
+		return Executors.newSingleThreadScheduledExecutor(r ->
+		{
+			Thread t = new Thread(r, "cvhelper-chat-responder");
+			t.setDaemon(true);
+			return t;
+		});
+	}
 
 	private final AtomicBoolean running = new AtomicBoolean(false);
 	private final EvictingQueue<ChatLine> history = EvictingQueue.create(MAX_HISTORY);
@@ -116,6 +121,10 @@ public class ChatResponderService
 	{
 		if (running.compareAndSet(false, true))
 		{
+			if (scheduler.isShutdown())
+			{
+				scheduler = newScheduler();
+			}
 			scheduler.scheduleAtFixedRate(this::poll, 4, 4, TimeUnit.SECONDS);
 			status.set("started");
 			log.info("Chat responder started");

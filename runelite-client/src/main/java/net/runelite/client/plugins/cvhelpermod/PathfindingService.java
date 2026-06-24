@@ -29,16 +29,16 @@ public class PathfindingService
 	@Inject
 	private Client client;
 
-	public CvHelperModData.PathingResult pathDistanceToWorldArea(Player localPlayer, WorldArea target, int maxDistance)
+	public CvHelperModPlugin.PathingResult pathDistanceToWorldArea(Player localPlayer, WorldArea target, int maxDistance)
 	{
 		if (localPlayer == null || target == null || localPlayer.getWorldArea() == null)
 		{
-			return CvHelperModData.PathingResult.unreachable("missing-area", 0, 0);
+			return CvHelperModPlugin.PathingResult.unreachable("missing-area", 0, 0);
 		}
 		WorldArea start = localPlayer.getWorldArea();
 		if (start.getPlane() != target.getPlane())
 		{
-			return CvHelperModData.PathingResult.unreachable("different-plane", 0, 0);
+			return CvHelperModPlugin.PathingResult.unreachable("different-plane", 0, 0);
 		}
 		WorldView worldView = localPlayer.getWorldView();
 		if (worldView == null)
@@ -46,7 +46,7 @@ public class PathfindingService
 			worldView = client.getTopLevelWorldView();
 		}
 		int straightDistance = start.distanceTo(target);
-		int searchLimit = Math.max(1, Math.min(CvHelperModData.MOB_FARMER_PATHING_MAX_SEARCH_TILES, (maxDistance > 0 ? maxDistance : straightDistance) + CvHelperModData.MOB_FARMER_PATHING_SLACK_TILES));
+		int searchLimit = Math.max(1, Math.min(CvHelperModPlugin.MOB_FARMER_PATHING_MAX_SEARCH_TILES, (maxDistance > 0 ? maxDistance : straightDistance) + CvHelperModPlugin.MOB_FARMER_PATHING_SLACK_TILES));
 		ArrayDeque<WorldPoint> queue = new ArrayDeque<>();
 		Map<WorldPoint, Integer> distances = new HashMap<>();
 		WorldPoint startPoint = start.toWorldPoint();
@@ -63,13 +63,13 @@ public class PathfindingService
 			WorldArea area = new WorldArea(point, start.getWidth(), start.getHeight());
 			if (canReachMelee(worldView, area, target))
 			{
-				return CvHelperModData.PathingResult.reachable(pathDistance, searchLimit, visited);
+				return CvHelperModPlugin.PathingResult.reachable(pathDistance, searchLimit, visited);
 			}
 			if (pathDistance >= searchLimit)
 			{
 				continue;
 			}
-			for (int[] direction : CvHelperModData.MOB_FARMER_PATH_DIRECTIONS)
+			for (int[] direction : CvHelperModPlugin.MOB_FARMER_PATH_DIRECTIONS)
 			{
 				if (!canTravelSafely(worldView, area, direction[0], direction[1]))
 				{
@@ -99,7 +99,7 @@ public class PathfindingService
 		{
 			failureReason += ",collision-blocked:" + blockedByCollision;
 		}
-		return CvHelperModData.PathingResult.unreachable(failureReason, searchLimit, visited);
+		return CvHelperModPlugin.PathingResult.unreachable(failureReason, searchLimit, visited);
 	}
 
 	public boolean isInsideFootprint(WorldArea footprint, WorldPoint point)
@@ -118,7 +118,7 @@ public class PathfindingService
 			return false;
 		}
 		WorldArea area = new WorldArea(point, 1, 1);
-		for (int[] direction : CvHelperModData.MOB_FARMER_PATH_DIRECTIONS)
+		for (int[] direction : CvHelperModPlugin.MOB_FARMER_PATH_DIRECTIONS)
 		{
 			if (canTravelSafely(worldView, area, direction[0], direction[1]))
 			{
@@ -128,17 +128,17 @@ public class PathfindingService
 		return false;
 	}
 
-	public CvHelperModData.InteractionPathingResult pathDistanceToInteractionArea(Player localPlayer, WorldArea footprint, int maxDistance)
+	public CvHelperModPlugin.InteractionPathingResult pathDistanceToInteractionArea(Player localPlayer, WorldArea footprint, int maxDistance)
 	{
 		if (localPlayer == null || footprint == null || localPlayer.getWorldArea() == null)
 		{
-			return CvHelperModData.InteractionPathingResult.unreachable("missing-area", 0, 0, footprint,
+			return CvHelperModPlugin.InteractionPathingResult.unreachable("missing-area", 0, 0, footprint,
 				0, 0, 0, 0, 0);
 		}
 		WorldArea start = localPlayer.getWorldArea();
 		if (start.getPlane() != footprint.getPlane())
 		{
-			return CvHelperModData.InteractionPathingResult.unreachable("different-plane", 0, 0, footprint,
+			return CvHelperModPlugin.InteractionPathingResult.unreachable("different-plane", 0, 0, footprint,
 				0, 0, 0, 0, 0);
 		}
 		WorldView worldView = localPlayer.getWorldView();
@@ -148,20 +148,20 @@ public class PathfindingService
 		}
 		if (worldView == null)
 		{
-			return CvHelperModData.InteractionPathingResult.unreachable("world-view-unavailable", 0, 0, footprint,
+			return CvHelperModPlugin.InteractionPathingResult.unreachable("world-view-unavailable", 0, 0, footprint,
 				0, 0, 0, 0, 0);
 		}
 
 		WorldPoint startPoint = start.toWorldPoint();
 		if (LocalPoint.fromWorld(worldView, startPoint) == null)
 		{
-			return CvHelperModData.InteractionPathingResult.unreachable("start-outside-scene", 0, 0, footprint,
+			return CvHelperModPlugin.InteractionPathingResult.unreachable("start-outside-scene", 0, 0, footprint,
 				0, 0, 0, 0, 0);
 		}
 
 		int straightDistance = start.distanceTo(footprint);
-		int searchLimit = Math.max(1, Math.min(CvHelperModData.MOB_FARMER_PATHING_MAX_SEARCH_TILES,
-			(maxDistance > 0 ? maxDistance : straightDistance) + CvHelperModData.MOB_FARMER_PATHING_SLACK_TILES));
+		int searchLimit = Math.max(1, Math.min(CvHelperModPlugin.MOB_FARMER_PATHING_MAX_SEARCH_TILES,
+			(maxDistance > 0 ? maxDistance : straightDistance) + CvHelperModPlugin.MOB_FARMER_PATHING_SLACK_TILES));
 
 		int minX = footprint.getX() - 1;
 		int maxX = footprint.getX() + footprint.getWidth();
@@ -210,7 +210,7 @@ public class PathfindingService
 			{
 				failureReason += ",collision-blocked:" + blockedByCollision;
 			}
-			return CvHelperModData.InteractionPathingResult.unreachable(failureReason, searchLimit, 0,
+			return CvHelperModPlugin.InteractionPathingResult.unreachable(failureReason, searchLimit, 0,
 				footprint, evaluatedInteractionTiles, walkableInteractionTiles,
 				blockedByCollision + blockedByScene, blockedByCollision, blockedByScene);
 		}
@@ -244,7 +244,7 @@ public class PathfindingService
 			}
 
 			WorldArea area = new WorldArea(point, 1, 1);
-			for (int[] direction : CvHelperModData.MOB_FARMER_PATH_DIRECTIONS)
+			for (int[] direction : CvHelperModPlugin.MOB_FARMER_PATH_DIRECTIONS)
 			{
 				if (!canTravelSafely(worldView, area, direction[0], direction[1]))
 				{
@@ -268,7 +268,7 @@ public class PathfindingService
 
 		if (reachedTile != null)
 		{
-			return CvHelperModData.InteractionPathingResult.reachable(reachedDistance, searchLimit, visited,
+			return CvHelperModPlugin.InteractionPathingResult.reachable(reachedDistance, searchLimit, visited,
 				reachedTile, footprint, evaluatedInteractionTiles, walkableInteractionTiles,
 				blockedByCollision + blockedByScene + (walkableInteractionTiles - 1),
 				blockedByCollision, blockedByScene);
@@ -283,26 +283,26 @@ public class PathfindingService
 		{
 			failureReason += ",collision-blocked:" + pathBlockedByCollision;
 		}
-		return CvHelperModData.InteractionPathingResult.unreachable(failureReason, searchLimit, visited,
+		return CvHelperModPlugin.InteractionPathingResult.unreachable(failureReason, searchLimit, visited,
 			footprint, evaluatedInteractionTiles, walkableInteractionTiles,
 			blockedByCollision + blockedByScene, blockedByCollision, blockedByScene);
 	}
 
-	public CvHelperModData.PathingResult mobFarmerPathDistanceToMelee(Player localPlayer, NPC npc, int maxDistance)
+	public CvHelperModPlugin.PathingResult mobFarmerPathDistanceToMelee(Player localPlayer, NPC npc, int maxDistance)
 	{
 		if (localPlayer == null || npc == null)
 		{
-			return CvHelperModData.PathingResult.unreachable("missing-actor", 0, 0);
+			return CvHelperModPlugin.PathingResult.unreachable("missing-actor", 0, 0);
 		}
 		WorldArea start = localPlayer.getWorldArea();
 		WorldArea target = npc.getWorldArea();
 		if (start == null || target == null)
 		{
-			return CvHelperModData.PathingResult.unreachable("missing-world-area", 0, 0);
+			return CvHelperModPlugin.PathingResult.unreachable("missing-world-area", 0, 0);
 		}
 		if (start.getPlane() != target.getPlane())
 		{
-			return CvHelperModData.PathingResult.unreachable("different-plane", 0, 0);
+			return CvHelperModPlugin.PathingResult.unreachable("different-plane", 0, 0);
 		}
 
 		WorldView worldView = localPlayer.getWorldView();
@@ -312,16 +312,16 @@ public class PathfindingService
 		}
 		if (worldView == null || worldView.getCollisionMaps() == null || start.getPlane() < 0 || start.getPlane() >= worldView.getCollisionMaps().length || worldView.getCollisionMaps()[start.getPlane()] == null)
 		{
-			return CvHelperModData.PathingResult.unreachable("collision-map-unavailable", 0, 0);
+			return CvHelperModPlugin.PathingResult.unreachable("collision-map-unavailable", 0, 0);
 		}
 
 		int straightDistance = start.distanceTo(target);
-		int baseLimit = maxDistance > 0 ? maxDistance : straightDistance + CvHelperModData.MOB_FARMER_PATHING_SLACK_TILES;
-		int searchLimit = Math.max(1, Math.min(CvHelperModData.MOB_FARMER_PATHING_MAX_SEARCH_TILES, baseLimit + CvHelperModData.MOB_FARMER_PATHING_SLACK_TILES));
+		int baseLimit = maxDistance > 0 ? maxDistance : straightDistance + CvHelperModPlugin.MOB_FARMER_PATHING_SLACK_TILES;
+		int searchLimit = Math.max(1, Math.min(CvHelperModPlugin.MOB_FARMER_PATHING_MAX_SEARCH_TILES, baseLimit + CvHelperModPlugin.MOB_FARMER_PATHING_SLACK_TILES));
 		WorldPoint startPoint = start.toWorldPoint();
 		if (LocalPoint.fromWorld(worldView, startPoint) == null)
 		{
-			return CvHelperModData.PathingResult.unreachable("start-outside-scene", searchLimit, 0);
+			return CvHelperModPlugin.PathingResult.unreachable("start-outside-scene", searchLimit, 0);
 		}
 
 		ArrayDeque<WorldPoint> queue = new ArrayDeque<>();
@@ -341,14 +341,14 @@ public class PathfindingService
 			WorldArea area = new WorldArea(point, start.getWidth(), start.getHeight());
 			if (canReachMelee(worldView, area, target))
 			{
-				return CvHelperModData.PathingResult.reachable(pathDistance, searchLimit, visited);
+				return CvHelperModPlugin.PathingResult.reachable(pathDistance, searchLimit, visited);
 			}
 			if (pathDistance >= searchLimit)
 			{
 				continue;
 			}
 
-			for (int[] direction : CvHelperModData.MOB_FARMER_PATH_DIRECTIONS)
+			for (int[] direction : CvHelperModPlugin.MOB_FARMER_PATH_DIRECTIONS)
 			{
 				int dx = direction[0];
 				int dy = direction[1];
@@ -366,7 +366,7 @@ public class PathfindingService
 			}
 		}
 
-		return CvHelperModData.PathingResult.unreachable("no-route-within:" + searchLimit, searchLimit, visited);
+		return CvHelperModPlugin.PathingResult.unreachable("no-route-within:" + searchLimit, searchLimit, visited);
 	}
 
 	public boolean canReachMelee(WorldView worldView, WorldArea from, WorldArea target)
