@@ -20,8 +20,10 @@ reference (`cvhelper`): copy working code, reorganize it, never re-implement it.
 - Shares config group `"cvhelper"` (see `CvHelperModConfig.GROUP`) so saved settings and the
   verifier dashboard transfer seamlessly. Reference `cvhelper` stays enabled as the fallback until
   cutover.
-- Already split out: `CvHelperModData` (abstract base holding all constants, ~80 instance fields,
-  inner classes/enums, static helpers as `protected`). `CvHelperModPlugin extends CvHelperModData`.
+- `CvHelperModPlugin` **directly extends `Plugin`** (required — see Splitting technique) and holds
+  the shared state/constants/inner-types. `PathfindingService` is split out as a composition
+  `@Singleton`. (An earlier `CvHelperModData` inheritance base was reverted because it broke plugin
+  loading.)
 
 ## The decomposition standard
 
@@ -39,19 +41,20 @@ reference (`cvhelper`): copy working code, reorganize it, never re-implement it.
 
 ## Splitting technique (and the caveat that shapes it)
 
-Java has no partial classes, and RuneLite needs the single `@PluginDescriptor` class to extend
-`Plugin`. Two viable mechanisms:
+Java has no partial classes. **Hard RuneLite constraint (learned the hard way, at runtime): the
+`@PluginDescriptor` class must DIRECTLY extend `Plugin`.** `PluginManager` checks
+`clazz.getSuperclass() == Plugin.class`. An inheritance chain where the plugin extends a shared base
+(e.g. `CvHelperModPlugin extends CvHelperModData extends Plugin`) **compiles but fails to load** —
+the log shows `"has plugin descriptor, but is not a plugin"` and the plugin silently never appears
+in the list. **So inheritance-via-Plugin-base is out; decomposition must use composition.**
 
-- **Inheritance chain** (lowest churn): an abstract base holds all shared fields/inner-types as
-  `protected`; concern classes move up the chain; method bodies stay byte-identical because they
-  access inherited members unqualified. Verified to work with the framework:
-  `EventBus.register` walks the superclass chain (`eventbus/EventBus.java:106`, scans
-  `getDeclaredMethods()` per level), so inherited `@Subscribe` handlers register; Guice injects
-  inherited `@Inject` fields. **Constraint: an ancestor cannot call a descendant's methods.**
-- **Composition** (no ordering constraint): a concern class injects the *same-named* RuneLite
-  services (so `client`/`config`/… references are unchanged) and holds a back-reference `p` to the
-  plugin for shared mutable state (`p.field`) and cross-concern calls (`p.method()`). The compiler
-  guides every `p.` prefix and every `private`→package-private callee change.
+**Composition**: each concern is a separate `@Singleton` class that injects the *same-named* RuneLite
+services (so `client`/`config`/… references in moved bodies stay unchanged). For shared mutable state
+and cross-concern calls it either injects collaborator services (preferred) or holds a back-reference
+to the plugin (`plugin.field` / `plugin.method()`, with the callees made package-private). The
+compiler flags every reference to wire. `PathfindingService` is the working template — it was a clean
+first cut because it needed only `client` plus a couple of plugin-nested types (qualified as
+`CvHelperModPlugin.PathingResult`).
 
 **Caveat (why this is iterative, not a quick slice):** the reference's call graph is *tangled*,
 not cleanly layered by line order. Concrete examples found:
@@ -61,10 +64,8 @@ not cleanly layered by line order. Concrete examples found:
   tail's status builders — a back-reference that defeats naive top-down or bottom-up slicing;
 - `automationStatus` (tail) calls `getMobFarmerStatus`/`getSkillFarmerStatus` (upper).
 
-So a clean **inheritance** split needs a topological grouping of mutually-recursive concerns (cycles
-co-locate), and a **composition** split needs compiler-guided `p.` prefixing per concern. Either
-way: extract one concern, compile, fix what the compiler flags, commit. Do not attempt the whole
-file in one pass.
+So composition needs compiler-guided wiring per concern: extract one concern, compile, fix what the
+compiler flags, commit. Do not attempt the whole file in one pass.
 
 **Chosen approach: composition services** (`@Singleton`), because that is what makes the codebase
 cheap for Copilot/smaller models to work on — self-contained files with explicit dependencies, no
@@ -80,11 +81,11 @@ A repeatable, low-risk procedure — mechanical enough for Copilot/a cheaper mod
    RuneLite services it uses (`@Inject private Client client;` …) so the moved bodies are byte-
    identical for those references.
 3. Move the methods **verbatim**. Make externally-called ones `public`. The only edits to bodies:
-   - shared *types/constants* that still live in `CvHelperModData` → qualify as
-     `CvHelperModData.PathingResult`, `CvHelperModData.MOB_FARMER_PATH_DIRECTIONS`, etc.
+   - shared *types/constants* that still live in the plugin → qualify as
+     `CvHelperModPlugin.PathingResult`, `CvHelperModPlugin.MOB_FARMER_PATH_DIRECTIONS`, etc.
      (mind substrings — qualify `InteractionPathingResult` before `PathingResult`, use `\b`).
    - cross-concern calls to methods still elsewhere → route via the collaborator/`plugin` ref.
-4. Add `@Inject protected XxxService xxx;` to `CvHelperModData`; delete the moved blocks from the
+4. Add `@Inject private XxxService xxx;` to `CvHelperModPlugin`; delete the moved blocks from the
    plugin; rewire call sites to `xxx.method(...)` (compiler lists every one).
 5. `:client:compileJava` → green → commit. Never change logic; if a body looks wrong, leave it.
 
@@ -103,14 +104,16 @@ Most other concerns do **not** extract cleanly yet, for two measured reasons:
    block; you must gather methods by concern.
 
 **Therefore the correct order is:**
-1. **Relocate the ubiquitous pure helpers into `CvHelperModData`** (base) as `protected`/`protected
-   static`. Zero call-site churn (the leaf and every future ancestor concern inherit them). Pure,
-   closed — lowest risk. *Do this first.*
-2. Then extract concerns by **gathering their methods** (not slicing line ranges): inheritance
-   ancestor for closed lower-level concerns (config accessors, status builders, collectors), and
-   composition services for leaf concerns with only RuneLite-service deps (pathfinding ✓).
+1. **Move the ubiquitous pure helpers into a static util** (e.g. `CvJson`) and `import static` it
+   everywhere — moved bodies keep calling `intValue(...)`/`boundsMap(...)` unqualified, so zero
+   churn, and any future composition service can `import static` it too. Pure, closed — lowest risk.
+   *Do this first.* (Helpers that need `client`/`itemManager` like `itemName`/`spellbookName` aren't
+   static — leave them in the plugin and back-ref, or pass the value in.)
+2. Then extract concerns by **gathering their methods** (not slicing line ranges) into composition
+   `@Singleton` services (pathfinding ✓). Inject collaborator services where possible; back-ref the
+   plugin for the rest.
 3. The mob-farmer *loop* logic comes last — once its dependencies (helpers, collectors, login,
-   config accessors) are factored, it drops in cleanly instead of needing a god-object back-ref.
+   config accessors) are factored, it drops in cleanly instead of needing a heavy god-object back-ref.
 
 Remaining concerns, after step 1: config accessors, status builders, target collectors, entities,
 capture, login recovery, action executor, skill farmer, mob farmer (split ~2 files). Each
@@ -118,13 +121,13 @@ compile-verified and independently committable. Tracked in Linear (OSR).
 
 ## Target module map
 
-Group by concern (each becomes its own file, < ceiling). Suggested layers, lowest first:
-`Data` (done) → JSON/map/string/numeric primitives → export (target collectors, status builders,
-entities, capture) → pathfinding → action executor + login recovery → skill farmer → mob farmer
-(may need 2 files) → leaf `CvHelperModPlugin` (lifecycle, `@Subscribe`, hotkey
-register/dispatch + listener fields, `@Provides`, server start + HTTP handlers — the entry points
-that call everything). `ItemSafetyService`, `InventoryDropService`, `ChatResponderService` are
-already separate and stay so.
+Group by concern. `CvHelperModPlugin` (extends `Plugin`) stays as the coordinator — lifecycle,
+`@Subscribe`, hotkey register/dispatch, `@Provides`, server start + HTTP route wiring, and (for now)
+the shared state — and delegates to composition `@Singleton` services: `CvJson` util (pure helpers),
+pathfinding ✓, target collectors, status builders, entities, capture, login recovery, action
+executor, skill farmer, mob farmer (split ~2 files). `ItemSafetyService`, `InventoryDropService`,
+`ChatResponderService` are already separate and stay so. The goal is the plugin shrinks toward just
+coordination while each concern is a self-contained, Copilot-loadable file under the ceiling.
 
 ## Extending the plugin
 
