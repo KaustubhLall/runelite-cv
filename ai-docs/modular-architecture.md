@@ -88,10 +88,33 @@ A repeatable, low-risk procedure — mechanical enough for Copilot/a cheaper mod
    plugin; rewire call sites to `xxx.method(...)` (compiler lists every one).
 5. `:client:compileJava` → green → commit. Never change logic; if a body looks wrong, leave it.
 
-Status: `PathfindingService` done (8 methods). Remaining services to extract the same way, biggest
-impact first: mob farmer (split ~2 files), skill farmer, action executor, export/collectors+status,
-login recovery, capture, webhook. Each lands the plugin closer to the ceiling and is independently
-committable.
+Status: `PathfindingService` done (8 methods) — it extracted cleanly because it was an effectively
+*closed* set (only `client` + base constants/types, no shared-helper calls).
+
+### Sequence correction (learned the hard way)
+
+Most other concerns do **not** extract cleanly yet, for two measured reasons:
+1. **Ubiquitous shared helpers.** Nearly every method calls tiny shared helpers — `intValue`,
+   `longValue`, `mapValue`, `boundsMap`, `pointMap`, `safeValue`, `normalize`, `itemName`,
+   `spellbookName`. While those live in the leaf, no concern is closed.
+2. **Method-level interleaving.** Concerns are *not* contiguous. Example: the ~136 mob-farmer
+   config accessor get/set wrappers (lines ~2419–3092) are interleaved with `refreshPrayerTargets`,
+   `getMobFarmerStatus`, etc., which call leaf-level code — so you cannot slice a contiguous "config"
+   block; you must gather methods by concern.
+
+**Therefore the correct order is:**
+1. **Relocate the ubiquitous pure helpers into `CvHelperModData`** (base) as `protected`/`protected
+   static`. Zero call-site churn (the leaf and every future ancestor concern inherit them). Pure,
+   closed — lowest risk. *Do this first.*
+2. Then extract concerns by **gathering their methods** (not slicing line ranges): inheritance
+   ancestor for closed lower-level concerns (config accessors, status builders, collectors), and
+   composition services for leaf concerns with only RuneLite-service deps (pathfinding ✓).
+3. The mob-farmer *loop* logic comes last — once its dependencies (helpers, collectors, login,
+   config accessors) are factored, it drops in cleanly instead of needing a god-object back-ref.
+
+Remaining concerns, after step 1: config accessors, status builders, target collectors, entities,
+capture, login recovery, action executor, skill farmer, mob farmer (split ~2 files). Each
+compile-verified and independently committable. Tracked in Linear (OSR).
 
 ## Target module map
 
