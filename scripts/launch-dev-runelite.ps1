@@ -1,12 +1,12 @@
 param(
     [string] $JavaHome = "",
-    [string] $ServiceVersion = "1.12.28"
+    [string] $ServiceVersion = "1.12.30"
 )
 
 $ErrorActionPreference = "Stop"
 
 $credentialsPath = Join-Path $env:USERPROFILE ".runelite\credentials.properties"
-$jarPath = Join-Path $PSScriptRoot "..\runelite-client\build\libs\client-1.12.29-SNAPSHOT-shaded.jar"
+$libsDir = Join-Path $PSScriptRoot "..\runelite-client\build\libs"
 
 if ([string]::IsNullOrWhiteSpace($JavaHome)) {
     $candidateHomes = @(
@@ -42,9 +42,13 @@ try {
     Pop-Location
 }
 
-if (!(Test-Path $jarPath)) {
-    throw "RuneLite shaded jar was not created: $jarPath"
+# Resolve the freshly built shaded jar by glob (version-agnostic, picks the newest)
+$jar = Get-ChildItem -Path $libsDir -Filter "client-*-shaded.jar" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if (-not $jar) {
+    throw "RuneLite shaded jar was not created in $libsDir"
 }
+$jarPath = $jar.FullName
+Write-Host "Using shaded jar: $($jar.Name)"
 
 $serviceBase = "https://api.runelite.net/runelite-$ServiceVersion"
 $arguments = @(
