@@ -66,6 +66,33 @@ co-locate), and a **composition** split needs compiler-guided `p.` prefixing per
 way: extract one concern, compile, fix what the compiler flags, commit. Do not attempt the whole
 file in one pass.
 
+**Chosen approach: composition services** (`@Singleton`), because that is what makes the codebase
+cheap for Copilot/smaller models to work on — self-contained files with explicit dependencies, no
+hidden shared-state coupling. This is the architecture the scrapped `cvhelpermod` had right; we keep
+it and fill it with verbatim-ported logic.
+
+### Worked recipe (template: `PathfindingService.java`)
+
+A repeatable, low-risk procedure — mechanical enough for Copilot/a cheaper model to follow:
+
+1. Pick a concern; list its methods + the fields it owns + what it calls.
+2. New `@Singleton public class XxxService` in package `cvhelpermod`. Inject the **same-named**
+   RuneLite services it uses (`@Inject private Client client;` …) so the moved bodies are byte-
+   identical for those references.
+3. Move the methods **verbatim**. Make externally-called ones `public`. The only edits to bodies:
+   - shared *types/constants* that still live in `CvHelperModData` → qualify as
+     `CvHelperModData.PathingResult`, `CvHelperModData.MOB_FARMER_PATH_DIRECTIONS`, etc.
+     (mind substrings — qualify `InteractionPathingResult` before `PathingResult`, use `\b`).
+   - cross-concern calls to methods still elsewhere → route via the collaborator/`plugin` ref.
+4. Add `@Inject protected XxxService xxx;` to `CvHelperModData`; delete the moved blocks from the
+   plugin; rewire call sites to `xxx.method(...)` (compiler lists every one).
+5. `:client:compileJava` → green → commit. Never change logic; if a body looks wrong, leave it.
+
+Status: `PathfindingService` done (8 methods). Remaining services to extract the same way, biggest
+impact first: mob farmer (split ~2 files), skill farmer, action executor, export/collectors+status,
+login recovery, capture, webhook. Each lands the plugin closer to the ceiling and is independently
+committable.
+
 ## Target module map
 
 Group by concern (each becomes its own file, < ceiling). Suggested layers, lowest first:
