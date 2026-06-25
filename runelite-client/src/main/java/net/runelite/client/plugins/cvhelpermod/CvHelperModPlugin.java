@@ -5305,6 +5305,13 @@ public class CvHelperModPlugin extends Plugin
 			return;
 		}
 
+		// Always refresh NPC target diagnostics so /automation/mob-farmer/status.candidates
+		// stays current even when this step returns early (e.g. while in combat with an
+		// aggressive target). Read-only; does not affect the attack decision below. The
+		// selection's pathfinding only runs for name-matching NPCs, so this is cheap.
+		lastEntities = collectEntities();
+		lastMobFarmerCandidates = selectMobFarmerTarget(localPlayer).reports;
+
 		lastMobFarmerInventoryStatus = inventoryPolicyStatus();
 		if (tryMobFarmerAutoEat(localPlayer, live, generation))
 		{
