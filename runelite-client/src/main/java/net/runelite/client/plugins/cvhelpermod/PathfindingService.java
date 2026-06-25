@@ -5,8 +5,13 @@
 package net.runelite.client.plugins.cvhelpermod;
 
 import net.runelite.api.Client;
+import net.runelite.api.GameObject;
 import net.runelite.api.NPC;
+import net.runelite.api.ObjectComposition;
 import net.runelite.api.Player;
+import net.runelite.api.Scene;
+import net.runelite.api.Tile;
+import net.runelite.api.WallObject;
 import net.runelite.api.WorldView;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldArea;
@@ -14,8 +19,10 @@ import net.runelite.api.coords.WorldPoint;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -401,12 +408,202 @@ public class PathfindingService
 	{
 		try
 		{
-			return area.canTravelInDirection(worldView, dx, dy);
+			if (area.canTravelInDirection(worldView, dx, dy))
+			{
+				return true;
+			}
+			// The collision map can't distinguish a permanent wall from a closed door/gate -
+			// both set the same BLOCK_MOVEMENT flag. The real client opens doors automatically
+			// while walking through them, so treat a step blocked only by an openable door as
+			// traversable; otherwise our BFS rejects perfectly attackable targets behind doors.
+			return isDoorBlockingStep(worldView, area, dx, dy);
 		}
 		catch (RuntimeException e)
 		{
 			return false;
 		}
+	}
+
+	private boolean isDoorBlockingStep(WorldView worldView, WorldArea area, int dx, int dy)
+	{
+		WorldPoint from = area.toWorldPoint();
+		WorldPoint to = new WorldPoint(from.getX() + Integer.signum(dx), from.getY() + Integer.signum(dy), from.getPlane());
+		return hasOpenableDoor(worldView, from) || hasOpenableDoor(worldView, to);
+	}
+
+	private boolean hasOpenableDoor(WorldView worldView, WorldPoint point)
+	{
+		LocalPoint localPoint = LocalPoint.fromWorld(worldView, point);
+		if (localPoint == null)
+		{
+			return false;
+		}
+		Scene scene = worldView.getScene();
+		if (scene == null)
+		{
+			return false;
+		}
+		Tile[][][] tiles = scene.getTiles();
+		int plane = point.getPlane();
+		if (tiles == null || plane < 0 || plane >= tiles.length)
+		{
+			return false;
+		}
+		int sceneX = localPoint.getSceneX();
+		int sceneY = localPoint.getSceneY();
+		if (sceneX < 0 || sceneX >= tiles[plane].length || sceneY < 0 || sceneY >= tiles[plane][sceneX].length)
+		{
+			return false;
+		}
+		Tile tile = tiles[plane][sceneX][sceneY];
+		if (tile == null)
+		{
+			return false;
+		}
+		WallObject wall = tile.getWallObject();
+		if (wall != null && isDoorObject(wall.getId()))
+		{
+			return true;
+		}
+		GameObject[] gameObjects = tile.getGameObjects();
+		if (gameObjects != null)
+		{
+			for (GameObject gameObject : gameObjects)
+			{
+				if (gameObject != null && isDoorObject(gameObject.getId()))
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	private boolean isDoorObject(int objectId)
+	{
+		if (objectId < 0)
+		{
+			return false;
+		}
+		ObjectComposition composition = client.getObjectDefinition(objectId);
+		String[] actions = composition == null ? null : composition.getActions();
+		if (actions == null)
+		{
+			return false;
+		}
+		for (String action : actions)
+		{
+			if (action != null && (action.equalsIgnoreCase("Open") || action.equalsIgnoreCase("Close")))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Same BFS as {@link #pathDistanceToWorldArea} but reconstructs the actual route and
+	 * collapses it into a sparse waypoint chain (a point every {@code segmentTiles} tiles,
+	 * plus the final tile) instead of a single straight-line destination. Intended for
+	 * movement clicks toward far-away points where one click may not cover the whole
+	 * distance: walk to waypoint 1, then waypoint 2, etc., ending at the target.
+	 */
+	public List<WorldPoint> findWaypoints(Player localPlayer, WorldPoint target, int maxDistance, int segmentTiles)
+	{
+		List<WorldPoint> empty = new ArrayList<>();
+		if (localPlayer == null || target == null)
+		{
+			return empty;
+		}
+		WorldArea start = localPlayer.getWorldArea();
+		if (start == null || start.getPlane() != target.getPlane())
+		{
+			return empty;
+		}
+		WorldView worldView = localPlayer.getWorldView();
+		if (worldView == null)
+		{
+			worldView = client.getTopLevelWorldView();
+		}
+		if (worldView == null)
+		{
+			return empty;
+		}
+		WorldPoint startPoint = start.toWorldPoint();
+		if (LocalPoint.fromWorld(worldView, startPoint) == null)
+		{
+			return empty;
+		}
+
+		int straightDistance = startPoint.distanceTo(target);
+		int searchLimit = Math.max(1, Math.min(CvHelperModPlugin.MOB_FARMER_PATHING_MAX_SEARCH_TILES,
+			(maxDistance > 0 ? maxDistance : straightDistance) + CvHelperModPlugin.MOB_FARMER_PATHING_SLACK_TILES));
+
+		ArrayDeque<WorldPoint> queue = new ArrayDeque<>();
+		Map<WorldPoint, Integer> distances = new HashMap<>();
+		Map<WorldPoint, WorldPoint> predecessors = new HashMap<>();
+		queue.add(startPoint);
+		distances.put(startPoint, 0);
+		boolean reached = startPoint.equals(target);
+
+		while (!queue.isEmpty() && !reached)
+		{
+			WorldPoint point = queue.remove();
+			int pathDistance = distances.get(point);
+			if (pathDistance >= searchLimit)
+			{
+				continue;
+			}
+			WorldArea area = new WorldArea(point, start.getWidth(), start.getHeight());
+			for (int[] direction : CvHelperModPlugin.MOB_FARMER_PATH_DIRECTIONS)
+			{
+				if (!canTravelSafely(worldView, area, direction[0], direction[1]))
+				{
+					continue;
+				}
+				WorldPoint next = new WorldPoint(point.getX() + direction[0], point.getY() + direction[1], point.getPlane());
+				if (distances.containsKey(next) || LocalPoint.fromWorld(worldView, next) == null)
+				{
+					continue;
+				}
+				distances.put(next, pathDistance + 1);
+				predecessors.put(next, point);
+				if (next.equals(target))
+				{
+					reached = true;
+					break;
+				}
+				queue.add(next);
+			}
+		}
+
+		if (!reached)
+		{
+			return empty;
+		}
+
+		List<WorldPoint> route = new ArrayList<>();
+		WorldPoint cursor = target;
+		route.add(cursor);
+		while (!cursor.equals(startPoint))
+		{
+			cursor = predecessors.get(cursor);
+			if (cursor == null)
+			{
+				return empty;
+			}
+			route.add(cursor);
+		}
+		java.util.Collections.reverse(route);
+
+		int step = Math.max(1, segmentTiles);
+		List<WorldPoint> waypoints = new ArrayList<>();
+		for (int i = step; i < route.size() - 1; i += step)
+		{
+			waypoints.add(route.get(i));
+		}
+		waypoints.add(route.get(route.size() - 1));
+		return waypoints;
 	}
 
 }
