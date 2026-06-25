@@ -18,6 +18,8 @@ import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigSection;
+import net.runelite.client.config.Range;
+import net.runelite.client.config.Units;
 
 @ConfigGroup(CvHelperModConfig.GROUP)
 public interface CvHelperModConfig extends Config
@@ -110,6 +112,13 @@ public interface CvHelperModConfig extends Config
 	String ACTION_RETURN_EQUIPMENT_HOTKEY = "actionReturnEquipmentHotkey";
 	String ACTION_RETURN_PRAYER_HOTKEY = "actionReturnPrayerHotkey";
 	String ACTION_RETURN_SPELLBOOK_HOTKEY = "actionReturnSpellbookHotkey";
+
+	String ANTI_IDLE_ENABLED = "antiIdleEnabled";
+	String ANTI_IDLE_TIMEOUT_MINUTES = "antiIdleTimeoutMinutes";
+	String ANTI_IDLE_INPUT_INTERVAL_MINUTES = "antiIdleInputIntervalMinutes";
+	String ANTI_IDLE_MANUAL_OVERRIDE = "antiIdleManualOverride";
+	String ANTI_IDLE_RESTORE_MOUSE = "antiIdleRestoreMouse";
+
 	String MOB_FARMER_TARGET = "mobFarmerTarget";
 	String MOB_FARMER_RECOVERY_LOOP_DELAY_MS = "mobFarmerRecoveryLoopDelayMs";
 	String MOB_FARMER_AUTORUN_ENABLED = "mobFarmerAutorunEnabled";
@@ -1136,6 +1145,65 @@ public interface CvHelperModConfig extends Config
 	default String mobFarmerHighAlchBlacklist()
 	{
 		return "coins|rune pouch|law rune|nature rune|air rune|fire rune|water rune|earth rune|mind rune|body rune|chaos rune|death rune|blood rune|soul rune|astral rune|wrath rune|teleport|tab|shark|lobster|swordfish|monkfish|karambwan";
+	}
+
+	@ConfigItem(
+		keyName = ANTI_IDLE_ENABLED,
+		name = "Anti-idle timeout prevention",
+		description = "Extend the idle logout timer and periodically move/click the mouse on the character to prevent idle logout while farmers are running.",
+		section = mobFarmerSection
+	)
+	default boolean antiIdleEnabled()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = ANTI_IDLE_TIMEOUT_MINUTES,
+		name = "Anti-idle timeout",
+		description = "Idle logout timeout duration when anti-idle is active. RuneLite hard-caps this at 30 minutes.",
+		section = mobFarmerSection
+	)
+	@Units(Units.MINUTES)
+	@Range(min = 5, max = 30)
+	default int antiIdleTimeoutMinutes()
+	{
+		return 30;
+	}
+
+	@ConfigItem(
+		keyName = ANTI_IDLE_INPUT_INTERVAL_MINUTES,
+		name = "Anti-idle input interval",
+		description = "How often to move and click the mouse on the character to reset idle ticks. Must be less than the timeout.",
+		section = mobFarmerSection
+	)
+	@Units(Units.MINUTES)
+	@Range(min = 1, max = 28)
+	default int antiIdleInputIntervalMinutes()
+	{
+		return 4;
+	}
+
+	@ConfigItem(
+		keyName = ANTI_IDLE_MANUAL_OVERRIDE,
+		name = "Manual anti-idle override",
+		description = "Keep anti-idle active even when no farmers are running.",
+		section = mobFarmerSection
+	)
+	default boolean antiIdleManualOverride()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = ANTI_IDLE_RESTORE_MOUSE,
+		name = "Restore mouse position",
+		description = "Return the OS mouse to its original position after each anti-idle input.",
+		section = mobFarmerSection
+	)
+	default boolean antiIdleRestoreMouse()
+	{
+		return true;
 	}
 
 	@ConfigItem(

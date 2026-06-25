@@ -37,6 +37,7 @@ import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -65,6 +66,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Actor;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
+import net.runelite.api.Constants;
 import net.runelite.api.EnumID;
 import net.runelite.api.GameObject;
 import net.runelite.api.GameState;
@@ -230,6 +232,11 @@ public class CvHelperModPlugin extends Plugin
 	protected static final int GROUND_ITEMS_NONE = 0;
 	protected static final int GROUND_ITEMS_WILDCARD = 1;
 	protected static final int GROUND_ITEMS_EXACT = 2;
+	protected static final int DEFAULT_IDLE_TIMEOUT_MINUTES = 5;
+	protected static final int MAX_IDLE_TIMEOUT_MINUTES = 30;
+	protected static final int MIN_IDLE_TIMEOUT_MINUTES = 5;
+	protected static final int CLIENT_TICKS_PER_MINUTE = 60 * 1000 / Constants.CLIENT_TICK_LENGTH;
+	protected static final int DEFAULT_ANTI_IDLE_INPUT_INTERVAL_MINUTES = 4;
 	protected static final DateTimeFormatter CAPTURE_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
 	protected static final int[] PRAYER_COMPONENTS = {
 		InterfaceID.Prayerbook.PRAYER1,
@@ -396,6 +403,12 @@ public class CvHelperModPlugin extends Plugin
 	protected volatile long lastWoodcuttingTargetClickTime = 0L;
 	protected final Map<String, Integer> lastMobFarmerActionTickByKey = new LinkedHashMap<>();
 	protected final Map<String, Integer> mobFarmerLootSkipUntilTickByKey = new LinkedHashMap<>();
+	protected volatile boolean antiIdleActive;
+	protected volatile String antiIdleMode = "off";
+	protected volatile Instant lastAntiIdleInputTime;
+	protected volatile Instant antiIdleTimeoutAppliedAt;
+	protected volatile int lastAppliedIdleTimeoutTicks = -1;
+	protected Robot antiIdleRobot;
 
 	protected static final class PanelSwitchTarget
 	{
@@ -744,6 +757,16 @@ public class CvHelperModPlugin extends Plugin
 		KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(cvHotkeyDispatcher);
 		chatResponderService.start();
 		startServer();
+		try
+		{
+			antiIdleRobot = new Robot();
+			antiIdleRobot.setAutoDelay(1);
+		}
+		catch (AWTException e)
+		{
+			log.warn("CV Helper anti-idle robot unavailable", e);
+		}
+		updateAntiIdleState();
 	}
 
 	@Override
@@ -765,6 +788,171 @@ public class CvHelperModPlugin extends Plugin
 		}
 		navButton = null;
 		panel = null;
+		resetIdleTimeout();
+		antiIdleActive = false;
+		antiIdleMode = "off";
+		lastAntiIdleInputTime = null;
+		antiIdleTimeoutAppliedAt = null;
+		lastAppliedIdleTimeoutTicks = -1;
+	}
+
+	private void updateAntiIdleState()
+	{
+		boolean anyFarmerRunning = mobFarmerRunning.get() || miningFarmerRunning.get() || woodcuttingFarmerRunning.get();
+		boolean manualOverride = config.antiIdleManualOverride();
+		boolean shouldBeActive = config.antiIdleEnabled() && (anyFarmerRunning || manualOverride);
+		boolean wasActive = antiIdleActive;
+
+		if (shouldBeActive && !wasActive)
+		{
+			antiIdleActive = true;
+			antiIdleMode = manualOverride && !anyFarmerRunning ? "manual" : "auto";
+			lastAntiIdleInputTime = Instant.now();
+			applyAntiIdleTimeout();
+			log.info("CV Helper anti-idle activated (mode={})", antiIdleMode);
+		}
+		else if (!shouldBeActive && wasActive)
+		{
+			antiIdleActive = false;
+			antiIdleMode = "off";
+			lastAntiIdleInputTime = null;
+			antiIdleTimeoutAppliedAt = null;
+			lastAppliedIdleTimeoutTicks = -1;
+			resetIdleTimeout();
+			log.info("CV Helper anti-idle deactivated");
+		}
+		else if (shouldBeActive && wasActive)
+		{
+			antiIdleMode = manualOverride && !anyFarmerRunning ? "manual" : "auto";
+		}
+	}
+
+	private void applyAntiIdleTimeout()
+	{
+		int requestedMinutes = Math.max(MIN_IDLE_TIMEOUT_MINUTES, Math.min(MAX_IDLE_TIMEOUT_MINUTES, config.antiIdleTimeoutMinutes()));
+		int requestedTicks = requestedMinutes * CLIENT_TICKS_PER_MINUTE;
+		clientThread.invokeLater(() ->
+		{
+			if (client.getGameState() != GameState.LOGGED_IN)
+			{
+				return;
+			}
+			client.setIdleTimeout(requestedTicks);
+			lastAppliedIdleTimeoutTicks = client.getIdleTimeout();
+			antiIdleTimeoutAppliedAt = Instant.now();
+			if (lastAppliedIdleTimeoutTicks != requestedTicks)
+			{
+				log.warn("CV Helper anti-idle timeout was clamped by client: requested {} ticks, got {} ticks", requestedTicks, lastAppliedIdleTimeoutTicks);
+			}
+		});
+	}
+
+	private void resetIdleTimeout()
+	{
+		clientThread.invokeLater(() ->
+		{
+			if (client.getGameState() != GameState.LOGGED_IN)
+			{
+				return;
+			}
+			client.setIdleTimeout(DEFAULT_IDLE_TIMEOUT_MINUTES * CLIENT_TICKS_PER_MINUTE);
+			lastAppliedIdleTimeoutTicks = -1;
+			antiIdleTimeoutAppliedAt = null;
+		});
+	}
+
+	private void sendAntiIdleInputIfNeeded()
+	{
+		if (!antiIdleActive || antiIdleRobot == null)
+		{
+			return;
+		}
+		Instant lastInput = lastAntiIdleInputTime;
+		if (lastInput == null)
+		{
+			lastInput = Instant.now();
+			lastAntiIdleInputTime = lastInput;
+			return;
+		}
+		int intervalMinutes = Math.max(1, Math.min(config.antiIdleTimeoutMinutes() - 1, config.antiIdleInputIntervalMinutes()));
+		Duration interval = Duration.ofMinutes(intervalMinutes);
+		if (Duration.between(lastInput, Instant.now()).compareTo(interval) < 0)
+		{
+			return;
+		}
+
+		Player local = client.getLocalPlayer();
+		if (local == null)
+		{
+			return;
+		}
+		LocalPoint localPoint = local.getLocalLocation();
+		if (localPoint == null)
+		{
+			return;
+		}
+		net.runelite.api.Point canvasPoint = Perspective.localToCanvas(client, localPoint, client.getPlane());
+		if (canvasPoint == null)
+		{
+			return;
+		}
+		Map<String, Object> pointMap = pointMap(canvasPoint.getX(), canvasPoint.getY());
+		java.awt.Point screenPoint = canvasPointToScreen(pointMap);
+		if (screenPoint == null)
+		{
+			return;
+		}
+
+		lastAntiIdleInputTime = Instant.now();
+		Thread inputThread = new Thread(() -> sendAntiIdleInput(screenPoint.x, screenPoint.y, canvasPoint.getX(), canvasPoint.getY()), "cv-helper-anti-idle");
+		inputThread.setDaemon(true);
+		inputThread.start();
+	}
+
+	private void sendAntiIdleInput(int screenX, int screenY, int canvasX, int canvasY)
+	{
+		try
+		{
+			java.awt.Point originalMouse = MouseInfo.getPointerInfo().getLocation();
+			antiIdleRobot.mouseMove(screenX, screenY);
+			antiIdleRobot.mouseMove(screenX + 1, screenY);
+			antiIdleRobot.mouseMove(screenX, screenY);
+			antiIdleRobot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
+			antiIdleRobot.delay(5);
+			antiIdleRobot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+			if (config.antiIdleRestoreMouse())
+			{
+				antiIdleRobot.mouseMove(originalMouse.x, originalMouse.y);
+			}
+			log.debug("CV Helper anti-idle input sent at screen=({},{}) canvas=({},{}) mouseRestored={}", screenX, screenY, canvasX, canvasY, config.antiIdleRestoreMouse());
+		}
+		catch (Exception e)
+		{
+			log.warn("CV Helper anti-idle input failed", e);
+		}
+	}
+
+	private Map<String, Object> getAntiIdleStatus()
+	{
+		Map<String, Object> status = new LinkedHashMap<>();
+		status.put("active", antiIdleActive);
+		status.put("mode", antiIdleMode);
+		status.put("timeoutMinutes", config.antiIdleEnabled() ? Math.max(MIN_IDLE_TIMEOUT_MINUTES, Math.min(MAX_IDLE_TIMEOUT_MINUTES, config.antiIdleTimeoutMinutes())) : DEFAULT_IDLE_TIMEOUT_MINUTES);
+		status.put("inputIntervalMinutes", config.antiIdleEnabled() ? Math.max(1, Math.min(config.antiIdleTimeoutMinutes() - 1, config.antiIdleInputIntervalMinutes())) : DEFAULT_ANTI_IDLE_INPUT_INTERVAL_MINUTES);
+		status.put("manualOverride", config.antiIdleManualOverride());
+		status.put("restoreMouse", config.antiIdleRestoreMouse());
+		status.put("lastAppliedIdleTimeoutTicks", lastAppliedIdleTimeoutTicks);
+		status.put("timeoutAppliedAt", antiIdleTimeoutAppliedAt == null ? null : antiIdleTimeoutAppliedAt.toString());
+		status.put("lastInputAt", lastAntiIdleInputTime == null ? null : lastAntiIdleInputTime.toString());
+		Instant nextInput = lastAntiIdleInputTime;
+		if (antiIdleActive && nextInput != null)
+		{
+			int intervalMinutes = Math.max(1, Math.min(config.antiIdleTimeoutMinutes() - 1, config.antiIdleInputIntervalMinutes()));
+			nextInput = nextInput.plus(Duration.ofMinutes(intervalMinutes));
+		}
+		status.put("nextInputAt", nextInput == null ? null : nextInput.toString());
+		status.put("robotAvailable", antiIdleRobot != null);
+		return status;
 	}
 
 	@Subscribe
@@ -779,6 +967,8 @@ public class CvHelperModPlugin extends Plugin
 		{
 			return;
 		}
+		updateAntiIdleState();
+		sendAntiIdleInputIfNeeded();
 		if (mobFarmerRunning.get())
 		{
 			int generation = mobFarmerGeneration.get();
@@ -865,6 +1055,28 @@ public class CvHelperModPlugin extends Plugin
 	public void onChatMessage(ChatMessage event)
 	{
 		chatResponderService.onChatMessage(event);
+	}
+
+	@Subscribe
+	public void onConfigChanged(net.runelite.client.events.ConfigChanged event)
+	{
+		if (!CvHelperModConfig.GROUP.equals(event.getGroup()))
+		{
+			return;
+		}
+		String key = event.getKey();
+		if (CvHelperModConfig.ANTI_IDLE_ENABLED.equals(key)
+			|| CvHelperModConfig.ANTI_IDLE_TIMEOUT_MINUTES.equals(key)
+			|| CvHelperModConfig.ANTI_IDLE_INPUT_INTERVAL_MINUTES.equals(key)
+			|| CvHelperModConfig.ANTI_IDLE_MANUAL_OVERRIDE.equals(key)
+			|| CvHelperModConfig.ANTI_IDLE_RESTORE_MOUSE.equals(key))
+		{
+			updateAntiIdleState();
+			if (CvHelperModConfig.ANTI_IDLE_TIMEOUT_MINUTES.equals(key) && antiIdleActive)
+			{
+				applyAntiIdleTimeout();
+			}
+		}
 	}
 
 	private void rememberMobFarmerMenuEntry(String source, MenuEntry entry)
@@ -4870,6 +5082,7 @@ public class CvHelperModPlugin extends Plugin
 		mobFarmerThread = loopThread;
 		loopThread.start();
 		updatePanelStatus("Mob farmer " + (live ? "live" : "dry-run") + " loop started");
+		updateAntiIdleState();
 	}
 
 	void stopMobFarmer()
@@ -4884,6 +5097,7 @@ public class CvHelperModPlugin extends Plugin
 		interruptMobFarmerThread();
 		mobFarmerStatus.set("stopped");
 		updatePanelStatus("Mob farmer stopped");
+		updateAntiIdleState();
 	}
 
 	void panicStop()
@@ -4906,6 +5120,7 @@ public class CvHelperModPlugin extends Plugin
 		String message = "CV Helper panic stop: all loops stopped and action guard cleared";
 		updatePanelStatus(message);
 		clientThread.invokeLater(() -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, ""));
+		updateAntiIdleState();
 	}
 
 	private boolean isCurrentMobFarmerLoop(int generation)
@@ -7305,6 +7520,7 @@ public class CvHelperModPlugin extends Plugin
 			woodcuttingFarmerLiveMode = live;
 		}
 		runSkillFarmerStep(skill, live, "start");
+		updateAntiIdleState();
 	}
 
 	private void stopSkillFarmer(String skill)
@@ -7322,6 +7538,7 @@ public class CvHelperModPlugin extends Plugin
 		Map<String, Object> status = getSkillFarmerStatus(skill);
 		status.put("currentAction", "stopped");
 		setSkillFarmerStatus(skill, status);
+		updateAntiIdleState();
 	}
 
 	private void runSkillFarmerTick(String skill)
@@ -9820,6 +10037,7 @@ public class CvHelperModPlugin extends Plugin
 			body.put("targetSnapshots", snapshotStatuses());
 			body.put("loginRecovery", getLoginRecoveryDiagnosticsOnClientThread());
 			body.put("chatResponder", chatResponderService.getStatus());
+			body.put("antiIdle", getAntiIdleStatus());
 			writeJson(exchange, 200, body);
 		}
 		catch (RuntimeException e)
