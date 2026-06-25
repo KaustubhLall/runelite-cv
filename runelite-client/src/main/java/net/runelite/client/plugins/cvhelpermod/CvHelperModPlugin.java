@@ -3,6 +3,15 @@
  * All rights reserved.
  */
 package net.runelite.client.plugins.cvhelpermod;
+import static net.runelite.client.plugins.cvhelpermod.CvJson.boundsMap;
+import static net.runelite.client.plugins.cvhelpermod.CvJson.pointMap;
+import static net.runelite.client.plugins.cvhelpermod.CvJson.longValue;
+import static net.runelite.client.plugins.cvhelpermod.CvJson.intValue;
+import static net.runelite.client.plugins.cvhelpermod.CvJson.mapValue;
+import static net.runelite.client.plugins.cvhelpermod.CvJson.friendlyName;
+import static net.runelite.client.plugins.cvhelpermod.CvJson.actionsText;
+import static net.runelite.client.plugins.cvhelpermod.CvJson.normalize;
+import static net.runelite.client.plugins.cvhelpermod.CvJson.safeValue;
 
 import com.google.gson.Gson;
 import com.google.inject.Provides;
@@ -10901,23 +10910,7 @@ public class CvHelperModPlugin extends Plugin
 		return widget.getClickMask() == 0 && !hasActionNamed(actions, "Cast");
 	}
 
-	private Map<String, Object> boundsMap(Rectangle bounds)
-	{
-		Map<String, Object> out = new LinkedHashMap<>();
-		out.put("x", bounds.x);
-		out.put("y", bounds.y);
-		out.put("width", bounds.width);
-		out.put("height", bounds.height);
-		return out;
-	}
 
-	private Map<String, Object> pointMap(int x, int y)
-	{
-		Map<String, Object> out = new LinkedHashMap<>();
-		out.put("x", x);
-		out.put("y", y);
-		return out;
-	}
 
 	private Map<String, Object> targetSnapshot(String surface, List<Map<String, Object>> freshTargets)
 	{
@@ -11200,21 +11193,8 @@ public class CvHelperModPlugin extends Plugin
 		return containerItems.length;
 	}
 
-	private long longValue(Object value)
-	{
-		return value instanceof Number ? ((Number) value).longValue() : 0L;
-	}
 
-	private int intValue(Object value, int fallback)
-	{
-		return value instanceof Number ? ((Number) value).intValue() : fallback;
-	}
 
-	@SuppressWarnings("unchecked")
-	private Map<String, Object> mapValue(Object value)
-	{
-		return value instanceof Map ? (Map<String, Object>) value : new LinkedHashMap<>();
-	}
 
 	private String activeSidePanelName(Map<String, Object> interfaces)
 	{
@@ -11596,24 +11576,6 @@ public class CvHelperModPlugin extends Plugin
 		}
 	}
 
-	private String friendlyName(String value)
-	{
-		String[] words = value.toLowerCase().split("_");
-		StringBuilder out = new StringBuilder();
-		for (String word : words)
-		{
-			if (word.isEmpty())
-			{
-				continue;
-			}
-			if (out.length() > 0)
-			{
-				out.append(' ');
-			}
-			out.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1));
-		}
-		return out.toString();
-	}
 
 	private void setEnabled(Set<String> set, String key, boolean value)
 	{
@@ -11660,19 +11622,7 @@ public class CvHelperModPlugin extends Plugin
 			+ " " + actionsText(target.get("actions")));
 	}
 
-	private String actionsText(Object actions)
-	{
-		if (actions instanceof String[])
-		{
-			return Arrays.toString((String[]) actions);
-		}
-		return actions == null ? "" : String.valueOf(actions);
-	}
 
-	private String normalize(String value)
-	{
-		return value == null ? "" : value.toLowerCase().replaceAll("[^a-z0-9]", "");
-	}
 
 	private String spellbookName(int spellbookVarbit, int spellbookId)
 	{
@@ -11860,17 +11810,6 @@ public class CvHelperModPlugin extends Plugin
 		});
 	}
 
-	private <T> T safeValue(java.util.function.Supplier<T> supplier, T fallback)
-	{
-		try
-		{
-			return supplier.get();
-		}
-		catch (RuntimeException e)
-		{
-			return fallback;
-		}
-	}
 
 	private Map<String, Object> pointValue(Object point)
 	{
