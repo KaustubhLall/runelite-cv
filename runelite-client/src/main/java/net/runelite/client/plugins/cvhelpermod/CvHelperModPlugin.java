@@ -3692,7 +3692,7 @@ public class CvHelperModPlugin extends Plugin
 	{
 		Map<String, Object> status = new LinkedHashMap<>();
 		status.put("target", mobFarmerTarget);
-		status.put("targetCandidates", actionTargetCandidates(mobFarmerTarget));
+		status.put("targetCandidates", lastMobFarmerCandidates);
 		status.put("running", mobFarmerRunning.get());
 		status.put("live", mobFarmerLiveMode);
 		status.put("status", mobFarmerStatus.get());
