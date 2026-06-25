@@ -750,12 +750,14 @@ public class CvHelperModPlugin extends Plugin
 	protected void shutDown()
 	{
 		log.info("CV Helper stopping");
+		// Stop the HTTP server FIRST: its dispatcher thread is non-daemon, so if a later cleanup
+		// step throws, an un-stopped server keeps the whole JVM (java process) alive on close.
+		stopServer();
+		chatResponderService.stop();
 		stopMobFarmer();
 		KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(cvHotkeyDispatcher);
 		preDispatcherPressedKeys.clear();
 		unregisterHotkeys();
-		chatResponderService.stop();
-		stopServer();
 		overlayManager.remove(overlay);
 		if (navButton != null)
 		{
@@ -9722,6 +9724,13 @@ public class CvHelperModPlugin extends Plugin
 			server.createContext("/capture/latest/client-frame", exchange -> handleLatestCaptureImageRequest(exchange, "client-frame"));
 			server.createContext("/capture/latest/screen", exchange -> handleLatestCaptureImageRequest(exchange, "screen"));
 			server.createContext("/capture/latest/minimap", exchange -> handleLatestCaptureImageRequest(exchange, "minimap"));
+			// Daemon handler threads so in-flight requests can never keep the JVM alive on close.
+			server.setExecutor(java.util.concurrent.Executors.newCachedThreadPool(r ->
+			{
+				Thread t = new Thread(r, "cvhelper-http");
+				t.setDaemon(true);
+				return t;
+			}));
 			server.start();
 			int port = server.getAddress().getPort();
 			lastEvent.set("server@" + port);
