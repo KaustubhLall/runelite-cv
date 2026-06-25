@@ -6700,9 +6700,19 @@ public class CvHelperPlugin extends Plugin
 		{
 			return null;
 		}
+		// The component op id must come from the widget's full 10-slot action array
+		// (target.actions, i.e. Widget#getActions()), where actions[k] is shown at op (k+1).
+		// The composition-derived 5-slot inventoryActions array (used for the "actions"
+		// param / diagnostics) does NOT line up with op ids 1:1 across items - e.g. for
+		// Bones, inventoryActions=["Bury",null,null,null,"Drop"] but the real widget
+		// actions array is [null,"Bury",null,null,null,null,"Drop",null,null,"Examine"],
+		// so Bury is really op 2, not the i+3=3 the old offset heuristic guessed (verified
+		// live: manual Bury logged identifier=2). Drop happened to still work under the old
+		// heuristic by coincidence (its widget-array index is also 6 -> op 7 = i+3 with i=4).
+		String[] widgetActions = rawWidgetActions(target);
 		for (String preferred : preferredActions)
 		{
-			InventoryMenuAction menu = inventoryMenuActionForOption(actions, preferred, param0, widgetId, itemId);
+			InventoryMenuAction menu = inventoryMenuActionForOption(widgetActions, preferred, param0, widgetId, itemId);
 			if (menu != null)
 			{
 				return menu;
@@ -6711,23 +6721,40 @@ public class CvHelperPlugin extends Plugin
 		return null;
 	}
 
-	private InventoryMenuAction inventoryMenuActionForOption(String[] actions, String preferred, int param0, int widgetId, int itemId)
+	private String[] rawWidgetActions(Map<String, Object> target)
 	{
-		if (actions == null || preferred == null)
+		Object actions = target.get("actions");
+		if (actions instanceof String[])
+		{
+			return (String[]) actions;
+		}
+		if (actions instanceof List)
+		{
+			List<?> actionList = (List<?>) actions;
+			String[] out = new String[actionList.size()];
+			for (int i = 0; i < actionList.size(); i++)
+			{
+				out[i] = actionList.get(i) == null ? null : String.valueOf(actionList.get(i));
+			}
+			return out;
+		}
+		return new String[0];
+	}
+
+	private InventoryMenuAction inventoryMenuActionForOption(String[] widgetActions, String preferred, int param0, int widgetId, int itemId)
+	{
+		if (widgetActions == null || preferred == null)
 		{
 			return null;
 		}
-		for (int i = 0; i < actions.length; i++)
+		for (int i = 0; i < widgetActions.length; i++)
 		{
-			String action = actions[i];
+			String action = widgetActions[i];
 			if (action == null || !action.equalsIgnoreCase(preferred))
 			{
 				continue;
 			}
-			// Component ops in the inventory widget are offset by 3:
-			// op1=Use, op2=Use(menu), op3=action[0], op4=action[1], ... op7=action[4](Drop)
-			// Empirically confirmed: manual Drop on index 4 logs id=7 = i+3
-			int opId = i + 3;
+			int opId = i + 1;
 			MenuAction menuAction = opId >= 6 ? MenuAction.CC_OP_LOW_PRIORITY : MenuAction.CC_OP;
 			return new InventoryMenuAction(i, opId, param0, widgetId, menuAction, opId, itemId, action);
 		}
