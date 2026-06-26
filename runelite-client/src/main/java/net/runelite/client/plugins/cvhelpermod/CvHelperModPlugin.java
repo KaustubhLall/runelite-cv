@@ -7893,6 +7893,15 @@ public class CvHelperModPlugin extends Plugin
 		boolean activelyChopping = woodcutting && isActivelyChopping();
 		boolean activelyMining = mining && isActivelyMining();
 		boolean rockDepleted = mining && lastSelectedMiningTarget != null && miningTargetDepleted(lastSelectedMiningTarget);
+		if (rockDepleted)
+		{
+			// Catches depletion by ANYONE the instant the object's identity changes at
+			// the tile -- not just our own mining. Without this, a rock someone else
+			// empties keeps being treated as our live target (and, after the round-robin
+			// fix, even preferred via tie-break continuity) until we happen to land an
+			// unrelated XP drop on a different rock and the mismatch self-corrects.
+			markMiningTargetCompleted("object-depleted");
+		}
 		boolean notActivelyGathering = (woodcutting && !activelyChopping) || (mining && !activelyMining);
 
 		boolean dropPolicyEnabled = config.dropPolicyEnabled();
@@ -8030,8 +8039,10 @@ public class CvHelperModPlugin extends Plugin
 		Map<String, Object> previousWoodcuttingTarget = lastSelectedWoodcuttingTarget;
 		boolean selectedMatchesLast = isWoodcutting && previousWoodcuttingTarget != null
 			&& selectedMatchesLastTarget(selected, previousWoodcuttingTarget);
-		boolean miningTargetDepleted = isMining && lastSelectedMiningTarget != null
-			&& miningTargetDepleted(lastSelectedMiningTarget);
+		// rockDepleted was computed up front (before markMiningTargetCompleted nulled
+		// lastSelectedMiningTarget), so it still reflects whether THIS tick is the one
+		// where the previous rock turned out to be gone -- recomputing here would
+		// always read false since the field has already been cleared by now.
 		String woodcuttingInvalidReason = isWoodcutting && previousWoodcuttingTarget != null
 			? woodcuttingTargetValidityReason(skill, target, action, previousWoodcuttingTarget)
 			: null;
@@ -8041,7 +8052,7 @@ public class CvHelperModPlugin extends Plugin
 		}
 		boolean shouldStickToLast = isWoodcutting && config.woodcuttingStickToTarget()
 			&& activelyChopping && lastSelectedWoodcuttingTarget != null;
-		if (shouldStickToLast && !miningTargetDepleted)
+		if (shouldStickToLast && !rockDepleted)
 		{
 			selected = lastSelectedWoodcuttingTarget;
 			selection.put("selected", selected);
@@ -8050,7 +8061,7 @@ public class CvHelperModPlugin extends Plugin
 		}
 		selection.put("activelyChopping", activelyChopping);
 		selection.put("currentAction", live ? (activelyChopping ? "chopping" : "interacting") : "dry-selected");
-		if (miningTargetDepleted)
+		if (rockDepleted)
 		{
 			selection.put("rockDepleted", true);
 			selection.put("decision", "rock-depleted-switching");
@@ -8068,7 +8079,7 @@ public class CvHelperModPlugin extends Plugin
 			return;
 		}
 		boolean shouldReclick = !isWoodcutting || !activelyChopping || config.woodcuttingReclickWhenActivelyChopping();
-		boolean shouldSkip = isWoodcutting && activelyChopping && !config.woodcuttingReclickWhenActivelyChopping() && selectedMatchesLast && !miningTargetDepleted;
+		boolean shouldSkip = isWoodcutting && activelyChopping && !config.woodcuttingReclickWhenActivelyChopping() && selectedMatchesLast && !rockDepleted;
 		if (shouldSkip)
 		{
 			return;

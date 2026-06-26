@@ -489,6 +489,13 @@ function wire() {
 		const sv = e.target.closest("[data-preset-save]"); if (sv) { savePresetFlow(sv.dataset.presetSave); return; }
 		const dl = e.target.closest("[data-preset-del]"); if (dl) deletePresetFlow(dl.dataset.presetDel);
 	});
+	// selecting a preset applies it immediately -- the checkmark button next to each
+	// dropdown remains as an explicit re-apply, but requiring that extra click before
+	// anything happens is not how a preset picker is expected to behave.
+	["mob-preset", "mining-preset", "woodcutting-preset"].forEach((id) => {
+		const sel = $(`#${id}`);
+		if (sel) sel.addEventListener("change", () => applyPreset(id.replace("-preset", "")));
+	});
 
 	// path-grid zoom
 	document.addEventListener("click", (e) => {
