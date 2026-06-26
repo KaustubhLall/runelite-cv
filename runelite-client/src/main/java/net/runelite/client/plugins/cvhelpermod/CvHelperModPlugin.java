@@ -97,6 +97,7 @@ import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.MenuEntryAdded;
 import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.gameval.InterfaceID;
@@ -222,6 +223,21 @@ public class CvHelperModPlugin extends Plugin
 		11965,
 		11966,
 		11967
+	};
+	protected static final int[] MINING_ANIMATION_IDS = {
+		625,
+		626,
+		627,
+		628,
+		629,
+		630,
+		631,
+		643,
+		7139,
+		7284,
+		8313,
+		8346,
+		8347
 	};
 	protected static final String GROUND_ITEMS_CONFIG_GROUP = "grounditems";
 	protected static final String GROUND_ITEMS_HIGHLIGHTED_ITEMS = "highlightedItems";
@@ -399,8 +415,19 @@ public class CvHelperModPlugin extends Plugin
 	protected volatile int woodcuttingFarmerMaxCandidates = SKILL_FARMER_MAX_CANDIDATES;
 	protected volatile Map<String, Object> lastMiningFarmerStatus = new LinkedHashMap<>();
 	protected volatile Map<String, Object> lastWoodcuttingFarmerStatus = new LinkedHashMap<>();
+	protected volatile Map<String, Object> lastSelectedMiningTarget = null;
 	protected volatile Map<String, Object> lastSelectedWoodcuttingTarget = null;
 	protected volatile long lastWoodcuttingTargetClickTime = 0L;
+	protected volatile long lastMiningTargetClickTime = 0L;
+	// XP-drop based mining completion + short-lived depleted-tile blacklist
+	protected volatile int lastMiningXp = -1;
+	protected volatile Map<String, Object> lastCompletedMiningTarget = null;
+	protected volatile String miningCompletionReason = null;
+	protected volatile int lastMiningInvalidationTick = -1;
+	// key "x,y,plane" -> game tick until which the tile is skipped after a successful mine
+	protected final Map<String, Integer> miningDepletedTileUntilTick = new java.util.concurrent.ConcurrentHashMap<>();
+	// number of ticks a just-mined tile stays on the cooldown blacklist
+	protected static final int MINING_DEPLETED_TILE_COOLDOWN_TICKS = 3;
 	protected final Map<String, Integer> lastMobFarmerActionTickByKey = new LinkedHashMap<>();
 	protected final Map<String, Integer> mobFarmerLootSkipUntilTickByKey = new LinkedHashMap<>();
 	protected volatile boolean antiIdleActive;
@@ -1055,6 +1082,93 @@ public class CvHelperModPlugin extends Plugin
 	public void onChatMessage(ChatMessage event)
 	{
 		chatResponderService.onChatMessage(event);
+	}
+
+	/**
+	 * A Mining XP gain is the most immediate, reliable signal that the active rock
+	 * was successfully mined. When it fires we treat the current target as completed,
+	 * blacklist its tile for a few ticks so the very next scan does not re-pick the
+	 * (now depleting/depleted) rock, and clear the selection so the next step rescans
+	 * for the next best reachable candidate.
+	 */
+	@Subscribe
+	public void onStatChanged(StatChanged event)
+	{
+		if (event.getSkill() != Skill.MINING)
+		{
+			return;
+		}
+		int xp = event.getXp();
+		int previous = lastMiningXp;
+		lastMiningXp = xp;
+		if (previous < 0 || xp <= previous)
+		{
+			return;
+		}
+		if (!miningFarmerRunning.get() || lastSelectedMiningTarget == null)
+		{
+			return;
+		}
+		markMiningTargetCompleted("xp-drop");
+	}
+
+	private String tileKey(Map<String, Object> world)
+	{
+		if (world == null)
+		{
+			return null;
+		}
+		int x = intValue(world.get("x"), Integer.MIN_VALUE);
+		int y = intValue(world.get("y"), Integer.MIN_VALUE);
+		int plane = intValue(world.get("plane"), 0);
+		if (x == Integer.MIN_VALUE || y == Integer.MIN_VALUE)
+		{
+			return null;
+		}
+		return x + "," + y + "," + plane;
+	}
+
+	/**
+	 * Record the active mining target as completed and put its tile on a short
+	 * cooldown blacklist so it is skipped during candidate selection for a few ticks.
+	 */
+	private void markMiningTargetCompleted(String reason)
+	{
+		Map<String, Object> target = lastSelectedMiningTarget;
+		if (target == null)
+		{
+			return;
+		}
+		String key = tileKey(mapValue(target.get("worldLocation")));
+		if (key != null)
+		{
+			miningDepletedTileUntilTick.put(key, client.getTickCount() + MINING_DEPLETED_TILE_COOLDOWN_TICKS);
+		}
+		lastCompletedMiningTarget = target;
+		miningCompletionReason = reason;
+		lastMiningInvalidationTick = client.getTickCount();
+		lastSelectedMiningTarget = null;
+	}
+
+	/** True while a tile is still on the post-mine cooldown blacklist. */
+	private boolean isMiningTileOnCooldown(Map<String, Object> world)
+	{
+		String key = tileKey(world);
+		if (key == null)
+		{
+			return false;
+		}
+		Integer until = miningDepletedTileUntilTick.get(key);
+		if (until == null)
+		{
+			return false;
+		}
+		if (client.getTickCount() >= until)
+		{
+			miningDepletedTileUntilTick.remove(key);
+			return false;
+		}
+		return true;
 	}
 
 	@Subscribe
@@ -3935,7 +4049,51 @@ public class CvHelperModPlugin extends Plugin
 		status.put("inventory", lastMobFarmerInventoryStatus);
 		status.put("candidates", lastMobFarmerCandidates);
 		status.put("lootCandidates", lastMobFarmerLootCandidates);
+		status.put("pathing", safeValue(this::computeMobFarmerPathing, new LinkedHashMap<>()));
 		return status;
+	}
+
+	/**
+	 * Door-aware route + door states from the player to the currently-best
+	 * selectable candidate, for the WebHelper reachability grid. Runs on the
+	 * client thread (getMobFarmerStatus is invoked there).
+	 */
+	private Map<String, Object> computeMobFarmerPathing()
+	{
+		Player localPlayer = client.getLocalPlayer();
+		if (localPlayer == null || localPlayer.getWorldLocation() == null)
+		{
+			return new LinkedHashMap<>();
+		}
+		Map<String, Object> best = null;
+		int bestScore = Integer.MAX_VALUE;
+		for (Map<String, Object> candidate : lastMobFarmerCandidates)
+		{
+			if (!Boolean.TRUE.equals(candidate.get("selectable")))
+			{
+				continue;
+			}
+			int score = intValue(candidate.get("score"), intValue(candidate.get("pathDistance"), intValue(candidate.get("distance"), Integer.MAX_VALUE)));
+			if (best == null || score < bestScore)
+			{
+				best = candidate;
+				bestScore = score;
+			}
+		}
+		if (best == null || !(best.get("worldLocation") instanceof Map))
+		{
+			return new LinkedHashMap<>();
+		}
+		Map<?, ?> worldLocation = (Map<?, ?>) best.get("worldLocation");
+		int x = intValue(worldLocation.get("x"), Integer.MIN_VALUE);
+		int y = intValue(worldLocation.get("y"), Integer.MIN_VALUE);
+		if (x == Integer.MIN_VALUE || y == Integer.MIN_VALUE)
+		{
+			return new LinkedHashMap<>();
+		}
+		int plane = intValue(worldLocation.get("plane"), localPlayer.getWorldLocation().getPlane());
+		WorldPoint target = new WorldPoint(x, y, plane);
+		return pathfinding.mobFarmerPathingDetail(localPlayer, target, getMobFarmerMaxDistance());
 	}
 
 	private Map<String, Object> mobFarmerAutorunStatus()
@@ -7291,7 +7449,7 @@ public class CvHelperModPlugin extends Plugin
 		settings.put("dropPolicyEnabled", config.dropPolicyEnabled());
 		settings.put("dropPolicyMode", config.dropPolicyMode().name());
 		settings.put("dropPolicyThresholdSlots", config.dropPolicyThresholdSlots());
-		settings.put("dropPolicyItems", config.dropPolicyItems());
+		settings.put("dropPolicyItems", mining ? config.miningDropItems() : config.dropPolicyItems());
 		settings.put("dropPolicyProtectedItems", config.dropPolicyProtectedItems());
 		settings.put("dropPolicyMaxValue", config.dropPolicyMaxValue());
 		settings.put("woodcuttingStickToTarget", config.woodcuttingStickToTarget());
@@ -7309,7 +7467,7 @@ public class CvHelperModPlugin extends Plugin
 		schema.add(settingSchema("dropPolicyEnabled", "Drop policy enabled", "boolean", "Enable the conditional drop policy for skill farmers. When disabled, farmers use their legacy inventory handling.", null));
 		schema.add(settingSchema("dropPolicyMode", "Drop mode", "select", "When to drop items: NEVER disables dropping; WHEN_FULL drops only when inventory is full; WHEN_IDLE drops when not actively chopping (batch drop while moving between trees); AFTER_TARGET drops after each target cycle completes; AFTER_GATHER drops after each successful gather action; CLEANUP_ONLY drops only during explicit cleanup phases; MANUAL_ONLY requires manual invocation.", Arrays.asList("NEVER", "WHEN_FULL", "WHEN_IDLE", "AFTER_TARGET", "AFTER_GATHER", "CLEANUP_ONLY", "MANUAL_ONLY")));
 		schema.add(settingSchema("dropPolicyThresholdSlots", "Drop threshold slots", "number", "Minimum occupied inventory slots before dropping is considered. For WHEN_FULL mode, this is typically 28. For other modes, lower values allow earlier cleanup.", null));
-		schema.add(settingSchema("dropPolicyItems", "Droppable items", "textarea", "Items that are safe to drop when conditions are met. If empty, any non-protected item below max value is a candidate. Separated by |, comma, semicolon, or newlines.", null));
+		schema.add(settingSchema("dropPolicyItems", mining ? "Droppable items (mining)" : "Droppable items (woodcutting)", "textarea", "Items this farmer may drop when conditions are met. Mining and woodcutting keep SEPARATE lists. If empty, any non-protected item below max value is a candidate. Separated by |, comma, semicolon, or newlines.", null));
 		schema.add(settingSchema("dropPolicyProtectedItems", "Protected items", "textarea", "Items that must never be dropped. Tools, food, teleport items, runes, and valuable items should be listed here. Built-in safeguards always protect clue/rare unique items.", null));
 		schema.add(settingSchema("dropPolicyMaxValue", "Max drop value", "number", "Maximum GE value of an item that can be dropped automatically. Items above this value are protected even if not in the protected list.", null));
 
@@ -7405,7 +7563,7 @@ public class CvHelperModPlugin extends Plugin
 			: config.dropPolicyThresholdSlots();
 		String dropPolicyItems = settings.containsKey("dropPolicyItems")
 			? String.valueOf(settings.get("dropPolicyItems")).trim()
-			: config.dropPolicyItems();
+			: ("mining".equals(skill) ? config.miningDropItems() : config.dropPolicyItems());
 		String dropPolicyProtectedItems = settings.containsKey("dropPolicyProtectedItems")
 			? String.valueOf(settings.get("dropPolicyProtectedItems")).trim()
 			: config.dropPolicyProtectedItems();
@@ -7416,7 +7574,7 @@ public class CvHelperModPlugin extends Plugin
 		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.DROP_POLICY_ENABLED, dropPolicyEnabled);
 		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.DROP_POLICY_MODE, dropPolicyMode);
 		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.DROP_POLICY_THRESHOLD_SLOTS, dropPolicyThresholdSlots);
-		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.DROP_POLICY_ITEMS, dropPolicyItems);
+		configManager.setConfiguration(CvHelperModConfig.GROUP, "mining".equals(skill) ? CvHelperModConfig.MINING_DROP_ITEMS : CvHelperModConfig.DROP_POLICY_ITEMS, dropPolicyItems);
 		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.DROP_POLICY_PROTECTED_ITEMS, dropPolicyProtectedItems);
 		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.DROP_POLICY_MAX_VALUE, dropPolicyMaxValue);
 
@@ -7499,12 +7657,20 @@ public class CvHelperModPlugin extends Plugin
 
 	private int getSkillFarmerScanRadius(String skill)
 	{
-		return "mining".equals(skill) ? miningFarmerScanRadius : woodcuttingFarmerScanRadius;
+		if ("mining".equals(skill))
+		{
+			return config.miningScanRadius();
+		}
+		return woodcuttingFarmerScanRadius;
 	}
 
 	private int getSkillFarmerMaxCandidates(String skill)
 	{
-		return "mining".equals(skill) ? miningFarmerMaxCandidates : woodcuttingFarmerMaxCandidates;
+		if ("mining".equals(skill))
+		{
+			return config.miningMaxCandidates();
+		}
+		return woodcuttingFarmerMaxCandidates;
 	}
 
 	private void startSkillFarmer(String skill, boolean live)
@@ -7569,6 +7735,24 @@ public class CvHelperModPlugin extends Plugin
 		return false;
 	}
 
+	private boolean isActivelyMining()
+	{
+		Player localPlayer = client.getLocalPlayer();
+		if (localPlayer == null)
+		{
+			return false;
+		}
+		int animationId = localPlayer.getAnimation();
+		for (int id : MINING_ANIMATION_IDS)
+		{
+			if (animationId == id)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private boolean selectedMatchesLastTarget(Map<String, Object> selected, Map<String, Object> last)
 	{
 		if (selected == null || last == null)
@@ -7616,6 +7800,39 @@ public class CvHelperModPlugin extends Plugin
 		return false;
 	}
 
+	private boolean miningTargetDepleted(Map<String, Object> lastTarget)
+	{
+		if (lastTarget == null)
+		{
+			return false;
+		}
+		Map<String, Object> lastWorld = mapValue(lastTarget.get("worldLocation"));
+		int lastX = intValue(lastWorld.get("x"), Integer.MIN_VALUE);
+		int lastY = intValue(lastWorld.get("y"), Integer.MIN_VALUE);
+		int lastPlane = intValue(lastWorld.get("plane"), Integer.MIN_VALUE);
+		int lastId = intValue(lastTarget.get("id"), -1);
+		if (lastX == Integer.MIN_VALUE || lastY == Integer.MIN_VALUE || lastPlane == Integer.MIN_VALUE || lastId < 0)
+		{
+			return false;
+		}
+		// Check if the object at the same location now has a different ID (indicating depletion)
+		for (Map<String, Object> candidate : collectSkillFarmerObjects("mining", miningFarmerTarget, "Mine", client.getLocalPlayer()))
+		{
+			Map<String, Object> candidateWorld = mapValue(candidate.get("worldLocation"));
+			int candidateX = intValue(candidateWorld.get("x"), Integer.MIN_VALUE);
+			int candidateY = intValue(candidateWorld.get("y"), Integer.MIN_VALUE);
+			int candidatePlane = intValue(candidateWorld.get("plane"), Integer.MIN_VALUE);
+			int candidateId = intValue(candidate.get("id"), -1);
+			if (candidateX == lastX && candidateY == lastY && candidatePlane == lastPlane)
+			{
+				// Same location but different ID means the rock depleted
+				return candidateId != lastId;
+			}
+		}
+		// No object found at the location - also considered depleted
+		return true;
+	}
+
 	private void runSkillFarmerStep(String skill, boolean live, String source)
 	{
 		if (client.getGameState() != GameState.LOGGED_IN || client.getLocalPlayer() == null)
@@ -7629,12 +7846,16 @@ public class CvHelperModPlugin extends Plugin
 		Map<String, Object> inventory = inventoryPolicyStatus();
 		String target = "mining".equals(skill) ? miningFarmerTarget : woodcuttingFarmerTarget;
 		boolean woodcutting = "woodcutting".equals(skill);
+		boolean mining = "mining".equals(skill);
 		boolean activelyChopping = woodcutting && isActivelyChopping();
+		boolean activelyMining = mining && isActivelyMining();
+		boolean rockDepleted = mining && lastSelectedMiningTarget != null && miningTargetDepleted(lastSelectedMiningTarget);
+		boolean notActivelyGathering = (woodcutting && !activelyChopping) || (mining && !activelyMining);
 
 		boolean dropPolicyEnabled = config.dropPolicyEnabled();
 		CvHelperDropMode dropMode = config.dropPolicyMode();
 		int dropThreshold = config.dropPolicyThresholdSlots();
-		String dropItems = config.dropPolicyItems();
+		String dropItems = mining ? config.miningDropItems() : config.dropPolicyItems();
 		String dropProtected = config.dropPolicyProtectedItems();
 		int dropMaxValue = config.dropPolicyMaxValue();
 
@@ -7645,6 +7866,14 @@ public class CvHelperModPlugin extends Plugin
 		{
 			opportunity = InventoryDropService.DropOpportunity.NOT_CHOPPING;
 		}
+		else if (dropMode == CvHelperDropMode.WHEN_IDLE && mining && !activelyMining && aboveThreshold)
+		{
+			opportunity = InventoryDropService.DropOpportunity.NOT_MINING;
+		}
+		else if (dropMode == CvHelperDropMode.WHEN_IDLE && mining && rockDepleted && aboveThreshold)
+		{
+			opportunity = InventoryDropService.DropOpportunity.ROCK_DEPLETED;
+		}
 		else if (inventoryFull)
 		{
 			opportunity = InventoryDropService.DropOpportunity.INVENTORY_FULL;
@@ -7652,6 +7881,14 @@ public class CvHelperModPlugin extends Plugin
 		else if (woodcutting && !activelyChopping && aboveThreshold)
 		{
 			opportunity = InventoryDropService.DropOpportunity.NOT_CHOPPING;
+		}
+		else if (mining && !activelyMining && aboveThreshold)
+		{
+			opportunity = InventoryDropService.DropOpportunity.NOT_MINING;
+		}
+		else if (mining && rockDepleted && aboveThreshold)
+		{
+			opportunity = InventoryDropService.DropOpportunity.ROCK_DEPLETED;
 		}
 
 		InventoryDropService.DropPolicyStatus dropStatus = inventoryDropService.evaluateDropOpportunity(
@@ -7690,6 +7927,31 @@ public class CvHelperModPlugin extends Plugin
 
 		if (Boolean.TRUE.equals(inventory.get("full")))
 		{
+			// For mining, if we have any droppable items, try dropping before stopping
+			if (mining && !dropStatus.candidates.isEmpty())
+			{
+				InventoryDropService.DropCandidate candidate = dropStatus.candidates.get(0);
+				List<Integer> sameItemSlots = new ArrayList<>();
+				for (InventoryDropService.DropCandidate c : dropStatus.candidates)
+				{
+					if (c.itemId == candidate.itemId)
+					{
+						sameItemSlots.add(c.slot);
+					}
+				}
+				Map<String, Object> status = getSkillFarmerStatus(skill);
+				status.put("currentAction", "dropping");
+				status.put("lastFailureReason", null);
+				status.put("inventory", inventory);
+				status.put("dropPolicy", dropStatus.toMap());
+				status.put("dropTarget", candidate.toMap());
+				status.put("dropSlots", sameItemSlots.size());
+				status.put("droppableRemaining", dropStatus.candidates.size());
+				status.put("dropReason", "inventory-full-forced-drop");
+				setSkillFarmerStatus(skill, status);
+				dropInventorySlots(sameItemSlots, candidate.itemId);
+				return;
+			}
 			Map<String, Object> status = getSkillFarmerStatus(skill);
 			status.put("currentAction", "inventory-full");
 			status.put("lastFailureReason", dropStatus.lastFailureReason != null ? dropStatus.lastFailureReason : "inventory-full-no-safe-drops");
@@ -7721,12 +7983,15 @@ public class CvHelperModPlugin extends Plugin
 			setSkillFarmerStatus(skill, selection);
 			return;
 		}
+		boolean isMining = "mining".equals(skill);
 		boolean selectedMatchesLast = isWoodcutting && lastSelectedWoodcuttingTarget != null
 			&& selectedMatchesLastTarget(selected, lastSelectedWoodcuttingTarget);
+		boolean miningTargetDepleted = isMining && lastSelectedMiningTarget != null
+			&& miningTargetDepleted(lastSelectedMiningTarget);
 		boolean shouldStickToLast = isWoodcutting && config.woodcuttingStickToTarget()
 			&& activelyChopping && lastSelectedWoodcuttingTarget != null
 			&& lastSelectedWoodcuttingTargetStillValid(skill, target, action);
-		if (shouldStickToLast)
+		if (shouldStickToLast && !miningTargetDepleted)
 		{
 			selected = lastSelectedWoodcuttingTarget;
 			selection.put("selected", selected);
@@ -7735,14 +8000,20 @@ public class CvHelperModPlugin extends Plugin
 		}
 		selection.put("activelyChopping", activelyChopping);
 		selection.put("currentAction", live ? (activelyChopping ? "chopping" : "interacting") : "dry-selected");
+		if (miningTargetDepleted)
+		{
+			selection.put("rockDepleted", true);
+			selection.put("decision", "rock-depleted-switching");
+		}
 		setSkillFarmerStatus(skill, selection);
 		if (!live)
 		{
-			lastSelectedWoodcuttingTarget = selected;
+			if (isWoodcutting) lastSelectedWoodcuttingTarget = selected;
+			if (isMining) lastSelectedMiningTarget = selected;
 			return;
 		}
 		boolean shouldReclick = !isWoodcutting || !activelyChopping || config.woodcuttingReclickWhenActivelyChopping();
-		boolean shouldSkip = isWoodcutting && activelyChopping && !config.woodcuttingReclickWhenActivelyChopping() && selectedMatchesLast;
+		boolean shouldSkip = isWoodcutting && activelyChopping && !config.woodcuttingReclickWhenActivelyChopping() && selectedMatchesLast && !miningTargetDepleted;
 		if (shouldSkip)
 		{
 			return;
@@ -7752,6 +8023,11 @@ public class CvHelperModPlugin extends Plugin
 		{
 			lastSelectedWoodcuttingTarget = selected;
 			lastWoodcuttingTargetClickTime = System.currentTimeMillis();
+		}
+		if (isMining)
+		{
+			lastSelectedMiningTarget = selected;
+			lastMiningTargetClickTime = System.currentTimeMillis();
 		}
 	}
 
@@ -7770,10 +8046,27 @@ public class CvHelperModPlugin extends Plugin
 		int noRoute = 0;
 		int collisionBlocked = 0;
 		int sceneBlocked = 0;
+		boolean mining = "mining".equals(skill);
+		List<String> rejectedStaleTiles = new ArrayList<>();
 		for (Map<String, Object> candidate : collectSkillFarmerObjects(skill, targetText, action, localPlayer))
 		{
 			totalCandidates++;
 			candidates.add(candidate);
+			// Skip tiles that were just mined (XP-drop / depletion cooldown) so we don't
+			// immediately re-pick a rock that is depleting and won't yield this tick.
+			if (mining && isMiningTileOnCooldown(mapValue(candidate.get("worldLocation"))))
+			{
+				candidate.put("selectable", false);
+				List<String> r = listValue(candidate.get("reasons"));
+				r.add("depleted-cooldown");
+				candidate.put("reasons", r);
+				String tk = tileKey(mapValue(candidate.get("worldLocation")));
+				if (tk != null)
+				{
+					rejectedStaleTiles.add(tk);
+				}
+				continue;
+			}
 			boolean targetMatched = Boolean.TRUE.equals(candidate.get("targetMatched"));
 			boolean actionMatched = Boolean.TRUE.equals(candidate.get("actionMatched"));
 			boolean visible = Boolean.TRUE.equals(candidate.get("visible"));
@@ -7841,7 +8134,16 @@ public class CvHelperModPlugin extends Plugin
 		summary.put("noRoute", noRoute);
 		summary.put("collisionBlocked", collisionBlocked);
 		summary.put("sceneBlocked", sceneBlocked);
+		summary.put("staleRejected", rejectedStaleTiles.size());
 		out.put("candidateSummary", summary);
+		out.put("rejectedStaleTiles", rejectedStaleTiles);
+		if (mining)
+		{
+			out.put("lastCompletedTarget", lastCompletedMiningTarget == null ? null : targetLabelForMessage(lastCompletedMiningTarget));
+			out.put("completionReason", miningCompletionReason);
+			out.put("lastInvalidationTick", lastMiningInvalidationTick);
+			out.put("currentTick", client.getTickCount());
+		}
 		return out;
 	}
 

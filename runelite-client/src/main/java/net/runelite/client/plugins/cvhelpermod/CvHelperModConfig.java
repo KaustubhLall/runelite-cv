@@ -27,6 +27,7 @@ public interface CvHelperModConfig extends Config
 	String GROUP = "cvhelper";
 	String ACTION_SECTION = "actionSection";
 	String MOB_FARMER_SECTION = "mobFarmerSection";
+	String MINER_SECTION = "minerSection";
 	String WOODCUTTER_SECTION = "woodcutterSection";
 	String CHAT_RESPONDER_SECTION = "chatResponderSection";
 	String CHAT_RESPONDER_ENABLED = "chatResponderEnabled";
@@ -181,6 +182,9 @@ public interface CvHelperModConfig extends Config
 	String DROP_POLICY_MAX_VALUE = "dropPolicyMaxValue";
 	String WOODCUTTING_STICK_TO_TARGET = "woodcuttingStickToTarget";
 	String WOODCUTTING_RECLICK_WHEN_ACTIVE = "woodcuttingReclickWhenActivelyChopping";
+	String MINING_SCAN_RADIUS = "miningScanRadius";
+	String MINING_MAX_CANDIDATES = "miningMaxCandidates";
+	String MINING_DROP_ITEMS = "miningDropItems";
 
 	@ConfigSection(
 		name = "Action hotkeys",
@@ -195,6 +199,13 @@ public interface CvHelperModConfig extends Config
 		position = 110
 	)
 	String mobFarmerSection = MOB_FARMER_SECTION;
+
+	@ConfigSection(
+		name = "Miner",
+		description = "Mining automation and inventory management options.",
+		position = 112
+	)
+	String minerSection = MINER_SECTION;
 
 	@ConfigSection(
 		name = "Woodcutter",
@@ -1281,6 +1292,47 @@ public interface CvHelperModConfig extends Config
 	default boolean woodcuttingReclickWhenActivelyChopping()
 	{
 		return false;
+	}
+
+	@ConfigItem(
+		keyName = MINING_SCAN_RADIUS,
+		name = "Mining scan radius (tiles)",
+		description = "Maximum distance in tiles to search for mining rocks. Set to a smaller value (e.g., 3-5) to stay within a rock clump and avoid running to distant rocks during respawn delays.",
+		section = minerSection
+	)
+	@Range(
+		min = 1,
+		max = 20
+	)
+	default int miningScanRadius()
+	{
+		return 5;
+	}
+
+	@ConfigItem(
+		keyName = MINING_MAX_CANDIDATES,
+		name = "Mining max candidates",
+		description = "Maximum number of mining rock candidates to evaluate and display. Higher values may impact performance.",
+		section = minerSection
+	)
+	@Range(
+		min = 1,
+		max = 50
+	)
+	default int miningMaxCandidates()
+	{
+		return 10;
+	}
+
+	@ConfigItem(
+		keyName = MINING_DROP_ITEMS,
+		name = "Mining droppable items",
+		description = "Items the mining farmer may drop when conditions are met (separate from woodcutting's list). If empty, any non-protected item below max value is a candidate. Separated by |, comma, semicolon, or newlines.",
+		section = minerSection
+	)
+	default String miningDropItems()
+	{
+		return "ore|coal|clay|essence|sandstone|granite|pay-dirt";
 	}
 
 	@ConfigItem(

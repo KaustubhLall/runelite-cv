@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>CV Helper — WebHelper Console v3</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+	<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+	<link rel="stylesheet" href="./css/tokens.css" />
+	<link rel="stylesheet" href="./css/base.css" />
+	<link rel="stylesheet" href="./css/shell.css" />
+	<link rel="stylesheet" href="./css/components.css" />
+	<link rel="stylesheet" href="./css/mob-farmer.css" />
+	<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+	<div class="app">
+		<!-- ============================== RAIL ============================= -->
+		<aside class="rail">
+			<div class="brand">
+				<span class="crest" data-emblem="compass"></span>
+				<div class="brand-text">
+					<span class="title">CV Helper</span>
+					<span class="sub">WebHelper</span>
+				</div>
+			</div>
+
+			<nav class="nav">
+				<button class="nav-item" data-view="dashboard"><i data-lucide="home"></i> Dashboard</button>
+				<div class="nav-group-label">Farmers</div>
+				<button class="nav-item active" data-view="mob-farmer"><span data-emblem="skull"></span> Mob Farmer</button>
+				<button class="nav-item" data-view="mining"><span data-emblem="pickaxe"></span> Mining Farmer</button>
+				<button class="nav-item" data-view="woodcutting"><span data-emblem="trees"></span> Woodcutting Farmer</button>
+				<div class="nav-group-label">Tools</div>
+				<button class="nav-item" data-view="inventory"><i data-lucide="backpack"></i> Inventory</button>
+				<button class="nav-item" data-view="actions"><i data-lucide="swords"></i> Actions</button>
+				<button class="nav-item" data-view="configuration"><i data-lucide="settings"></i> Configuration</button>
+				<button class="nav-item" data-view="debug"><i data-lucide="bug"></i> Debug</button>
+				<button class="nav-item" data-view="raw"><i data-lucide="scroll-text"></i> Raw Data</button>
+			</nav>
+
+			<div class="macros">
+				<h4>Macros</h4>
+				<div id="macro-panel"><div class="macro-none">Waiting…</div></div>
+			</div>
+
+			<div class="dock">
+				<h4>Connection</h4>
+				<div class="dock-row"><span class="k">Status</span><span class="v"><span class="dot bad" id="dock-conn-dot"></span> <span id="dock-status">Idle</span></span></div>
+				<div class="dock-row"><span class="k">Uptime</span><span class="v" id="dock-uptime">—</span></div>
+				<div class="dock-row"><span class="k">Version</span><span class="v" id="dock-version">—</span></div>
+				<form class="dock-form" id="dock-form">
+					<input class="input" id="dock-port" inputmode="numeric" placeholder="11777" />
+					<button class="btn gold sm" type="submit">Connect</button>
+				</form>
+				<button class="btn bad sm" id="dock-disconnect" type="button" style="width:100%;justify-content:center;margin-top:8px"><i data-lucide="power"></i> Disconnect</button>
+			</div>
+		</aside>
+
+		<!-- ============================== MAIN ============================= -->
+		<div class="main">
+			<header class="topbar">
+				<span class="stat"><span class="dot bad" id="tb-dot"></span> Connected to <b id="tb-conn">—</b></span>
+				<span class="stat"><i data-lucide="globe"></i> World <b id="tb-world">—</b></span>
+				<span class="stat"><i data-lucide="gamepad-2"></i> <b id="tb-state">—</b></span>
+				<span class="stat"><i data-lucide="user"></i> <b id="tb-player">—</b></span>
+				<span class="spacer"></span>
+				<div class="actions">
+					<button class="btn sm" id="btn-refresh"><i data-lucide="refresh-cw"></i> Refresh</button>
+					<button class="btn sm" data-capture="/capture"><i data-lucide="frame"></i> Frame</button>
+					<button class="btn sm" data-capture="/capture/screen"><i data-lucide="monitor"></i> Screen</button>
+					<button class="btn sm" data-capture="/capture/minimap"><i data-lucide="map"></i> Minimap</button>
+					<button class="btn sm" id="btn-login"><i data-lucide="log-in"></i> Click login</button>
+					<select class="select sm" id="refresh-rate" title="Refresh rate">
+						<option value="500">0.5s</option>
+						<option value="1000">1s</option>
+						<option value="2000">2s</option>
+					</select>
+					<label class="check"><input type="checkbox" id="auto-refresh" checked /> Auto</label>
+				</div>
+			</header>
+
+			<main class="page">
+				<!-- ----------------------- DASHBOARD ---------------------- -->
+				<section class="view" data-view="dashboard" hidden>
+					<div id="dashboard-page"><p class="scaffold-note">Waiting for /status…</p></div>
+				</section>
+
+				<!-- ----------------------- MOB FARMER --------------------- -->
+				<section class="view" data-view="mob-farmer">
+					<div class="page-head">
+						<span class="emblem" data-emblem="skull"></span>
+						<div class="ph-titles">
+							<h1>Mob Farmer</h1>
+							<div class="ph-sub">Automated combat &amp; loot management</div>
+						</div>
+						<span id="mf-badge"></span>
+						<div class="ph-actions">
+							<button class="btn good" data-mf-action="start"><i data-lucide="play"></i> Start</button>
+							<button class="btn bad" data-mf-action="stop"><i data-lucide="square"></i> Stop</button>
+							<button class="btn" data-mf-action="step"><i data-lucide="skip-forward"></i> Step</button>
+							<button class="btn gold" data-mf-action="focus"><i data-lucide="crosshair"></i> Focus</button>
+						</div>
+					</div>
+
+					<div class="deck">
+						<div class="tabs">
+							<button class="tab active" data-tab="overview">Overview</button>
+							<button class="tab" data-tab="configuration">Configuration</button>
+							<button class="tab" data-tab="inventory-policy">Inventory Policy</button>
+							<button class="tab" data-tab="targeting">Targeting</button>
+							<button class="tab" data-tab="mf-debug">Debug</button>
+						</div>
+						<span class="spacer"></span>
+						<label class="ctrl"><span>Target (mob/npc)</span><input class="input" id="mf-target" value="cow" /></label>
+						<label class="ctrl"><span>Preset</span><span class="preset-ctl"><select class="select sm" id="mob-preset"></select><button class="btn sm icon" data-preset-save="mob" title="Save current target as preset"><i data-lucide="bookmark-plus"></i></button><button class="btn sm icon" data-preset-del="mob" title="Delete saved preset"><i data-lucide="trash-2"></i></button></span></label>
+						<label class="ctrl"><span>Mode</span>
+							<select class="select" id="mf-mode">
+								<option value="false">Dry</option>
+								<option value="true">Live</option>
+							</select>
+						</label>
+						<label class="ctrl"><span>Loop (ms)</span><input class="input" id="mf-loop" value="1200" readonly /></label>
+						<label class="ctrl"><span>Max dist</span><input class="input" id="mf-maxdist" value="20" readonly /></label>
+					</div>
+
+					<div class="tabpane" data-tab="overview">
+						<div id="mf-overview"><p class="scaffold-note">Connecting…</p></div>
+					</div>
+					<div class="tabpane" data-tab="configuration" hidden>
+						<div class="config-bar"><span class="gilt-label">Full Configuration</span><span id="cfg-state-configuration"></span><span class="spacer"></span><button class="btn" data-cfg-reset="configuration"><i data-lucide="rotate-ccw"></i> Reset</button><button class="btn gold" data-cfg-apply="configuration"><i data-lucide="save"></i> Apply</button></div>
+						<div id="cfg-pane-configuration"></div>
+					</div>
+					<div class="tabpane" data-tab="inventory-policy" hidden>
+						<div class="config-bar"><span class="gilt-label">Loot · Intermediate · High Alch</span><span id="cfg-state-inventory-policy"></span><span class="spacer"></span><button class="btn" data-cfg-reset="inventory-policy"><i data-lucide="rotate-ccw"></i> Reset</button><button class="btn gold" data-cfg-apply="inventory-policy"><i data-lucide="save"></i> Apply</button></div>
+						<div id="cfg-pane-inventory-policy"></div>
+					</div>
+					<div class="tabpane" data-tab="targeting" hidden>
+						<div class="config-bar"><span class="gilt-label">Target Selection &amp; Engagement</span><span id="cfg-state-targeting"></span><span class="spacer"></span><button class="btn" data-cfg-reset="targeting"><i data-lucide="rotate-ccw"></i> Reset</button><button class="btn gold" data-cfg-apply="targeting"><i data-lucide="save"></i> Apply</button></div>
+						<div id="cfg-pane-targeting"></div>
+					</div>
+					<div class="tabpane" data-tab="mf-debug" hidden>
+						<div id="cfg-pane-mf-debug"></div>
+					</div>
+				</section>
+
+				<!-- ----------------------- MINING ------------------------- -->
+				<section class="view" data-view="mining" hidden>
+					<div class="page-head">
+						<span class="emblem" data-emblem="pickaxe"></span>
+						<div class="ph-titles"><h1>Mining Farmer</h1><div class="ph-sub">Automated ore extraction &amp; banking</div></div>
+						<span id="mining-badge"></span>
+						<div class="ph-actions">
+							<button class="btn good" data-skill="mining" data-skill-action="start"><i data-lucide="play"></i> Start</button>
+							<button class="btn bad" data-skill="mining" data-skill-action="stop"><i data-lucide="square"></i> Stop</button>
+							<button class="btn" data-skill="mining" data-skill-action="step"><i data-lucide="skip-forward"></i> Step</button>
+						</div>
+					</div>
+					<div class="deck">
+						<div class="tabs" data-skill-tabs="mining">
+							<button class="tab active" data-skill-tab="overview" data-skill="mining">Overview</button>
+							<button class="tab" data-skill-tab="config" data-skill="mining">Configuration</button>
+							<button class="tab" data-skill-tab="debug" data-skill="mining">Debug</button>
+						</div>
+						<span class="spacer"></span>
+						<label class="ctrl"><span>Target (rocks/ore)</span><input class="input" id="mining-target" value="iron rocks" /></label>
+						<label class="ctrl"><span>Preset</span><span class="preset-ctl"><select class="select sm" id="mining-preset"></select><button class="btn sm icon" data-preset-apply="mining" title="Apply selected preset"><i data-lucide="check"></i></button><button class="btn sm icon" data-preset-save="mining" title="Save current target as preset"><i data-lucide="bookmark-plus"></i></button><button class="btn sm icon" data-preset-del="mining" title="Delete saved preset"><i data-lucide="trash-2"></i></button></span></label>
+						<label class="ctrl"><span>Mode</span><select class="select" id="mining-mode"><option value="false">Dry</option><option value="true">Live</option></select></label>
+					</div>
+					<div class="skill-pane" data-skill="mining" data-skill-pane="overview">
+						<div id="mining-overview"><p class="scaffold-note">Connecting…</p></div>
+					</div>
+					<div class="skill-pane" data-skill="mining" data-skill-pane="config" hidden>
+						<div class="config-bar"><span class="gilt-label">Mining Configuration</span><span id="mining-cfg-state"></span><span class="spacer"></span>
+							<button class="btn sm" data-skill-cfg="load" data-skill="mining" title="Reload live config into draft"><i data-lucide="download"></i> Load</button>
+							<button class="btn sm" data-skill-cfg="import" data-skill="mining" title="Import config JSON"><i data-lucide="clipboard-paste"></i> Import</button>
+							<button class="btn sm" data-skill-cfg="export" data-skill="mining" title="Export config JSON"><i data-lucide="clipboard-copy"></i> Export</button>
+							<button class="btn" data-skill-cfg="reset" data-skill="mining"><i data-lucide="rotate-ccw"></i> Reset</button>
+							<button class="btn gold" data-skill-cfg="apply" data-skill="mining"><i data-lucide="save"></i> Apply</button>
+						</div>
+						<div id="mining-cfg-pane"><p class="empty">Open this tab to load configuration…</p></div>
+					</div>
+					<div class="skill-pane" data-skill="mining" data-skill-pane="debug" hidden>
+						<div id="mining-debug-pane"><p class="empty">Open this tab to load diagnostics…</p></div>
+					</div>
+				</section>
+
+				<!-- ----------------------- WOODCUTTING -------------------- -->
+				<section class="view" data-view="woodcutting" hidden>
+					<div class="page-head">
+						<span class="emblem" data-emblem="trees"></span>
+						<div class="ph-titles"><h1>Woodcutting Farmer</h1><div class="ph-sub">Automated chopping &amp; inventory management</div></div>
+						<span id="woodcutting-badge"></span>
+						<div class="ph-actions">
+							<button class="btn good" data-skill="woodcutting" data-skill-action="start"><i data-lucide="play"></i> Start</button>
+							<button class="btn bad" data-skill="woodcutting" data-skill-action="stop"><i data-lucide="square"></i> Stop</button>
+							<button class="btn" data-skill="woodcutting" data-skill-action="step"><i data-lucide="skip-forward"></i> Step</button>
+						</div>
+					</div>
+					<div class="deck">
+						<div class="tabs" data-skill-tabs="woodcutting">
+							<button class="tab active" data-skill-tab="overview" data-skill="woodcutting">Overview</button>
+							<button class="tab" data-skill-tab="config" data-skill="woodcutting">Configuration</button>
+							<button class="tab" data-skill-tab="debug" data-skill="woodcutting">Debug</button>
+						</div>
+						<span class="spacer"></span>
+						<label class="ctrl"><span>Target (trees/logs)</span><input class="input" id="woodcutting-target" value="willow" /></label>
+						<label class="ctrl"><span>Preset</span><span class="preset-ctl"><select class="select sm" id="woodcutting-preset"></select><button class="btn sm icon" data-preset-apply="woodcutting" title="Apply selected preset"><i data-lucide="check"></i></button><button class="btn sm icon" data-preset-save="woodcutting" title="Save current target as preset"><i data-lucide="bookmark-plus"></i></button><button class="btn sm icon" data-preset-del="woodcutting" title="Delete saved preset"><i data-lucide="trash-2"></i></button></span></label>
+						<label class="ctrl"><span>Mode</span><select class="select" id="woodcutting-mode"><option value="false">Dry</option><option value="true">Live</option></select></label>
+					</div>
+					<div class="skill-pane" data-skill="woodcutting" data-skill-pane="overview">
+						<div id="woodcutting-overview"><p class="scaffold-note">Connecting…</p></div>
+					</div>
+					<div class="skill-pane" data-skill="woodcutting" data-skill-pane="config" hidden>
+						<div class="config-bar"><span class="gilt-label">Woodcutting Configuration</span><span id="woodcutting-cfg-state"></span><span class="spacer"></span>
+							<button class="btn sm" data-skill-cfg="load" data-skill="woodcutting" title="Reload live config into draft"><i data-lucide="download"></i> Load</button>
+							<button class="btn sm" data-skill-cfg="import" data-skill="woodcutting" title="Import config JSON"><i data-lucide="clipboard-paste"></i> Import</button>
+							<button class="btn sm" data-skill-cfg="export" data-skill="woodcutting" title="Export config JSON"><i data-lucide="clipboard-copy"></i> Export</button>
+							<button class="btn" data-skill-cfg="reset" data-skill="woodcutting"><i data-lucide="rotate-ccw"></i> Reset</button>
+							<button class="btn gold" data-skill-cfg="apply" data-skill="woodcutting"><i data-lucide="save"></i> Apply</button>
+						</div>
+						<div id="woodcutting-cfg-pane"><p class="empty">Open this tab to load configuration…</p></div>
+					</div>
+					<div class="skill-pane" data-skill="woodcutting" data-skill-pane="debug" hidden>
+						<div id="woodcutting-debug-pane"><p class="empty">Open this tab to load diagnostics…</p></div>
+					</div>
+				</section>
+
+				<!-- ----------------------- INVENTORY ---------------------- -->
+				<section class="view" data-view="inventory" hidden>
+					<div class="page-head"><span class="emblem"><i data-lucide="backpack"></i></span><div class="ph-titles"><h1>Inventory</h1><div class="ph-sub">Carried items &amp; equipment</div></div></div>
+					<div id="inventory-page"><p class="scaffold-note">Connecting…</p></div>
+				</section>
+
+				<!-- ----------------------- RAW DATA ----------------------- -->
+				<section class="view" data-view="raw" hidden>
+					<div class="page-head"><span class="emblem"><i data-lucide="scroll-text"></i></span><div class="ph-titles"><h1>Raw Data</h1><div class="ph-sub">Live JSON payloads from every endpoint</div></div></div>
+					<div id="raw-page"><p class="scaffold-note">Connecting…</p></div>
+				</section>
+
+				<!-- ----------------------- SCAFFOLDS ---------------------- -->
+				<section class="view" data-view="actions" hidden><div class="page-head"><span class="emblem"><i data-lucide="swords"></i></span><div class="ph-titles"><h1>Actions</h1><div class="ph-sub">Prayer · spell · interface surfaces</div></div></div><p class="scaffold-note">Action surfaces — staged for the next pass.</p></section>
+				<section class="view" data-view="configuration" hidden><div class="page-head"><span class="emblem"><i data-lucide="settings"></i></span><div class="ph-titles"><h1>Configuration</h1><div class="ph-sub">Profiles &amp; full config editor</div></div></div><p class="scaffold-note">Global config editor — staged for the next pass. Per-farmer Quick Controls are live on each farmer page.</p></section>
+				<section class="view" data-view="debug" hidden><div class="page-head"><span class="emblem"><i data-lucide="bug"></i></span><div class="ph-titles"><h1>Debug</h1><div class="ph-sub">Discovery &amp; diagnostics</div></div></div><div id="debug-page"><p class="scaffold-note">Connecting…</p></div></section>
+			</main>
+
+			<footer class="footer">
+				<span id="ft-live">Live data <b>—</b></span>
+				<span id="ft-server">Server <b>—</b></span>
+				<span id="ft-uptime">Uptime <b>—</b></span>
+				<span class="spacer"></span>
+				<span id="ft-export">Local export <b>—</b></span>
+				<span>Last update <b id="tb-update">—</b></span>
+			</footer>
+		</div>
+	</div>
+
+	<script type="module" src="./js/app.js"></script>
+</body>
+</html>

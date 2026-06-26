@@ -38,6 +38,8 @@ public class InventoryDropService
 		NONE,
 		INVENTORY_FULL,
 		NOT_CHOPPING,
+		NOT_MINING,
+		ROCK_DEPLETED,
 		TARGET_COMPLETED,
 		GATHER_COMPLETED,
 		CLEANUP_PHASE,
@@ -193,7 +195,7 @@ public class InventoryDropService
 				opportunityMatches = (opportunity == DropOpportunity.INVENTORY_FULL);
 				break;
 			case WHEN_IDLE:
-				opportunityMatches = (opportunity == DropOpportunity.NOT_CHOPPING);
+				opportunityMatches = (opportunity == DropOpportunity.NOT_CHOPPING || opportunity == DropOpportunity.NOT_MINING || opportunity == DropOpportunity.ROCK_DEPLETED);
 				break;
 			case AFTER_TARGET:
 				opportunityMatches = (opportunity == DropOpportunity.TARGET_COMPLETED);
