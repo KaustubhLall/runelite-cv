@@ -157,6 +157,9 @@ public class CvHelperModPlugin extends Plugin
 	protected static final int SKILL_FARMER_SCAN_RADIUS_TILES = 24;
 	protected static final int SKILL_FARMER_MAX_CANDIDATES = 80;
 	protected static final int SKILL_FARMER_PATH_SEARCH_TILES = 30;
+	// Hard safety ceiling on objects evaluated per scan, independent of the
+	// user-configurable maxCandidates display cap (see collectSkillFarmerObjects).
+	protected static final int SKILL_FARMER_HARD_CAP = 500;
 	protected static final String MOB_FARMER_IMPLICIT_NEVER_DROP_ITEMS = String.join("|",
 		"rune pouch",
 		"coins",
@@ -769,6 +772,12 @@ public class CvHelperModPlugin extends Plugin
 	{
 		log.info("CV Helper starting");
 		mobFarmerTarget = normalizedMobFarmerTarget(config.mobFarmerTarget());
+		miningFarmerTarget = config.miningFarmerTarget();
+		woodcuttingFarmerTarget = config.woodcuttingFarmerTarget();
+		miningFarmerScanRadius = config.miningScanRadius();
+		miningFarmerMaxCandidates = config.miningMaxCandidates();
+		woodcuttingFarmerScanRadius = config.woodcuttingScanRadius();
+		woodcuttingFarmerMaxCandidates = config.woodcuttingMaxCandidates();
 		enabledPrayers.addAll(getPrayerNames());
 		enabledSpellbooks.addAll(getSpellbookNames());
 		overlayManager.add(overlay);
@@ -7508,7 +7517,7 @@ public class CvHelperModPlugin extends Plugin
 			? Math.max(4, Math.min(64, intSettingValue(settings.get("scanRadiusTiles"), getSkillFarmerScanRadius(skill), "scanRadiusTiles", errors)))
 			: getSkillFarmerScanRadius(skill);
 		int maxCandidates = settings.containsKey("maxCandidates")
-			? Math.max(10, Math.min(300, intSettingValue(settings.get("maxCandidates"), getSkillFarmerMaxCandidates(skill), "maxCandidates", errors)))
+			? Math.max(1, Math.min(300, intSettingValue(settings.get("maxCandidates"), getSkillFarmerMaxCandidates(skill), "maxCandidates", errors)))
 			: getSkillFarmerMaxCandidates(skill);
 		if (!errors.isEmpty())
 		{
@@ -7526,6 +7535,9 @@ public class CvHelperModPlugin extends Plugin
 			}
 			miningFarmerScanRadius = scanRadius;
 			miningFarmerMaxCandidates = maxCandidates;
+			configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MINING_FARMER_TARGET, target);
+			configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MINING_SCAN_RADIUS, scanRadius);
+			configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MINING_MAX_CANDIDATES, maxCandidates);
 		}
 		else
 		{
@@ -7536,6 +7548,9 @@ public class CvHelperModPlugin extends Plugin
 			}
 			woodcuttingFarmerScanRadius = scanRadius;
 			woodcuttingFarmerMaxCandidates = maxCandidates;
+			configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.WOODCUTTING_FARMER_TARGET, target);
+			configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.WOODCUTTING_SCAN_RADIUS, scanRadius);
+			configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.WOODCUTTING_MAX_CANDIDATES, maxCandidates);
 		}
 		Object protectedItems = settings.get("protectedItems");
 		if (protectedItems instanceof String)
@@ -7655,22 +7670,21 @@ public class CvHelperModPlugin extends Plugin
 		return profile;
 	}
 
+	/**
+	 * Both skills read their effective scan radius from the same volatile field the
+	 * HTTP config endpoint writes to (and that startUp() seeds from persisted config).
+	 * Mining previously read straight from {@code config.miningScanRadius()} here,
+	 * which meant a WebHelper config POST updated the volatile field but this getter
+	 * never saw it — applied values silently reverted on the very next status read.
+	 */
 	private int getSkillFarmerScanRadius(String skill)
 	{
-		if ("mining".equals(skill))
-		{
-			return config.miningScanRadius();
-		}
-		return woodcuttingFarmerScanRadius;
+		return "mining".equals(skill) ? miningFarmerScanRadius : woodcuttingFarmerScanRadius;
 	}
 
 	private int getSkillFarmerMaxCandidates(String skill)
 	{
-		if ("mining".equals(skill))
-		{
-			return config.miningMaxCandidates();
-		}
-		return woodcuttingFarmerMaxCandidates;
+		return "mining".equals(skill) ? miningFarmerMaxCandidates : woodcuttingFarmerMaxCandidates;
 	}
 
 	private void startSkillFarmer(String skill, boolean live)
@@ -8119,10 +8133,24 @@ public class CvHelperModPlugin extends Plugin
 				best = candidate;
 			}
 		}
-		out.put("candidates", candidates);
+		int maxCandidates = getSkillFarmerMaxCandidates(skill);
+		// maxCandidates only caps the DISPLAYED/debug candidate list; every reachable
+		// object in collectSkillFarmerObjects() was already evaluated above so a small
+		// maxCandidates can never hide the actual best target behind nearer stale ones.
+		// The selected target is always guaranteed a slot even if it falls outside the cap.
+		List<Map<String, Object>> displayCandidates = candidates;
+		if (candidates.size() > maxCandidates)
+		{
+			displayCandidates = new ArrayList<>(candidates.subList(0, maxCandidates));
+			if (best != null && !displayCandidates.contains(best))
+			{
+				displayCandidates.set(displayCandidates.size() - 1, best);
+			}
+		}
+		out.put("candidates", displayCandidates);
 		out.put("selected", best);
 		out.put("scanRadiusTiles", getSkillFarmerScanRadius(skill));
-		out.put("maxCandidates", getSkillFarmerMaxCandidates(skill));
+		out.put("maxCandidates", maxCandidates);
 		out.put("decision", best == null ? "no-valid-target" : "selected:" + targetLabelForMessage(best));
 		Map<String, Object> summary = new LinkedHashMap<>();
 		summary.put("totalCandidates", totalCandidates);
@@ -8172,7 +8200,6 @@ public class CvHelperModPlugin extends Plugin
 		}
 		WorldPoint origin = localPlayer == null ? null : localPlayer.getWorldLocation();
 		int scanRadius = getSkillFarmerScanRadius(skill);
-		int maxCandidates = getSkillFarmerMaxCandidates(skill);
 		Tile[][][] tiles = worldView.getScene().getTiles();
 		int plane = Math.max(0, Math.min(worldView.getPlane(), tiles.length - 1));
 		int minX = 0;
@@ -8224,7 +8251,12 @@ public class CvHelperModPlugin extends Plugin
 		}
 		objects = deduplicateSkillFarmerCandidates(objects);
 		objects.sort((left, right) -> Integer.compare(intValue(left.get("distance"), Integer.MAX_VALUE), intValue(right.get("distance"), Integer.MAX_VALUE)));
-		return objects.size() > maxCandidates ? new ArrayList<>(objects.subList(0, maxCandidates)) : objects;
+		// Every reachable object within the scan radius must be evaluated so the best
+		// valid target is never hidden behind nearer stale/depleted/unreachable ones;
+		// maxCandidates is a display cap applied later in selectSkillFarmerObject, not
+		// an evaluation cap here. SKILL_FARMER_HARD_CAP is just a CPU/memory safety
+		// valve for pathological scan radii, well above any realistic maxCandidates.
+		return objects.size() > SKILL_FARMER_HARD_CAP ? new ArrayList<>(objects.subList(0, SKILL_FARMER_HARD_CAP)) : objects;
 	}
 
 	private void addSkillFarmerCandidate(List<Map<String, Object>> objects, Map<String, Object> candidate)

@@ -185,6 +185,10 @@ public interface CvHelperModConfig extends Config
 	String MINING_SCAN_RADIUS = "miningScanRadius";
 	String MINING_MAX_CANDIDATES = "miningMaxCandidates";
 	String MINING_DROP_ITEMS = "miningDropItems";
+	String MINING_FARMER_TARGET = "miningFarmerTarget";
+	String WOODCUTTING_FARMER_TARGET = "woodcuttingFarmerTarget";
+	String WOODCUTTING_SCAN_RADIUS = "woodcuttingScanRadius";
+	String WOODCUTTING_MAX_CANDIDATES = "woodcuttingMaxCandidates";
 
 	@ConfigSection(
 		name = "Action hotkeys",
@@ -1273,6 +1277,47 @@ public interface CvHelperModConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = WOODCUTTING_FARMER_TARGET,
+		name = "Woodcutting target",
+		description = "Tree/log names, id:<object id>, or a list separated by |, comma, semicolon, or newlines. Persists across restarts; the WebHelper config tab and presets write here.",
+		section = woodcutterSection
+	)
+	default String woodcuttingFarmerTarget()
+	{
+		return "oak|tree|willow|maple";
+	}
+
+	@ConfigItem(
+		keyName = WOODCUTTING_SCAN_RADIUS,
+		name = "Woodcutting scan radius (tiles)",
+		description = "Maximum distance in tiles to search for trees.",
+		section = woodcutterSection
+	)
+	@Range(
+		min = 1,
+		max = 64
+	)
+	default int woodcuttingScanRadius()
+	{
+		return 5;
+	}
+
+	@ConfigItem(
+		keyName = WOODCUTTING_MAX_CANDIDATES,
+		name = "Woodcutting max candidates",
+		description = "Maximum number of tree candidates to display/evaluate in detail. All reachable trees within the scan radius are still considered when picking a target; this only caps how many are shown.",
+		section = woodcutterSection
+	)
+	@Range(
+		min = 1,
+		max = 300
+	)
+	default int woodcuttingMaxCandidates()
+	{
+		return 10;
+	}
+
+	@ConfigItem(
 		keyName = "woodcuttingStickToTarget",
 		name = "Stick to current tree",
 		description = "While actively chopping a tree that still matches the target list, do not switch to a different tree. This avoids wasting ticks re-targeting and prevents re-clicking the same tree.",
@@ -1295,6 +1340,17 @@ public interface CvHelperModConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = MINING_FARMER_TARGET,
+		name = "Mining target",
+		description = "Rock/ore names, id:<object id>, or a list separated by |, comma, semicolon, or newlines. Persists across restarts; the WebHelper config tab and presets write here.",
+		section = minerSection
+	)
+	default String miningFarmerTarget()
+	{
+		return "iron rocks|iron ore rocks|rocks";
+	}
+
+	@ConfigItem(
 		keyName = MINING_SCAN_RADIUS,
 		name = "Mining scan radius (tiles)",
 		description = "Maximum distance in tiles to search for mining rocks. Set to a smaller value (e.g., 3-5) to stay within a rock clump and avoid running to distant rocks during respawn delays.",
@@ -1302,7 +1358,7 @@ public interface CvHelperModConfig extends Config
 	)
 	@Range(
 		min = 1,
-		max = 20
+		max = 64
 	)
 	default int miningScanRadius()
 	{
@@ -1312,12 +1368,12 @@ public interface CvHelperModConfig extends Config
 	@ConfigItem(
 		keyName = MINING_MAX_CANDIDATES,
 		name = "Mining max candidates",
-		description = "Maximum number of mining rock candidates to evaluate and display. Higher values may impact performance.",
+		description = "Maximum number of mining rock candidates to display/evaluate in detail. All reachable rocks within the scan radius are still considered when picking a target; this only caps how many are shown.",
 		section = minerSection
 	)
 	@Range(
 		min = 1,
-		max = 50
+		max = 300
 	)
 	default int miningMaxCandidates()
 	{
