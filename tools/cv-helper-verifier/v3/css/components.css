@@ -2,6 +2,76 @@
  * components.css — panels, buttons, badges, metrics, tables, toggles, kv
  * ========================================================================== */
 
+/* ---- Item Icons ---------------------------------------------------------- */
+.item-icon {
+	width: 50px;
+	height: 50px;
+	vertical-align: middle;
+	object-fit: contain;
+	image-rendering: pixelated;
+	border-radius: 2px;
+	padding: 1px;
+	margin-right: 6px;
+	display: inline-block;
+}
+.item-icon.sm {
+	width: 36px;
+	height: 36px;
+	margin-right: 4px;
+}
+.item-icon-fallback {
+	display: inline-block;
+	width: 50px;
+	height: 50px;
+	line-height: 48px;
+	text-align: center;
+	border-radius: 2px;
+	font-size: 24px;
+	font-weight: 600;
+	color: var(--ink-dim);
+	vertical-align: middle;
+	margin-right: 6px;
+}
+.item-icon-fallback.sm {
+	width: 36px;
+	height: 36px;
+	line-height: 34px;
+	font-size: 18px;
+	margin-right: 4px;
+}
+.object-icon, .npc-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 50px;
+	height: 50px;
+	vertical-align: middle;
+	margin-right: 6px;
+}
+.object-icon.sm, .npc-icon.sm {
+	width: 36px;
+	height: 36px;
+	margin-right: 4px;
+}
+.object-icon .ico, .npc-icon .ico {
+	width: 28px;
+	height: 28px;
+}
+.object-icon.sm .ico, .npc-icon.sm .ico {
+	width: 20px;
+	height: 20px;
+}
+
+/* ---- Skill icons (authentic OSRS sprites: mining, woodcutting, ...) ------ */
+.skill-icon {
+	width: 18px;
+	height: 18px;
+	vertical-align: middle;
+	object-fit: contain;
+	image-rendering: pixelated;
+	display: inline-block;
+}
+
 /* ---- Buttons ------------------------------------------------------------ */
 .btn {
 	display: inline-flex;
@@ -229,7 +299,7 @@ table.tbl td small { color: var(--ink-faint); }
 @media (max-width: 1180px) { .skill-row1 { grid-template-columns: 1fr 1fr; } .skill-row1 > .panel:nth-child(2) { grid-column: 1 / -1; } .skill-row2 { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 720px) { .skill-row1, .skill-row2 { grid-template-columns: 1fr; } .skill-row1 > .panel:nth-child(2) { grid-column: auto; } }
 
-.sum-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+.sum-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 9px; }
 .sum-card { padding: 11px 9px; text-align: center; background: var(--bg-panel-2); border: 1px solid var(--frame-soft); border-radius: var(--r-sm); border-top: 2px solid var(--frame); }
 .sum-card.good { border-top-color: var(--good); }
 .sum-card.warn { border-top-color: var(--warn); }

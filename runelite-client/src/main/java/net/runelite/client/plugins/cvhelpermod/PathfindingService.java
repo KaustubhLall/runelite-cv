@@ -823,16 +823,21 @@ public class PathfindingService
 			{
 				WorldPoint point = new WorldPoint(startPoint.getX() + dx, startPoint.getY() + dy, startPoint.getPlane());
 				Integer dist = distances.get(point);
+				LocalPoint localPoint = LocalPoint.fromWorld(worldView, point);
+				boolean inScene = localPoint != null;
 				Map<String, Object> tile = new LinkedHashMap<>();
 				tile.put("x", point.getX());
 				tile.put("y", point.getY());
+				tile.put("plane", point.getPlane());
 				tile.put("dx", dx);
 				tile.put("dy", dy);
+				tile.put("sceneX", inScene ? localPoint.getSceneX() : null);
+				tile.put("sceneY", inScene ? localPoint.getSceneY() : null);
+				tile.put("inScene", inScene);
 				tile.put("reachable", dist != null);
 				tile.put("pathDistance", dist);
 				if (dist == null)
 				{
-					boolean inScene = LocalPoint.fromWorld(worldView, point) != null;
 					tile.put("blockedReason", !inScene ? "scene-blocked" : blockedReasons.getOrDefault(point, "no-route"));
 				}
 				tilesOut.add(tile);

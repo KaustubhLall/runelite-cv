@@ -12,6 +12,10 @@
  * ========================================================================== */
 import { escapeHtml } from "./format.js";
 
+// Asset library path - relative to v3 directory
+// Asset library is copied to v3/asset-library for serving
+const ASSET_BASE = "asset-library";
+
 // 24x24 viewBox, stroke = currentColor, matches Lucide weight so the two blend.
 const S = (inner, { fill = "none", w = 1.7 } = {}) =>
 	`<svg class="ico" viewBox="0 0 24 24" fill="${fill}" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
@@ -68,11 +72,80 @@ const EMBLEMS = {
 	pickaxe2: S(``),
 };
 
+// Emblem names that have a real OSRS skill-icon sprite available -- when one
+// matches, the authentic in-game icon replaces the hand-drawn placeholder
+// everywhere that emblem is used (nav rail, page headers, macro panel), no
+// per-call-site changes needed.
+const SKILL_ICON_ALIASES = { pickaxe: "mining", trees: "woodcutting" };
+
 export function icon(name, extraClass = "") {
 	const cls = extraClass ? ` ${escapeHtml(extraClass)}` : "";
+	const skillAlias = SKILL_ICON_ALIASES[name];
+	if (skillAlias) return skillIcon(skillAlias, extraClass);
 	const custom = EMBLEMS[name];
 	if (custom) return `<span class="ico-wrap${cls}">${custom}</span>`;
 	return `<i data-lucide="${escapeHtml(name)}"${extraClass ? ` class="${escapeHtml(extraClass)}"` : ""}></i>`;
+}
+
+/** Authentic OSRS skill-icon sprite (mining.png, woodcutting.png, attack.png, ...). */
+export function skillIcon(skill, extraClass = "") {
+	const cls = extraClass ? ` ${escapeHtml(extraClass)}` : "";
+	const safeSkill = escapeHtml(skill || "");
+	return `<img src="${ASSET_BASE}/skill-icons/${safeSkill}.png" alt="${safeSkill}" class="skill-icon${cls}" onerror="this.style.display='none'"/>`;
+}
+
+/**
+ * Render an item icon from the asset library.
+ * Falls back to a placeholder if the icon doesn't exist.
+ * @param {number} itemId - The item ID
+ * @param {string} name - The item name (for alt text)
+ * @param {string} extraClass - Additional CSS classes
+ * @returns {string} HTML for the item icon
+ */
+export function itemIcon(itemId, name = "", extraClass = "") {
+	const cls = extraClass ? ` ${escapeHtml(extraClass)}` : "";
+	const safeName = escapeHtml(name || "item");
+	const iconPath = `${ASSET_BASE}/items/${itemId}.png`;
+	
+	// Use an img with error handling to show placeholder if icon doesn't exist
+	return `<img 
+		src="${iconPath}" 
+		alt="${safeName}" 
+		class="item-icon${cls}" 
+		onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';"
+	/><span class="item-icon-fallback" style="display:none">?</span>`;
+}
+
+/**
+ * Render an object icon from the asset library.
+ * Falls back to a placeholder if the icon doesn't exist.
+ * @param {number} objectId - The object ID
+ * @param {string} name - The object name (for alt text)
+ * @param {string} extraClass - Additional CSS classes
+ * @returns {string} HTML for the object icon
+ */
+export function objectIcon(objectId, name = "", extraClass = "") {
+	const cls = extraClass ? ` ${escapeHtml(extraClass)}` : "";
+	const safeName = escapeHtml(name || "object");
+	const iconPath = `${ASSET_BASE}/objects/${objectId}.png`;
+	
+	// Use an img with error handling to show placeholder if icon doesn't exist
+	return `<img 
+		src="${iconPath}" 
+		alt="${safeName}" 
+		class="object-icon${cls}" 
+		onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';"
+	/><span class="object-icon-fallback" style="display:none">${icon("box", "")}</span>`;
+}
+
+/**
+ * Render an NPC icon using a generic user/swords icon.
+ * @param {string} extraClass - Additional CSS classes
+ * @returns {string} HTML for the NPC icon
+ */
+export function npcIcon(extraClass = "") {
+	const cls = extraClass ? ` ${escapeHtml(extraClass)}` : "";
+	return `<span class="npc-icon${cls}">${icon("swords", "")}</span>`;
 }
 
 let raf = 0;

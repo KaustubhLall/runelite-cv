@@ -34,6 +34,7 @@
 				<button class="nav-item" data-view="woodcutting"><span data-emblem="trees"></span> Woodcutting Farmer</button>
 				<div class="nav-group-label">Tools</div>
 				<button class="nav-item" data-view="inventory"><i data-lucide="backpack"></i> Inventory</button>
+				<button class="nav-item" data-view="minimap"><i data-lucide="map"></i> Minimap</button>
 				<button class="nav-item" data-view="actions"><i data-lucide="swords"></i> Actions</button>
 				<button class="nav-item" data-view="configuration"><i data-lucide="settings"></i> Configuration</button>
 				<button class="nav-item" data-view="debug"><i data-lucide="bug"></i> Debug</button>
@@ -233,15 +234,55 @@
 					<div id="inventory-page"><p class="scaffold-note">Connecting…</p></div>
 				</section>
 
+				<!-- ----------------------- MINIMAP ------------------------ -->
+				<section class="view" data-view="minimap" hidden>
+					<div class="page-head">
+						<span class="emblem"><i data-lucide="map"></i></span>
+						<div class="ph-titles"><h1>Minimap</h1><div class="ph-sub">Reachability grid &amp; scene diagnostics — works with any farmer stopped</div></div>
+						<span id="minimap-lens-badge"></span>
+					</div>
+					<div class="deck">
+						<div class="tabs" data-minimap-lens-tabs>
+							<button class="tab active" data-minimap-lens="scene"><i data-lucide="layers"></i> Scene</button>
+							<button class="tab" data-minimap-lens="mob"><span data-emblem="skull"></span> Mob Farmer</button>
+							<button class="tab" data-minimap-lens="mining"><span data-emblem="pickaxe"></span> Mining</button>
+							<button class="tab" data-minimap-lens="woodcutting"><span data-emblem="trees"></span> Woodcutting</button>
+						</div>
+						<span class="spacer"></span>
+						<span class="zoom-ctl" title="Scan/render radius (tiles)">
+							<span class="gilt-label" style="margin-right:4px">Radius</span>
+							<button class="zoom-btn" data-minimap-radius="out" title="Smaller radius">−</button>
+							<span class="zoom-val" id="minimap-radius-val">15</span>
+							<button class="zoom-btn" data-minimap-radius="in" title="Larger radius">+</button>
+						</span>
+					</div>
+					<div id="minimap-page"><p class="scaffold-note">Connecting…</p></div>
+				</section>
+
 				<!-- ----------------------- RAW DATA ----------------------- -->
 				<section class="view" data-view="raw" hidden>
 					<div class="page-head"><span class="emblem"><i data-lucide="scroll-text"></i></span><div class="ph-titles"><h1>Raw Data</h1><div class="ph-sub">Live JSON payloads from every endpoint</div></div></div>
 					<div id="raw-page"><p class="scaffold-note">Connecting…</p></div>
 				</section>
 
-				<!-- ----------------------- SCAFFOLDS ---------------------- -->
-				<section class="view" data-view="actions" hidden><div class="page-head"><span class="emblem"><i data-lucide="swords"></i></span><div class="ph-titles"><h1>Actions</h1><div class="ph-sub">Prayer · spell · interface surfaces</div></div></div><p class="scaffold-note">Action surfaces — staged for the next pass.</p></section>
-				<section class="view" data-view="configuration" hidden><div class="page-head"><span class="emblem"><i data-lucide="settings"></i></span><div class="ph-titles"><h1>Configuration</h1><div class="ph-sub">Profiles &amp; full config editor</div></div></div><p class="scaffold-note">Global config editor — staged for the next pass. Per-farmer Quick Controls are live on each farmer page.</p></section>
+				<!-- ----------------------- ACTIONS -------------------------- -->
+				<section class="view" data-view="actions" hidden>
+					<div class="page-head"><span class="emblem"><i data-lucide="swords"></i></span><div class="ph-titles"><h1>Actions</h1><div class="ph-sub">Configured action-hotkey slots (prayer/spell/UI/entity targets)</div></div></div>
+					<div id="actions-page"><p class="scaffold-note">Connecting…</p></div>
+				</section>
+
+				<!-- ----------------------- CONFIGURATION --------------------- -->
+				<section class="view" data-view="configuration" hidden>
+					<div class="page-head"><span class="emblem"><i data-lucide="settings"></i></span><div class="ph-titles"><h1>Configuration</h1><div class="ph-sub">Shared/global CV Helper settings — not farmer-specific</div></div></div>
+					<div class="config-bar"><span class="gilt-label">Global Configuration</span><span id="global-cfg-state"></span><span class="spacer"></span>
+						<button class="btn sm" data-global-cfg="load" title="Reload live config into draft"><i data-lucide="download"></i> Load</button>
+						<button class="btn sm" data-global-cfg="import" title="Import config JSON"><i data-lucide="clipboard-paste"></i> Import</button>
+						<button class="btn sm" data-global-cfg="export" title="Export config JSON"><i data-lucide="clipboard-copy"></i> Export</button>
+						<button class="btn" data-global-cfg="reset"><i data-lucide="rotate-ccw"></i> Reset</button>
+						<button class="btn gold" data-global-cfg="apply"><i data-lucide="save"></i> Apply</button>
+					</div>
+					<div id="global-cfg-pane"><p class="empty">Loading configuration…</p></div>
+				</section>
 				<section class="view" data-view="debug" hidden><div class="page-head"><span class="emblem"><i data-lucide="bug"></i></span><div class="ph-titles"><h1>Debug</h1><div class="ph-sub">Discovery &amp; diagnostics</div></div></div><div id="debug-page"><p class="scaffold-note">Connecting…</p></div></section>
 			</main>
 

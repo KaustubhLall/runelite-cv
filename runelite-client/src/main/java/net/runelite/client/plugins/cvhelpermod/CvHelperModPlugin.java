@@ -373,6 +373,12 @@ public class CvHelperModPlugin extends Plugin
 	protected volatile Map<String, Object> lastMobFarmerInventoryStatus = new LinkedHashMap<>();
 	protected volatile Map<String, Object> lastMobFarmerLoginRecovery = new LinkedHashMap<>();
 	protected volatile Map<String, Object> lastLoginClickAttempt = new LinkedHashMap<>();
+	// World-switch/login diagnostics: what we last tried, whether it failed and why,
+	// and whether the real world-list lookup (not a hand-built World) actually resolved.
+	protected volatile String lastWorldSwitchAction = null;
+	protected volatile String lastWorldSwitchFailureReason = null;
+	protected volatile Boolean lastWorldListAvailable = null;
+	protected volatile Boolean lastWorldResolvedValid = null;
 	protected volatile Map<String, Object> lastMobFarmerProgressStatus = new LinkedHashMap<>();
 	protected volatile Map<String, Object> lastMobFarmerSchedulerStatus = new LinkedHashMap<>();
 	protected volatile Map<String, Object> lastMobFarmerDeathLootStatus = new LinkedHashMap<>();
@@ -437,6 +443,10 @@ public class CvHelperModPlugin extends Plugin
 	// key "skill:x,y,plane" -> game tick this tile was last selected; breaks pathDistance
 	// ties round-robin across equally-close candidates (see selectSkillFarmerObject).
 	protected final Map<String, Integer> skillFarmerTileLastUsedTick = new java.util.concurrent.ConcurrentHashMap<>();
+	// key "skill:x,y,plane" -> last seen object id/tick at that tile, for any candidate
+	// (not just our own current target) -- catches a 3rd party depleting a neighbor rock.
+	protected final Map<String, Integer> skillFarmerTileLastSeenId = new java.util.concurrent.ConcurrentHashMap<>();
+	protected final Map<String, Integer> skillFarmerTileLastSeenTick = new java.util.concurrent.ConcurrentHashMap<>();
 	// number of ticks a just-mined tile stays on the cooldown blacklist
 	protected static final int MINING_DEPLETED_TILE_COOLDOWN_TICKS = 3;
 	protected final Map<String, Integer> lastMobFarmerActionTickByKey = new LinkedHashMap<>();
@@ -5475,6 +5485,18 @@ public class CvHelperModPlugin extends Plugin
 		{
 			return "unknown-world";
 		}
+		// The configured preferred/default world (326 by default -- an LMS world) is an
+		// explicit exception to the world-type blocklist below. Without this, recovery
+		// would prefer 326 as its target world while simultaneously blocking it for being
+		// an LMS world type, which made it bounce to a fallback world instead of the one
+		// it was actually configured to use. The user has confirmed 326 is intentional and
+		// safe for this project; only the *configured* preferred world gets the exception,
+		// not LMS worlds in general.
+		int preferredWorld = getMobFarmerPreferredLoginWorld();
+		if (preferredWorld > 0 && world == preferredWorld)
+		{
+			return null;
+		}
 
 		String worldType = currentWorldTypeText().toLowerCase();
 		for (String blocked : Arrays.asList("members", "pvp", "deadman", "seasonal", "beta", "last_man_standing", "bounty", "high_risk", "skill_total", "quest_speedrunning", "fresh_start", "tournament"))
@@ -5563,14 +5585,24 @@ public class CvHelperModPlugin extends Plugin
 		diagnostics.put("worldBlockReason", worldBlockReason);
 		diagnostics.put("loggedIn", gameState == GameState.LOGGED_IN);
 		diagnostics.put("selectedFallbackWorld", worldSuitable ? null : selectFallbackWorld(getMobFarmerLoginRecoveryF2pOnly()));
-		
+
+		int preferredWorld = getMobFarmerPreferredLoginWorld();
+		diagnostics.put("preferredWorld", preferredWorld);
+		diagnostics.put("preferredWorldIsCurrent", preferredWorld > 0 && preferredWorld == currentWorld);
+		diagnostics.put("lastLoginAction", lastWorldSwitchAction);
+		diagnostics.put("lastLoginFailureReason", lastWorldSwitchFailureReason);
+		diagnostics.put("recoveryBlocked", worldBlockReason != null && state != LoginRecoveryState.IN_GAME);
+		diagnostics.put("manualActionRequired", state == LoginRecoveryState.LOGIN_SCREEN || state == LoginRecoveryState.UNKNOWN_LOGIN_STATE);
+		diagnostics.put("worldListAvailable", lastWorldListAvailable);
+		diagnostics.put("validWorldResolved", lastWorldResolvedValid);
+
 		Widget loginWidget = findLoginClickWidget();
 		diagnostics.put("loginWidgetVisible", isVisibleWidget(loginWidget));
 		if (isVisibleWidget(loginWidget))
 		{
 			diagnostics.put("loginWidget", loginWidgetDiagnostics(loginWidget));
 		}
-		
+
 		return diagnostics;
 	}
 
@@ -5600,30 +5632,101 @@ public class CvHelperModPlugin extends Plugin
 		return sb.toString();
 	}
 
+	/**
+	 * Resolves the real world-list entry for {@code worldId} from RuneLite's own world
+	 * service (the same one the official world-hopper/login flow uses), so the World
+	 * object handed to {@code client.changeWorld()} has a real address/types/location --
+	 * not just an id with everything else left blank. A hand-built World with no address
+	 * has nothing for the login flow to actually connect to, which was the prior failure
+	 * mode here. Runs on the calling (non-client) thread since it's a blocking HTTP call;
+	 * callers must not invoke this from the client thread.
+	 */
+	private net.runelite.http.api.worlds.World lookupRealWorld(int worldId)
+	{
+		try
+		{
+			net.runelite.http.api.worlds.WorldResult result = new net.runelite.client.game.WorldClient(
+				RuneLiteAPI.CLIENT, okhttp3.HttpUrl.get(net.runelite.client.RuneLiteProperties.getApiBase())
+			).lookupWorlds();
+			if (result == null || result.getWorlds() == null)
+			{
+				lastWorldListAvailable = false;
+				return null;
+			}
+			lastWorldListAvailable = true;
+			for (net.runelite.http.api.worlds.World candidate : result.getWorlds())
+			{
+				if (candidate.getId() == worldId)
+				{
+					return candidate;
+				}
+			}
+			return null;
+		}
+		catch (IOException e)
+		{
+			log.warn("Unable to look up real world-list entry for world {}", worldId, e);
+			lastWorldListAvailable = false;
+			return null;
+		}
+	}
+
 	private void switchToWorld(int worldId)
 	{
+		// Blocking HTTP call -- must happen before the clientThread.invokeLater below,
+		// not inside it, so the client thread is never blocked on network I/O.
+		lastWorldSwitchAction = "switch-world:" + worldId;
+		net.runelite.http.api.worlds.World realWorld = lookupRealWorld(worldId);
+		lastWorldResolvedValid = realWorld != null;
 		clientThread.invokeLater(() ->
 		{
-			log.info("Attempting to switch to world {}", worldId);
+			log.info("Attempting to switch to world {} (real world-list entry {})", worldId, realWorld != null ? "found" : "NOT found, using fallback fields");
 			lastEvent.set("world-switch-attempt:" + worldId);
-			
-			// Use client.createWorld() to create a World object for the login screen
-			// Don't set types - let the client determine the world type from the server
+
 			World rsWorld = client.createWorld();
 			rsWorld.setId(worldId);
-			rsWorld.setActivity("Roleplaying");
-			// rsWorld.setTypes(EnumSet.of(WorldType.MEMBERS)); // Don't set types
-			
+			if (realWorld != null)
+			{
+				rsWorld.setActivity(realWorld.getActivity() == null ? "" : realWorld.getActivity());
+				rsWorld.setAddress(realWorld.getAddress());
+				rsWorld.setLocation(realWorld.getLocation());
+				rsWorld.setPlayerCount(realWorld.getPlayers());
+				EnumSet<WorldType> types = EnumSet.noneOf(WorldType.class);
+				if (realWorld.getTypes() != null)
+				{
+					for (net.runelite.http.api.worlds.WorldType httpType : realWorld.getTypes())
+					{
+						try
+						{
+							types.add(WorldType.valueOf(httpType.name()));
+						}
+						catch (IllegalArgumentException ignored)
+						{
+							// http-api world type with no matching client-api WorldType; skip it
+						}
+					}
+				}
+				rsWorld.setTypes(types);
+			}
+			else
+			{
+				// World-list lookup failed (offline/blocked) -- best effort, matches prior
+				// behavior, but this is now the degraded path, not the normal one.
+				rsWorld.setActivity("Roleplaying");
+			}
+
 			try
 			{
 				client.changeWorld(rsWorld);
 				log.info("Successfully requested world change to {}", worldId);
 				lastEvent.set("world-change-requested:" + worldId);
+				lastWorldSwitchFailureReason = null;
 			}
 			catch (Exception e)
 			{
 				log.error("Failed to change world using client API", e);
 				lastEvent.set("world-change-api-failed:" + e.getMessage());
+				lastWorldSwitchFailureReason = e.getMessage();
 			}
 		});
 	}
@@ -8141,6 +8244,36 @@ public class CvHelperModPlugin extends Plugin
 				}
 				continue;
 			}
+			// Ore-first guard: if THIS tile's object identity changed since we last saw it a
+			// few ticks ago, something was just mined there -- by us or anyone else. This is
+			// independent of lastSelectedMiningTarget (which only covers the one rock we were
+			// personally clicking), so it catches a neighbor rock someone else just emptied,
+			// not only our own. A short recency window avoids false positives from scene
+			// reloads or object-array reordering with no real state change.
+			if (mining && Boolean.TRUE.equals(candidate.get("selectable")))
+			{
+				String tk = tileKey(mapValue(candidate.get("worldLocation")));
+				if (tk != null)
+				{
+					String idKey = skill + ":" + tk;
+					int currentId = intValue(candidate.get("id"), -1);
+					int nowTick = client.getTickCount();
+					Integer lastSeenId = skillFarmerTileLastSeenId.get(idKey);
+					Integer lastSeenTick = skillFarmerTileLastSeenTick.get(idKey);
+					boolean recentHistory = lastSeenTick != null && (nowTick - lastSeenTick) <= MINING_DEPLETED_TILE_COOLDOWN_TICKS * 2;
+					if (recentHistory && lastSeenId != null && lastSeenId != currentId)
+					{
+						candidate.put("selectable", false);
+						List<String> r = listValue(candidate.get("reasons"));
+						r.add("stale-tile-id-changed");
+						candidate.put("reasons", r);
+						miningDepletedTileUntilTick.put(tk, nowTick + MINING_DEPLETED_TILE_COOLDOWN_TICKS);
+						rejectedStaleTiles.add(tk);
+					}
+					skillFarmerTileLastSeenId.put(idKey, currentId);
+					skillFarmerTileLastSeenTick.put(idKey, nowTick);
+				}
+			}
 			boolean targetMatched = Boolean.TRUE.equals(candidate.get("targetMatched"));
 			boolean actionMatched = Boolean.TRUE.equals(candidate.get("actionMatched"));
 			boolean visible = Boolean.TRUE.equals(candidate.get("visible"));
@@ -8366,6 +8499,165 @@ public class CvHelperModPlugin extends Plugin
 		// an evaluation cap here. SKILL_FARMER_HARD_CAP is just a CPU/memory safety
 		// valve for pathological scan radii, well above any realistic maxCandidates.
 		return objects.size() > SKILL_FARMER_HARD_CAP ? new ArrayList<>(objects.subList(0, SKILL_FARMER_HARD_CAP)) : objects;
+	}
+
+	/**
+	 * Every named object within radius of the player, with no target/action filter --
+	 * the general "scene" lens for the standalone minimap/grid view. Unlike the skill
+	 * farmer scans this runs on demand from an HTTP request, independent of whether
+	 * any farmer is running, and independent of any farmer's configured scan radius
+	 * (the caller supplies it directly so the grid's own radius control works without
+	 * needing a farmer active at all).
+	 */
+	private List<Map<String, Object>> collectSceneObjects(Player localPlayer, int radius)
+	{
+		List<Map<String, Object>> objects = new ArrayList<>();
+		// No player (e.g. at the login screen) -- without an origin the bounding box
+		// below would never get narrowed to the requested radius and would instead
+		// scan the entire loaded scene, which is both meaningless (no "nearby" without
+		// a player) and was hanging the request past its timeout. Bail out instead.
+		if (localPlayer == null)
+		{
+			return objects;
+		}
+		WorldView worldView = localPlayer.getWorldView();
+		if (worldView == null || worldView.getScene() == null)
+		{
+			return objects;
+		}
+		WorldPoint origin = localPlayer.getWorldLocation();
+		int clampedRadius = Math.max(1, Math.min(30, radius));
+		Tile[][][] tiles = worldView.getScene().getTiles();
+		int plane = Math.max(0, Math.min(worldView.getPlane(), tiles.length - 1));
+		int minX = 0;
+		int maxX = Math.min(worldView.getSizeX(), tiles[plane].length) - 1;
+		int minY = 0;
+		int maxY = worldView.getSizeY() - 1;
+		if (origin != null)
+		{
+			LocalPoint localOrigin = LocalPoint.fromWorld(worldView, origin);
+			if (localOrigin != null)
+			{
+				int sceneX = localOrigin.getSceneX();
+				int sceneY = localOrigin.getSceneY();
+				minX = Math.max(0, sceneX - clampedRadius);
+				maxX = Math.min(maxX, sceneX + clampedRadius);
+				minY = Math.max(0, sceneY - clampedRadius);
+				maxY = Math.min(maxY, sceneY + clampedRadius);
+			}
+		}
+		for (int x = minX; x <= maxX; x++)
+		{
+			for (int y = minY; tiles[plane][x] != null && y <= Math.min(maxY, tiles[plane][x].length - 1); y++)
+			{
+				Tile tile = tiles[plane][x][y];
+				if (tile == null)
+				{
+					continue;
+				}
+				if (origin != null && tile.getWorldLocation() != null && origin.distanceTo(tile.getWorldLocation()) > clampedRadius)
+				{
+					continue;
+				}
+				GameObject[] gameObjects = tile.getGameObjects();
+				if (gameObjects != null)
+				{
+					for (GameObject object : gameObjects)
+					{
+						addSkillFarmerCandidate(objects, sceneObjectInfo(object, localPlayer));
+					}
+				}
+				addSkillFarmerCandidate(objects, sceneObjectInfo(tile.getWallObject(), localPlayer));
+				addSkillFarmerCandidate(objects, sceneObjectInfo(tile.getDecorativeObject(), localPlayer));
+				addSkillFarmerCandidate(objects, sceneObjectInfo(tile.getGroundObject(), localPlayer));
+			}
+		}
+		objects = deduplicateSkillFarmerCandidates(objects);
+		objects.sort((left, right) -> Integer.compare(intValue(left.get("distance"), Integer.MAX_VALUE), intValue(right.get("distance"), Integer.MAX_VALUE)));
+		return objects.size() > SKILL_FARMER_HARD_CAP ? new ArrayList<>(objects.subList(0, SKILL_FARMER_HARD_CAP)) : objects;
+	}
+
+	/** Lightweight per-object info for the general scene scan -- no target/action matching. */
+	private Map<String, Object> sceneObjectInfo(TileObject object, Player localPlayer)
+	{
+		if (object == null || object.getId() <= 0)
+		{
+			return null;
+		}
+		ObjectComposition composition = safeValue(() -> client.getObjectDefinition(object.getId()), null);
+		ObjectComposition impostor = composition == null ? null : safeValue(composition::getImpostor, null);
+		if (impostor != null)
+		{
+			composition = impostor;
+		}
+		String name = composition == null ? "" : cleanWidgetText(composition.getName());
+		if (name.isEmpty() || "null".equals(name))
+		{
+			return null;
+		}
+		net.runelite.api.Point canvasLocation = safeValue(object::getCanvasLocation, null);
+		Map<String, Object> canvasBounds = tileObjectCanvasBounds(object);
+		boolean visible = canvasBounds != null || canvasPointVisible(canvasLocation);
+		int sizeX = 1;
+		int sizeY = 1;
+		Map<String, Object> sceneMin = pointValue(object.getLocalLocation() == null ? null : new Point(object.getLocalLocation().getSceneX(), object.getLocalLocation().getSceneY()));
+		Map<String, Object> sceneMax = sceneMin;
+		if (object instanceof GameObject)
+		{
+			GameObject gameObject = (GameObject) object;
+			sizeX = Math.max(1, gameObject.sizeX());
+			sizeY = Math.max(1, gameObject.sizeY());
+			sceneMin = pointValue(gameObject.getSceneMinLocation());
+			sceneMax = pointValue(gameObject.getSceneMaxLocation());
+		}
+		else if (composition != null)
+		{
+			sizeX = Math.max(1, composition.getSizeX());
+			sizeY = Math.max(1, composition.getSizeY());
+		}
+		int distance = localPlayer == null || object.getWorldLocation() == null ? Integer.MAX_VALUE : localPlayer.getWorldLocation().distanceTo(object.getWorldLocation());
+		WorldArea footprint = new WorldArea(object.getWorldLocation(), sizeX, sizeY);
+		boolean reachable = false;
+		Integer pathDistance = null;
+		if (visible && localPlayer != null)
+		{
+			InteractionPathingResult pathing = pathfinding.pathDistanceToInteractionArea(localPlayer, footprint, SKILL_FARMER_PATH_SEARCH_TILES);
+			reachable = pathing.reachable;
+			pathDistance = pathing.reachable ? pathing.pathDistance : null;
+		}
+		List<String> actionList = new ArrayList<>();
+		String[] actions = composition == null ? null : composition.getActions();
+		if (actions != null)
+		{
+			for (String a : actions)
+			{
+				if (a != null)
+				{
+					actionList.add(a);
+				}
+			}
+		}
+		Map<String, Object> out = new LinkedHashMap<>();
+		out.put("surface", "scene");
+		out.put("objectType", object.getClass().getSimpleName());
+		out.put("name", name);
+		out.put("label", name);
+		out.put("id", object.getId());
+		out.put("distance", distance);
+		out.put("worldLocation", pointValue(object.getWorldLocation()));
+		out.put("sceneMinLocation", sceneMin);
+		out.put("sceneMaxLocation", sceneMax);
+		out.put("objectFootprint", footprintMap(footprint));
+		out.put("objectSize", footprintMap(footprint));
+		out.put("bounds", canvasBounds);
+		out.put("visible", visible);
+		out.put("actions", actionList);
+		out.put("reachable", reachable);
+		out.put("pathDistance", pathDistance);
+		out.put("selectable", visible && reachable);
+		out.put("targetMatched", true);
+		out.put("reasons", new ArrayList<String>());
+		return out;
 	}
 
 	private void addSkillFarmerCandidate(List<Map<String, Object>> objects, Map<String, Object> candidate)
@@ -10311,6 +10603,8 @@ public class CvHelperModPlugin extends Plugin
 			server.createContext("/targets", this::handleAllTargetsRequest);
 			server.createContext("/entities", this::handleEntitiesRequest);
 			server.createContext("/pathing/grid", this::handlePathingGridRequest);
+			server.createContext("/scene/diagnostics", this::handleSceneDiagnosticsRequest);
+			server.createContext("/automation/global/config", this::handleGlobalConfigRequest);
 			server.createContext("/entities/nearest", this::handleNearestEntityRequest);
 			server.createContext("/automation/mob-farmer/status", this::handleMobFarmerStatusRequest);
 			server.createContext("/automation/mob-farmer/config", this::handleMobFarmerConfigRequest);
@@ -10656,6 +10950,181 @@ public class CvHelperModPlugin extends Plugin
 			return timeout;
 		}
 		return result.get();
+	}
+
+	/**
+	 * General scene scan, independent of any farmer's running state or configured
+	 * radius -- the "Scene" lens for the standalone minimap/grid view. Every named
+	 * object within the requested radius is returned, not just ones matching a
+	 * farmer's target string, so the grid is never artificially sparse when no
+	 * farmer happens to be running or targeting the right thing.
+	 */
+	private void handleSceneDiagnosticsRequest(HttpExchange exchange) throws IOException
+	{
+		int radius = 15;
+		try
+		{
+			String raw = queryParam(exchange, "radius");
+			if (!raw.isEmpty())
+			{
+				radius = Math.max(1, Math.min(30, Integer.parseInt(raw.trim())));
+			}
+		}
+		catch (NumberFormatException ignored)
+		{
+			// keep default radius
+		}
+		try
+		{
+			writeJson(exchange, 200, getSceneDiagnosticsOnClientThread(radius));
+		}
+		catch (InterruptedException e)
+		{
+			Thread.currentThread().interrupt();
+			writeResponse(exchange, 503, "{\"error\":\"interrupted\"}");
+		}
+	}
+
+	private Map<String, Object> getSceneDiagnosticsOnClientThread(int radius) throws InterruptedException
+	{
+		CountDownLatch latch = new CountDownLatch(1);
+		AtomicReference<Map<String, Object>> result = new AtomicReference<>();
+		clientThread.invokeLater(() ->
+		{
+			Player localPlayer = client.getLocalPlayer();
+			Map<String, Object> out = new LinkedHashMap<>();
+			List<Map<String, Object>> objects = collectSceneObjects(localPlayer, radius);
+			out.put("surface", "scene");
+			out.put("radius", radius);
+			out.put("candidates", objects);
+			out.put("candidateSummary", Map.of(
+				"totalCandidates", objects.size(),
+				"matchedReachable", (int) objects.stream().filter(o -> Boolean.TRUE.equals(o.get("reachable"))).count()
+			));
+			if (localPlayer != null && localPlayer.getWorldLocation() != null)
+			{
+				out.put("player", pointValue(localPlayer.getWorldLocation()));
+			}
+			result.set(out);
+			latch.countDown();
+		});
+		if (!latch.await(1500, TimeUnit.MILLISECONDS))
+		{
+			Map<String, Object> timeout = new LinkedHashMap<>();
+			timeout.put("error", "client-thread-timeout");
+			timeout.put("candidates", new ArrayList<>());
+			return timeout;
+		}
+		return result.get();
+	}
+
+	/**
+	 * Global/shared CV Helper settings (overlay toggles, local export, anti-idle) --
+	 * deliberately separate from any farmer's own config so shared knobs are never
+	 * confused with farmer-specific ones. Same draft-editor contract (version 1,
+	 * settings/schema) as the farmer config endpoints.
+	 */
+	private void handleGlobalConfigRequest(HttpExchange exchange) throws IOException
+	{
+		if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod()))
+		{
+			writeResponse(exchange, 204, "");
+			return;
+		}
+		if ("GET".equalsIgnoreCase(exchange.getRequestMethod()))
+		{
+			writeJson(exchange, 200, globalConfigPayload());
+			return;
+		}
+		if (!"POST".equalsIgnoreCase(exchange.getRequestMethod()))
+		{
+			writeResponse(exchange, 405, "{\"error\":\"method-not-allowed\"}");
+			return;
+		}
+		String raw = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+		Map<String, Object> payload;
+		try
+		{
+			payload = gson.fromJson(raw, Map.class);
+		}
+		catch (RuntimeException e)
+		{
+			Map<String, Object> error = new LinkedHashMap<>();
+			error.put("ok", false);
+			error.put("applied", false);
+			error.put("errors", new String[]{"Invalid JSON: " + e.getMessage()});
+			writeJson(exchange, 400, error);
+			return;
+		}
+		if (payload == null)
+		{
+			payload = new LinkedHashMap<>();
+		}
+		Map<String, Object> result = applyGlobalConfigPayload(payload);
+		writeJson(exchange, Boolean.TRUE.equals(result.get("ok")) ? 200 : 400, result);
+	}
+
+	private Map<String, Object> globalConfigPayload()
+	{
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("version", 1);
+		body.put("generatedAt", Instant.now().toString());
+		Map<String, Object> settings = new LinkedHashMap<>();
+		settings.put("showHoverOverlay", config.showHoverOverlay());
+		settings.put("showWidgetInfo", config.showWidgetInfo());
+		settings.put("enableLocalExport", config.enableLocalExport());
+		settings.put("antiIdleEnabled", config.antiIdleEnabled());
+		settings.put("antiIdleTimeoutMinutes", config.antiIdleTimeoutMinutes());
+		settings.put("antiIdleInputIntervalMinutes", config.antiIdleInputIntervalMinutes());
+		settings.put("antiIdleManualOverride", config.antiIdleManualOverride());
+		settings.put("antiIdleRestoreMouse", config.antiIdleRestoreMouse());
+		body.put("settings", settings);
+		List<Map<String, Object>> schema = new ArrayList<>();
+		schema.add(settingSchema("showHoverOverlay", "Show hover overlay", "boolean", "Draw the currently hovered widget bounds and coordinates.", null));
+		schema.add(settingSchema("showWidgetInfo", "Show widget info", "boolean", "Display widget parent/group identifiers in the overlay.", null));
+		schema.add(settingSchema("enableLocalExport", "Local export server", "boolean", "Run the local HTTP export server (WebHelper/v3 console) on this client. Disabling stops the server on next restart.", null));
+		schema.add(settingSchema("antiIdleEnabled", "Anti-idle enabled", "boolean", "Send harmless periodic input to prevent the client idle-logout timer while a farmer is running.", null));
+		schema.add(settingSchema("antiIdleTimeoutMinutes", "Idle timeout minutes", "number", "How long the client allows before its own idle logout would fire; anti-idle inputs before this.", null));
+		schema.add(settingSchema("antiIdleInputIntervalMinutes", "Input interval minutes", "number", "How often anti-idle sends a harmless input while active.", null));
+		schema.add(settingSchema("antiIdleManualOverride", "Manual override", "boolean", "Force anti-idle on/off regardless of farmer running state.", null));
+		schema.add(settingSchema("antiIdleRestoreMouse", "Restore mouse position", "boolean", "Move the mouse back to its prior position after an anti-idle input.", null));
+		body.put("schema", schema);
+		return body;
+	}
+
+	@SuppressWarnings("unchecked")
+	private Map<String, Object> applyGlobalConfigPayload(Map<String, Object> payload)
+	{
+		Map<String, Object> result = new LinkedHashMap<>();
+		Map<String, Object> settings = payload == null ? new LinkedHashMap<>() : mapValue(payload.get("settings"));
+		if (settings.isEmpty() && payload != null)
+		{
+			settings = payload;
+		}
+		List<String> errors = new ArrayList<>();
+		List<Runnable> updates = new ArrayList<>();
+		applyBooleanSetting(settings, "showHoverOverlay", updates, v -> configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.SHOW_HOVER_OVERLAY, v), errors);
+		applyBooleanSetting(settings, "showWidgetInfo", updates, v -> configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.SHOW_WIDGET_INFO, v), errors);
+		applyBooleanSetting(settings, "enableLocalExport", updates, v -> configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.ENABLE_LOCAL_EXPORT, v), errors);
+		applyBooleanSetting(settings, "antiIdleEnabled", updates, v -> configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.ANTI_IDLE_ENABLED, v), errors);
+		applyIntSetting(settings, "antiIdleTimeoutMinutes", updates, v -> configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.ANTI_IDLE_TIMEOUT_MINUTES, v), errors);
+		applyIntSetting(settings, "antiIdleInputIntervalMinutes", updates, v -> configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.ANTI_IDLE_INPUT_INTERVAL_MINUTES, v), errors);
+		applyBooleanSetting(settings, "antiIdleManualOverride", updates, v -> configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.ANTI_IDLE_MANUAL_OVERRIDE, v), errors);
+		applyBooleanSetting(settings, "antiIdleRestoreMouse", updates, v -> configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.ANTI_IDLE_RESTORE_MOUSE, v), errors);
+		if (!errors.isEmpty())
+		{
+			result.put("ok", false);
+			result.put("applied", false);
+			result.put("errors", errors);
+			return result;
+		}
+		updates.forEach(Runnable::run);
+		result.put("ok", true);
+		result.put("applied", true);
+		result.put("errors", errors);
+		result.put("updatedSettings", updates.size());
+		result.put("config", globalConfigPayload());
+		return result;
 	}
 
 	private void handleMobFarmerStatusRequest(HttpExchange exchange) throws IOException

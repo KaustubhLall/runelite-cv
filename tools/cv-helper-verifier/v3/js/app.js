@@ -16,6 +16,9 @@ import { renderMobConfigTab, applyMobConfig, resetMobConfig, renderMobDebug } fr
 import { setGridRadius, getGridRadius } from "./pathGrid.js";
 import { listPresets, getPreset, savePreset, deletePreset, isBuiltin, setPluginPresets, PRESET_ENDPOINT } from "./presets.js";
 import { renderSkillConfigTab, applySkillConfig, resetSkillConfig, loadSkillConfigIntoDraft, importSkillConfig, exportSkillConfig, renderSkillDebug } from "./pages/skillConfig.js";
+import { renderMinimapView } from "./pages/minimapView.js";
+import { renderActionsView } from "./pages/actionsView.js";
+import { renderGlobalConfigTab, applyGlobalConfig, resetGlobalConfig, loadGlobalConfigIntoDraft, importGlobalConfig, exportGlobalConfig } from "./pages/globalConfig.js";
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -231,6 +234,18 @@ let slowCounter = 0;
 // Full per-tile reachability grid (every tile in radius, not just candidates),
 // fetched asynchronously per active view so it never blocks the fast status poll.
 let tileGridCache = {};
+// Standalone Minimap page: lens + its own radius, independent of farmer running
+// state. Shares the SAME getGridRadius()/setGridRadius() the farmer pages' zoom
+// buttons use (pathGrid.js keeps one global visual radius) so the radius control
+// actually changes what's rendered, not just how much data is fetched underneath it.
+let minimapLens = "scene";
+let minimapTileGrid = null;
+function refreshMinimapTileGrid(attempted) {
+	requestOptional(`/pathing/grid?radius=${getGridRadius()}`, {}, attempted)
+		.then((g) => { if (g && Array.isArray(g.tiles)) minimapTileGrid = g; })
+		.catch(() => { /* keep showing the last good grid */ });
+}
+
 function refreshTileGrid(view, attempted) {
 	requestOptional(`/pathing/grid?radius=${getGridRadius()}`, {}, attempted)
 		.then((g) => { if (g && Array.isArray(g.tiles)) tileGridCache[view] = g; })
@@ -334,6 +349,28 @@ async function renderActiveView(status, player, auto, attempted) {
 		}
 		case "debug":
 			renderDebug(state.discovery);
+			break;
+		case "minimap": {
+			refreshMinimapTileGrid(attempted);
+			let data; let running;
+			if (minimapLens === "scene") {
+				data = await requestOptional(`/scene/diagnostics?radius=${getGridRadius()}`, {}, attempted);
+			} else if (minimapLens === "mob") {
+				data = auto.mobFarmer; running = !!auto.mobFarmer?.running;
+			} else {
+				data = await requestOptional(`/automation/${minimapLens}/status`, {}, attempted);
+				running = !!data?.running;
+			}
+			renderMinimapView(minimapLens, data, player?.worldLocation, running, minimapTileGrid);
+			break;
+		}
+		case "actions": {
+			const cfg = await requestOptional("/automation/mob-farmer/config", {}, attempted);
+			renderActionsView(cfg);
+			break;
+		}
+		case "configuration":
+			renderGlobalConfigTab();
 			break;
 	}
 }
@@ -459,6 +496,41 @@ function wire() {
 		}
 	});
 
+	// minimap lens tabs + radius control
+	document.addEventListener("click", (e) => {
+		const lens = e.target.closest("[data-minimap-lens]");
+		if (lens) {
+			minimapLens = lens.dataset.minimapLens;
+			$$("[data-minimap-lens]").forEach((b) => b.classList.toggle("active", b === lens));
+			refreshAll();
+			return;
+		}
+		const z = e.target.closest("[data-minimap-radius]");
+		if (z) {
+			// Shared with the farmer-page zoom buttons (one global visual radius in
+			// pathGrid.js) so the SVG actually re-renders at the new size, not just
+			// the underlying fetch -- otherwise the control changes data without
+			// changing what's drawn.
+			const r = setGridRadius(getGridRadius() + (z.dataset.minimapRadius === "in" ? 3 : -3));
+			localStorage.setItem("cvHelperGridRadius", String(r));
+			const lbl = $("#minimap-radius-val"); if (lbl) lbl.textContent = r;
+			refreshAll();
+		}
+	});
+
+	// global configuration tab actions
+	document.addEventListener("click", (e) => {
+		const b = e.target.closest("[data-global-cfg]");
+		if (!b) return;
+		switch (b.dataset.globalCfg) {
+			case "apply": applyGlobalConfig(); break;
+			case "reset": resetGlobalConfig(); break;
+			case "load": loadGlobalConfigIntoDraft(); break;
+			case "import": importGlobalConfig(); break;
+			case "export": exportGlobalConfig(); break;
+		}
+	});
+
 	$("#btn-refresh").addEventListener("click", () => refreshAll());
 	$("#auto-refresh").addEventListener("change", resetTimer);
 
@@ -553,6 +625,7 @@ function init() {
 
 	const savedRadius = Number(localStorage.getItem("cvHelperGridRadius"));
 	if (savedRadius) setGridRadius(savedRadius);
+	const minimapRadiusLbl = $("#minimap-radius-val"); if (minimapRadiusLbl) minimapRadiusLbl.textContent = getGridRadius();
 	const rateSel = $("#refresh-rate"); if (rateSel) rateSel.value = String(fastMs);
 
 	// fill bespoke emblem placeholders with custom inline SVG art
