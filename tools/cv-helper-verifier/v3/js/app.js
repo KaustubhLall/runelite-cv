@@ -228,6 +228,14 @@ const SURFACES = ["prayer", "spell", "minimap", "inventory", "equipment", "panel
 let activeView = "mob-farmer";
 let lastCounts = {};
 let slowCounter = 0;
+// Full per-tile reachability grid (every tile in radius, not just candidates),
+// fetched asynchronously per active view so it never blocks the fast status poll.
+let tileGridCache = {};
+function refreshTileGrid(view, attempted) {
+	requestOptional(`/pathing/grid?radius=${getGridRadius()}`, {}, attempted)
+		.then((g) => { if (g && Array.isArray(g.tiles)) tileGridCache[view] = g; })
+		.catch(() => { /* keep showing the last good grid */ });
+}
 
 async function refreshAll(options = {}) {
 	if (!sanitizePort(state.port)) {
@@ -282,7 +290,8 @@ async function refreshAll(options = {}) {
 async function renderActiveView(status, player, auto, attempted) {
 	switch (activeView) {
 		case "mob-farmer": {
-			renderMobFarmer(auto.mobFarmer, player, events);
+			renderMobFarmer(auto.mobFarmer, player, events, tileGridCache[activeView]);
+			refreshTileGrid(activeView, attempted);
 			const ov = $("#mf-overview"); if (ov) ov.dataset.hasContent = "1";
 			if (currentMobTab === "mf-debug") renderMobDebug(auto.mobFarmer);
 			break;
@@ -290,7 +299,8 @@ async function renderActiveView(status, player, auto, attempted) {
 		case "mining":
 		case "woodcutting": {
 			const st = await requestOptional(`/automation/${activeView}/status`, {}, attempted);
-			renderSkillFarmer(activeView, st, player, events);
+			renderSkillFarmer(activeView, st, player, events, tileGridCache[activeView]);
+			refreshTileGrid(activeView, attempted);
 			// stash status so the Debug sub-tab can read it without a second fetch
 			if (state.lastStatus) {
 				state.lastStatus.__skillStatus = state.lastStatus.__skillStatus || {};

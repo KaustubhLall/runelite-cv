@@ -20,8 +20,10 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -604,6 +606,344 @@ public class PathfindingService
 		}
 		waypoints.add(route.get(route.size() - 1));
 		return waypoints;
+	}
+
+	/**
+	 * Reconstructs the door-aware walking route from the player to a melee tile
+	 * next to {@code target}, and reports any openable doors along it with their
+	 * current open/closed state. Shape: {@code {route:[{x,y}], doors:[{x,y,open}],
+	 * reachable, length}}. Returns an empty map when no route exists. Intended for
+	 * the WebHelper reachability grid so doors on the path are visible and trusted.
+	 */
+	public Map<String, Object> mobFarmerPathingDetail(Player localPlayer, WorldPoint target, int maxDistance)
+	{
+		Map<String, Object> out = new LinkedHashMap<>();
+		if (localPlayer == null || target == null)
+		{
+			return out;
+		}
+		WorldArea start = localPlayer.getWorldArea();
+		if (start == null || start.getPlane() != target.getPlane())
+		{
+			return out;
+		}
+		WorldView worldView = localPlayer.getWorldView();
+		if (worldView == null)
+		{
+			worldView = client.getTopLevelWorldView();
+		}
+		if (worldView == null)
+		{
+			return out;
+		}
+		WorldPoint startPoint = start.toWorldPoint();
+		if (LocalPoint.fromWorld(worldView, startPoint) == null)
+		{
+			return out;
+		}
+
+		int straightDistance = startPoint.distanceTo(target);
+		int searchLimit = Math.max(1, Math.min(CvHelperModPlugin.MOB_FARMER_PATHING_MAX_SEARCH_TILES,
+			(maxDistance > 0 ? maxDistance : straightDistance) + CvHelperModPlugin.MOB_FARMER_PATHING_SLACK_TILES));
+
+		ArrayDeque<WorldPoint> queue = new ArrayDeque<>();
+		Map<WorldPoint, Integer> distances = new HashMap<>();
+		Map<WorldPoint, WorldPoint> predecessors = new HashMap<>();
+		queue.add(startPoint);
+		distances.put(startPoint, 0);
+		WorldPoint goal = null;
+
+		while (!queue.isEmpty())
+		{
+			WorldPoint point = queue.remove();
+			int pathDistance = distances.get(point);
+			int manhattan = Math.abs(point.getX() - target.getX()) + Math.abs(point.getY() - target.getY());
+			if (point.equals(target) || manhattan == 1)
+			{
+				goal = point;
+				break;
+			}
+			if (pathDistance >= searchLimit)
+			{
+				continue;
+			}
+			WorldArea area = new WorldArea(point, 1, 1);
+			for (int[] direction : CvHelperModPlugin.MOB_FARMER_PATH_DIRECTIONS)
+			{
+				if (!canTravelSafely(worldView, area, direction[0], direction[1]))
+				{
+					continue;
+				}
+				WorldPoint next = new WorldPoint(point.getX() + direction[0], point.getY() + direction[1], point.getPlane());
+				if (distances.containsKey(next) || LocalPoint.fromWorld(worldView, next) == null)
+				{
+					continue;
+				}
+				distances.put(next, pathDistance + 1);
+				predecessors.put(next, point);
+				queue.add(next);
+			}
+		}
+
+		if (goal == null)
+		{
+			return out;
+		}
+
+		List<WorldPoint> route = new ArrayList<>();
+		WorldPoint cursor = goal;
+		while (cursor != null && !cursor.equals(startPoint))
+		{
+			route.add(cursor);
+			cursor = predecessors.get(cursor);
+		}
+		Collections.reverse(route);
+
+		List<Map<String, Object>> routeOut = new ArrayList<>();
+		for (WorldPoint wp : route)
+		{
+			Map<String, Object> tile = new LinkedHashMap<>();
+			tile.put("x", wp.getX());
+			tile.put("y", wp.getY());
+			routeOut.add(tile);
+		}
+
+		List<Map<String, Object>> doorsOut = new ArrayList<>();
+		Set<WorldPoint> seen = new HashSet<>();
+		List<WorldPoint> scan = new ArrayList<>();
+		scan.add(startPoint);
+		scan.addAll(route);
+		for (WorldPoint wp : scan)
+		{
+			Integer state = doorState(worldView, wp);
+			if (state != null && seen.add(wp))
+			{
+				Map<String, Object> door = new LinkedHashMap<>();
+				door.put("x", wp.getX());
+				door.put("y", wp.getY());
+				door.put("open", state == 1);
+				doorsOut.add(door);
+			}
+		}
+
+		out.put("route", routeOut);
+		out.put("doors", doorsOut);
+		out.put("reachable", true);
+		out.put("length", route.size());
+		return out;
+	}
+
+	/**
+	 * Flood-fills every tile within a square radius of the player using the same
+	 * collision-aware BFS as the rest of this service, and reports per-tile
+	 * reachability/path distance/block reason for ALL of them -- not just tiles
+	 * that happen to hold a candidate object. Intended as the base layer for the
+	 * WebHelper minimap grid so every square has real diagnostic info, with
+	 * candidates/footprints/selected-target/route/doors layered on top by the caller.
+	 * Shape: {@code {player:{x,y,plane}, radius, visited, tiles:[{x,y,dx,dy,
+	 * reachable,pathDistance,blockedReason}]}}.
+	 */
+	public Map<String, Object> buildReachabilityGrid(Player localPlayer, int radius)
+	{
+		Map<String, Object> out = new LinkedHashMap<>();
+		List<Map<String, Object>> tilesOut = new ArrayList<>();
+		out.put("tiles", tilesOut);
+		if (localPlayer == null)
+		{
+			return out;
+		}
+		WorldArea start = localPlayer.getWorldArea();
+		if (start == null)
+		{
+			return out;
+		}
+		WorldView worldView = localPlayer.getWorldView();
+		if (worldView == null)
+		{
+			worldView = client.getTopLevelWorldView();
+		}
+		if (worldView == null)
+		{
+			return out;
+		}
+		WorldPoint startPoint = start.toWorldPoint();
+		if (LocalPoint.fromWorld(worldView, startPoint) == null)
+		{
+			return out;
+		}
+
+		int clampedRadius = Math.max(1, Math.min(30, radius));
+		int hardCap = (clampedRadius * 2 + 1) * (clampedRadius * 2 + 1) + 50;
+
+		ArrayDeque<WorldPoint> queue = new ArrayDeque<>();
+		Map<WorldPoint, Integer> distances = new HashMap<>();
+		Map<WorldPoint, String> blockedReasons = new HashMap<>();
+		queue.add(startPoint);
+		distances.put(startPoint, 0);
+		int visited = 0;
+
+		while (!queue.isEmpty() && visited < hardCap)
+		{
+			WorldPoint point = queue.remove();
+			int pathDistance = distances.get(point);
+			visited++;
+			int dxAbs = Math.abs(point.getX() - startPoint.getX());
+			int dyAbs = Math.abs(point.getY() - startPoint.getY());
+			if (Math.max(dxAbs, dyAbs) >= clampedRadius)
+			{
+				// Tile is on/past the requested edge; record it but don't expand further.
+				continue;
+			}
+			WorldArea area = new WorldArea(point, 1, 1);
+			for (int[] direction : CvHelperModPlugin.MOB_FARMER_PATH_DIRECTIONS)
+			{
+				WorldPoint next = new WorldPoint(point.getX() + direction[0], point.getY() + direction[1], point.getPlane());
+				if (distances.containsKey(next))
+				{
+					continue;
+				}
+				if (!canTravelSafely(worldView, area, direction[0], direction[1]))
+				{
+					blockedReasons.putIfAbsent(next, "collision-blocked");
+					continue;
+				}
+				if (LocalPoint.fromWorld(worldView, next) == null)
+				{
+					blockedReasons.putIfAbsent(next, "scene-blocked");
+					continue;
+				}
+				distances.put(next, pathDistance + 1);
+				queue.add(next);
+			}
+		}
+
+		for (int dx = -clampedRadius; dx <= clampedRadius; dx++)
+		{
+			for (int dy = -clampedRadius; dy <= clampedRadius; dy++)
+			{
+				WorldPoint point = new WorldPoint(startPoint.getX() + dx, startPoint.getY() + dy, startPoint.getPlane());
+				Integer dist = distances.get(point);
+				Map<String, Object> tile = new LinkedHashMap<>();
+				tile.put("x", point.getX());
+				tile.put("y", point.getY());
+				tile.put("dx", dx);
+				tile.put("dy", dy);
+				tile.put("reachable", dist != null);
+				tile.put("pathDistance", dist);
+				if (dist == null)
+				{
+					boolean inScene = LocalPoint.fromWorld(worldView, point) != null;
+					tile.put("blockedReason", !inScene ? "scene-blocked" : blockedReasons.getOrDefault(point, "no-route"));
+				}
+				tilesOut.add(tile);
+			}
+		}
+
+		Map<String, Object> playerOut = new LinkedHashMap<>();
+		playerOut.put("x", startPoint.getX());
+		playerOut.put("y", startPoint.getY());
+		playerOut.put("plane", startPoint.getPlane());
+		out.put("player", playerOut);
+		out.put("radius", clampedRadius);
+		out.put("visited", visited);
+		return out;
+	}
+
+	/** null = no openable door on the tile; 1 = open (has Close action); 0 = closed (has Open action). */
+	private Integer doorState(WorldView worldView, WorldPoint point)
+	{
+		LocalPoint localPoint = LocalPoint.fromWorld(worldView, point);
+		if (localPoint == null)
+		{
+			return null;
+		}
+		Scene scene = worldView.getScene();
+		if (scene == null)
+		{
+			return null;
+		}
+		Tile[][][] tiles = scene.getTiles();
+		int plane = point.getPlane();
+		if (tiles == null || plane < 0 || plane >= tiles.length)
+		{
+			return null;
+		}
+		int sceneX = localPoint.getSceneX();
+		int sceneY = localPoint.getSceneY();
+		if (sceneX < 0 || sceneX >= tiles[plane].length || sceneY < 0 || sceneY >= tiles[plane][sceneX].length)
+		{
+			return null;
+		}
+		Tile tile = tiles[plane][sceneX][sceneY];
+		if (tile == null)
+		{
+			return null;
+		}
+		WallObject wall = tile.getWallObject();
+		if (wall != null)
+		{
+			Integer state = doorStateFromId(wall.getId());
+			if (state != null)
+			{
+				return state;
+			}
+		}
+		GameObject[] gameObjects = tile.getGameObjects();
+		if (gameObjects != null)
+		{
+			for (GameObject gameObject : gameObjects)
+			{
+				if (gameObject != null)
+				{
+					Integer state = doorStateFromId(gameObject.getId());
+					if (state != null)
+					{
+						return state;
+					}
+				}
+			}
+		}
+		return null;
+	}
+
+	private Integer doorStateFromId(int objectId)
+	{
+		if (objectId < 0)
+		{
+			return null;
+		}
+		ObjectComposition composition = client.getObjectDefinition(objectId);
+		String[] actions = composition == null ? null : composition.getActions();
+		if (actions == null)
+		{
+			return null;
+		}
+		boolean canOpen = false;
+		boolean canClose = false;
+		for (String action : actions)
+		{
+			if (action == null)
+			{
+				continue;
+			}
+			if (action.equalsIgnoreCase("Open"))
+			{
+				canOpen = true;
+			}
+			else if (action.equalsIgnoreCase("Close"))
+			{
+				canClose = true;
+			}
+		}
+		if (canClose)
+		{
+			return 1;
+		}
+		if (canOpen)
+		{
+			return 0;
+		}
+		return null;
 	}
 
 }

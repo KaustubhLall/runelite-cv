@@ -7,7 +7,7 @@
  * state alive across fast polls, and keeps CPU low.
  * ========================================================================== */
 import { panel, metric, kvList, table, idChip } from "../components.js";
-import { icon, refreshIcons } from "../icons.js";
+import { icon, refreshIcons, itemIcon } from "../icons.js";
 import {
 	escapeHtml, formatGp, formatDuration, formatRelativeTime, selectedValue,
 	humanizeAction, decisionTone, compass, compassLong, regionId, formatFoodItems,
@@ -134,9 +134,9 @@ function quickControls(status) {
 	</div>`;
 }
 
-function pathingBody(status, player, candidates, selected) {
+function pathingBody(status, player, candidates, selected, tileGrid) {
 	const loc = player?.worldLocation;
-	const grid = buildPathGrid(loc, candidates, selected, status.pathing);
+	const grid = buildPathGrid(loc, candidates, selected, status.pathing, tileGrid);
 	let dir = "—";
 	if (loc && selected?.worldLocation) dir = compassLong(compass(selected.worldLocation.x - loc.x, selected.worldLocation.y - loc.y));
 	const reachable = selected ? selected.reachable !== false : undefined;
@@ -176,7 +176,8 @@ function lootCandidateTable(candidates) {
 	const rows = candidates.slice(0, 50).map((c) => {
 		const take = c.highPriority || c.selectable;
 		const decision = c.highPriority ? `<span class="cell-prio">priority</span>` : c.selectable ? `<span class="cell-take">take</span>` : `<span class="cell-skip">skip</span>`;
-		return { cls: take ? "row-good" : "row-bad", cells: [`${escapeHtml(c.name || "item")} <small>${idChip(c.itemId)} ×${escapeHtml(c.quantity ?? 1)}</small>`, formatGp(num(c.gePriceEach)), formatGp(num(c.totalStackGeValue) ?? num(c.gePrice)), formatGp(num(c.haPriceEach)), formatGp(num(c.totalStackHaValue) ?? num(c.haPrice)), decision, `<span class="muted">${escapeHtml(arr(c.reasons).join(", ") || "—")}</span>`] };
+		const itemIconHtml = itemIcon(c.itemId, c.name, "sm");
+		return { cls: take ? "row-good" : "row-bad", cells: [`${itemIconHtml} ${escapeHtml(c.name || "item")} <small>${idChip(c.itemId)} ×${escapeHtml(c.quantity ?? 1)}</small>`, formatGp(num(c.gePriceEach)), formatGp(num(c.totalStackGeValue) ?? num(c.gePrice)), formatGp(num(c.haPriceEach)), formatGp(num(c.totalStackHaValue) ?? num(c.haPrice)), decision, `<span class="muted">${escapeHtml(arr(c.reasons).join(", ") || "—")}</span>`] };
 	});
 	return table({ columns: [{ label: "Item" }, { label: "GE each" }, { label: "GE stack" }, { label: "HA each" }, { label: "HA stack" }, { label: "Decision" }, { label: "Reason" }], rows, empty: "No loot candidates nearby." });
 }
@@ -185,7 +186,10 @@ function menuEntryTable(entries) {
 	return table({ columns: [{ label: "Option" }, { label: "Target" }, { label: "Action" }, { label: "At" }], rows, empty: "No recent menu entries." });
 }
 function highAlchTable(candidates) {
-	const rows = candidates.slice(0, 20).map((c) => ({ cls: c.eligible ? "row-good" : "row-bad", cells: [`${escapeHtml(c.name || "item")} <small>${idChip(c.id)}</small>`, formatGp(num(c.geEach)), formatGp(num(c.haEach)), formatGp(num(c.deltaEach)), c.eligible ? `<span class="cell-take">alch</span>` : `<span class="cell-skip">skip</span>`] }));
+	const rows = candidates.slice(0, 20).map((c) => {
+		const itemIconHtml = itemIcon(c.id, c.name, "sm");
+		return { cls: c.eligible ? "row-good" : "row-bad", cells: [`${itemIconHtml} ${escapeHtml(c.name || "item")} <small>${idChip(c.id)}</small>`, formatGp(num(c.geEach)), formatGp(num(c.haEach)), formatGp(num(c.deltaEach)), c.eligible ? `<span class="cell-take">alch</span>` : `<span class="cell-skip">skip</span>`] };
+	});
 	return table({ columns: [{ label: "Item" }, { label: "GE" }, { label: "HA" }, { label: "Delta" }, { label: "Decision" }], rows, empty: "No high-alch candidates." });
 }
 function inventoryOverview(inventory) {
@@ -259,7 +263,7 @@ export function mountMobFarmer() {
 	refreshIcons();
 }
 
-export function renderMobFarmer(mobFarmer, player, events) {
+export function renderMobFarmer(mobFarmer, player, events, tileGrid) {
 	const el = root();
 	if (!el) return { running: false, live: false };
 	if (mobFarmer?.unavailable) {
@@ -283,7 +287,7 @@ export function renderMobFarmer(mobFarmer, player, events) {
 	changed |= setCell("mfc-quick", quickControls(status));
 	changed |= setCell("mfc-decisions", decisionsTimeline(intents, menuEntries));
 	changed |= setCell("mfc-lootpolicy", scalarRows(status.loot, true));
-	changed |= setCellSig("mfc-pathing", gridSignature(player?.worldLocation, candidates, selected, status.pathing), () => pathingBody(status, player, candidates, selected));
+	changed |= setCellSig("mfc-pathing", gridSignature(player?.worldLocation, candidates, selected, status.pathing, tileGrid), () => pathingBody(status, player, candidates, selected, tileGrid));
 	changed |= setCell("mfc-survival", scalarRows({ ...obj(status.autoEat), ...obj(status.survivalDecision) }));
 	changed |= setCell("mfc-intermediate", scalarRows(status.intermediateDecision));
 	changed |= setCell("mfc-lootinv", scalarRows({ afterLootCombat: status.afterLootCombatMode, ...obj(status.lootDecision) }));

@@ -5,7 +5,7 @@
  * Status — plus the shared 2D path grid. Mount-once + per-cell patching.
  * ========================================================================== */
 import { panel, metric, kvList, table, idChip, badge } from "../components.js";
-import { icon, refreshIcons } from "../icons.js";
+import { icon, refreshIcons, itemIcon } from "../icons.js";
 import { escapeHtml, formatGp, formatRelativeTime, selectedValue, humanizeAction, decisionTone, compass, compassLong } from "../format.js";
 import { buildPathGrid, gridSignature, getGridRadius } from "../pathGrid.js";
 
@@ -96,7 +96,11 @@ function dropPolicy(dp, inv) {
 		{ iconName: "alert-triangle", k: "Last Result", v: escapeHtml(selectedValue(dp.lastFailureReason || dp.decision, "—")), tone: decisionTone(dp.lastFailureReason) },
 	]);
 	const dropList = cands.length
-		? `<div class="drop-cands"><div class="drop-cands-h">Drop Candidates (${cands.length})</div>${cands.slice(0, 5).map((d) => `<div class="drop-cand"><span class="dc-name">${escapeHtml(d.name || "item")} <small>${idChip(d.id ?? d.itemId)}</small></span><span class="dc-meta">×${escapeHtml(d.quantity ?? 1)} · ${formatGp(num(d.gePriceEach) ?? num(d.gePrice))}</span></div>`).join("")}</div>`
+		? `<div class="drop-cands"><div class="drop-cands-h">Drop Candidates (${cands.length})</div>${cands.slice(0, 5).map((d) => {
+			const itemId = d.id ?? d.itemId;
+			const itemIconHtml = itemIcon(itemId, d.name, "sm");
+			return `<div class="drop-cand"><span class="dc-name">${itemIconHtml} ${escapeHtml(d.name || "item")} <small>${idChip(itemId)}</small></span><span class="dc-meta">×${escapeHtml(d.quantity ?? 1)} · ${formatGp(num(d.gePriceEach) ?? num(d.gePrice))}</span></div>`;
+		}).join("")}</div>`
 		: `<p class="empty compact">No drop candidates.</p>`;
 	return `<div class="dp-head"><span class="gilt-label">Policy Status</span>${status}</div>${rows}${dropList}`;
 }
@@ -129,7 +133,7 @@ function runStatus(s, player) {
 		])}`;
 }
 
-function pathingBody(skill, s, candidates, sel, player) {
+function pathingBody(skill, s, candidates, sel, player, tileGrid) {
 	const loc = player?.worldLocation;
 	const selCand = candidates.find((c) => c.id === sel.id && c.worldLocation && sel.worldLocation && c.worldLocation.x === sel.worldLocation.x && c.worldLocation.y === sel.worldLocation.y) || null;
 	let dir = "—";
@@ -142,7 +146,7 @@ function pathingBody(skill, s, candidates, sel, player) {
 	];
 	return `
 		<div class="path-info-grid">${cells.map((r) => `<div class="pi-cell"><span class="pi-k">${escapeHtml(r.k)}</span><span class="pi-v ${r.tone || ""}">${r.v}</span></div>`).join("")}</div>
-		<div class="path-grid-box"><div class="compass">N</div>${buildPathGrid(loc, candidates, selCand, null)}</div>
+		<div class="path-grid-box"><div class="compass">N</div>${buildPathGrid(loc, candidates, selCand, null, tileGrid)}</div>
 		<div class="path-legend"><span><i class="lg-you"></i>You</span><span><i class="lg-reach"></i>Reachable</span><span><i class="lg-target"></i>Selected</span><span><i class="lg-obstacle"></i>Blocked / no-action</span><span><i class="lg-center"></i>Object centre</span></div>`;
 }
 
@@ -172,7 +176,7 @@ function mount(skill) {
 	refreshIcons();
 }
 
-export function renderSkillFarmer(skill, status, player, events) {
+export function renderSkillFarmer(skill, status, player, events, tileGrid) {
 	const el = document.querySelector(`#${skill}-overview`);
 	if (!el) return { running: false, live: false };
 	if (!status || status.unavailable) {
@@ -198,7 +202,7 @@ export function renderSkillFarmer(skill, status, player, events) {
 	changed |= setCell(id("summary"), summaryCards(sm, candidates));
 	changed |= setCell(id("events"), (events && events.length) ? `<div class="events">${events.slice(0, 16).map((e) => `<div class="ev-row"><span class="ev-t">${escapeHtml(e.time instanceof Date ? e.time.toLocaleTimeString() : "")}</span><span class="ev-d"></span><span class="ev-m">${escapeHtml(e.message)}</span></div>`).join("")}</div>` : `<p class="empty compact">No events yet.</p>`);
 	changed |= setCell(id("run"), runStatus(s, player));
-	changed |= setCellSig(id("pathing"), gridSignature(player?.worldLocation, candidates, sel.worldLocation ? sel : null, null) + ":" + skill, () => pathingBody(skill, s, candidates, sel, player));
+	changed |= setCellSig(id("pathing"), gridSignature(player?.worldLocation, candidates, sel.worldLocation ? sel : null, null, tileGrid) + ":" + skill, () => pathingBody(skill, s, candidates, sel, player, tileGrid));
 	if (changed) refreshIcons();
 
 	return { running: Boolean(s.running), live: Boolean(s.live), action: humanizeAction(s.currentAction) };

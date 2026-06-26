@@ -427,6 +427,11 @@ public class CvHelperModPlugin extends Plugin
 	protected volatile Map<String, Object> lastCompletedMiningTarget = null;
 	protected volatile String miningCompletionReason = null;
 	protected volatile int lastMiningInvalidationTick = -1;
+	// Woodcutting target lifecycle diagnostics (object-missing / action-unavailable),
+	// same shape as the mining fields above so Debug works identically for both skills.
+	protected volatile Map<String, Object> lastCompletedWoodcuttingTarget = null;
+	protected volatile String woodcuttingCompletionReason = null;
+	protected volatile int lastWoodcuttingInvalidationTick = -1;
 	// key "x,y,plane" -> game tick until which the tile is skipped after a successful mine
 	protected final Map<String, Integer> miningDepletedTileUntilTick = new java.util.concurrent.ConcurrentHashMap<>();
 	// number of ticks a just-mined tile stays on the cooldown blacklist
@@ -7790,28 +7795,49 @@ public class CvHelperModPlugin extends Plugin
 		return selectedX == lastX && selectedY == lastY && selectedPlane == lastPlane;
 	}
 
-	private boolean lastSelectedWoodcuttingTargetStillValid(String skill, String targetText, String action)
+	/**
+	 * Single-scan check for whether a previously selected woodcutting target is still
+	 * a valid thing to stick to or click again. Returns {@code null} when valid, or a
+	 * completion reason ("object-missing" / "action-unavailable") when not -- mirrors
+	 * the mining XP-drop lifecycle (lastCompletedTarget/completionReason) so both
+	 * skills expose the same shape of target-lifecycle diagnostics in Debug.
+	 */
+	private String woodcuttingTargetValidityReason(String skill, String targetText, String action, Map<String, Object> lastTarget)
 	{
-		if (lastSelectedWoodcuttingTarget == null)
+		if (lastTarget == null)
 		{
-			return false;
+			return "no-target";
 		}
-		Map<String, Object> lastWorld = mapValue(lastSelectedWoodcuttingTarget.get("worldLocation"));
+		Map<String, Object> lastWorld = mapValue(lastTarget.get("worldLocation"));
 		int lastX = intValue(lastWorld.get("x"), Integer.MIN_VALUE);
 		int lastY = intValue(lastWorld.get("y"), Integer.MIN_VALUE);
 		int lastPlane = intValue(lastWorld.get("plane"), Integer.MIN_VALUE);
 		if (lastX == Integer.MIN_VALUE || lastY == Integer.MIN_VALUE || lastPlane == Integer.MIN_VALUE)
 		{
-			return false;
+			return "no-target";
 		}
 		for (Map<String, Object> candidate : collectSkillFarmerObjects(skill, targetText, action, client.getLocalPlayer()))
 		{
-			if (selectedMatchesLastTarget(candidate, lastSelectedWoodcuttingTarget))
+			if (selectedMatchesLastTarget(candidate, lastTarget))
 			{
-				return Boolean.TRUE.equals(candidate.get("selectable"));
+				return Boolean.TRUE.equals(candidate.get("selectable")) ? null : "action-unavailable";
 			}
 		}
-		return false;
+		return "object-missing";
+	}
+
+	/** Record the active woodcutting target as completed/invalidated for diagnostics. */
+	private void markWoodcuttingTargetCompleted(String reason)
+	{
+		Map<String, Object> target = lastSelectedWoodcuttingTarget;
+		if (target == null)
+		{
+			return;
+		}
+		lastCompletedWoodcuttingTarget = target;
+		woodcuttingCompletionReason = reason;
+		lastWoodcuttingInvalidationTick = client.getTickCount();
+		lastSelectedWoodcuttingTarget = null;
 	}
 
 	private boolean miningTargetDepleted(Map<String, Object> lastTarget)
@@ -7998,13 +8024,20 @@ public class CvHelperModPlugin extends Plugin
 			return;
 		}
 		boolean isMining = "mining".equals(skill);
-		boolean selectedMatchesLast = isWoodcutting && lastSelectedWoodcuttingTarget != null
-			&& selectedMatchesLastTarget(selected, lastSelectedWoodcuttingTarget);
+		Map<String, Object> previousWoodcuttingTarget = lastSelectedWoodcuttingTarget;
+		boolean selectedMatchesLast = isWoodcutting && previousWoodcuttingTarget != null
+			&& selectedMatchesLastTarget(selected, previousWoodcuttingTarget);
 		boolean miningTargetDepleted = isMining && lastSelectedMiningTarget != null
 			&& miningTargetDepleted(lastSelectedMiningTarget);
+		String woodcuttingInvalidReason = isWoodcutting && previousWoodcuttingTarget != null
+			? woodcuttingTargetValidityReason(skill, target, action, previousWoodcuttingTarget)
+			: null;
+		if (woodcuttingInvalidReason != null)
+		{
+			markWoodcuttingTargetCompleted(woodcuttingInvalidReason);
+		}
 		boolean shouldStickToLast = isWoodcutting && config.woodcuttingStickToTarget()
-			&& activelyChopping && lastSelectedWoodcuttingTarget != null
-			&& lastSelectedWoodcuttingTargetStillValid(skill, target, action);
+			&& activelyChopping && lastSelectedWoodcuttingTarget != null;
 		if (shouldStickToLast && !miningTargetDepleted)
 		{
 			selected = lastSelectedWoodcuttingTarget;
@@ -8018,6 +8051,11 @@ public class CvHelperModPlugin extends Plugin
 		{
 			selection.put("rockDepleted", true);
 			selection.put("decision", "rock-depleted-switching");
+		}
+		if (woodcuttingInvalidReason != null)
+		{
+			selection.put("treeInvalidated", true);
+			selection.put("decision", "tree-" + woodcuttingInvalidReason + "-switching");
 		}
 		setSkillFarmerStatus(skill, selection);
 		if (!live)
@@ -8165,13 +8203,21 @@ public class CvHelperModPlugin extends Plugin
 		summary.put("staleRejected", rejectedStaleTiles.size());
 		out.put("candidateSummary", summary);
 		out.put("rejectedStaleTiles", rejectedStaleTiles);
+		// Same shape for both skills: lastCompletedTarget/completionReason/lastInvalidationTick.
+		// Mining's source is the XP-drop handler; Woodcutting's is the per-tick validity check.
 		if (mining)
 		{
 			out.put("lastCompletedTarget", lastCompletedMiningTarget == null ? null : targetLabelForMessage(lastCompletedMiningTarget));
 			out.put("completionReason", miningCompletionReason);
 			out.put("lastInvalidationTick", lastMiningInvalidationTick);
-			out.put("currentTick", client.getTickCount());
 		}
+		else
+		{
+			out.put("lastCompletedTarget", lastCompletedWoodcuttingTarget == null ? null : targetLabelForMessage(lastCompletedWoodcuttingTarget));
+			out.put("completionReason", woodcuttingCompletionReason);
+			out.put("lastInvalidationTick", lastWoodcuttingInvalidationTick);
+		}
+		out.put("currentTick", client.getTickCount());
 		return out;
 	}
 
@@ -10201,6 +10247,7 @@ public class CvHelperModPlugin extends Plugin
 			server.createContext("/targets/combat", exchange -> handleTargetsRequest(exchange, "combat", this::collectCombatTargets));
 			server.createContext("/targets", this::handleAllTargetsRequest);
 			server.createContext("/entities", this::handleEntitiesRequest);
+			server.createContext("/pathing/grid", this::handlePathingGridRequest);
 			server.createContext("/entities/nearest", this::handleNearestEntityRequest);
 			server.createContext("/automation/mob-farmer/status", this::handleMobFarmerStatusRequest);
 			server.createContext("/automation/mob-farmer/config", this::handleMobFarmerConfigRequest);
@@ -10495,6 +10542,57 @@ public class CvHelperModPlugin extends Plugin
 			Thread.currentThread().interrupt();
 			writeResponse(exchange, 503, "{\"error\":\"interrupted\"}");
 		}
+	}
+
+	/**
+	 * Every tile within {@code radius} of the player, reachable or not, with its
+	 * path distance and (when blocked) the reason -- the base layer for the
+	 * WebHelper minimap grid. Candidates/footprints/selected target are layered on
+	 * top by the frontend from the existing skill/mob status payloads.
+	 */
+	private void handlePathingGridRequest(HttpExchange exchange) throws IOException
+	{
+		int radius = 12;
+		try
+		{
+			String raw = queryParam(exchange, "radius");
+			if (!raw.isEmpty())
+			{
+				radius = Math.max(4, Math.min(30, Integer.parseInt(raw.trim())));
+			}
+		}
+		catch (NumberFormatException ignored)
+		{
+			// keep default radius
+		}
+		try
+		{
+			writeJson(exchange, 200, getPathingGridOnClientThread(radius));
+		}
+		catch (InterruptedException e)
+		{
+			Thread.currentThread().interrupt();
+			writeResponse(exchange, 503, "{\"error\":\"interrupted\"}");
+		}
+	}
+
+	private Map<String, Object> getPathingGridOnClientThread(int radius) throws InterruptedException
+	{
+		CountDownLatch latch = new CountDownLatch(1);
+		AtomicReference<Map<String, Object>> result = new AtomicReference<>();
+		clientThread.invokeLater(() ->
+		{
+			result.set(pathfinding.buildReachabilityGrid(client.getLocalPlayer(), radius));
+			latch.countDown();
+		});
+		if (!latch.await(1500, TimeUnit.MILLISECONDS))
+		{
+			Map<String, Object> timeout = new LinkedHashMap<>();
+			timeout.put("error", "client-thread-timeout");
+			timeout.put("tiles", new ArrayList<>());
+			return timeout;
+		}
+		return result.get();
 	}
 
 	private void handleMobFarmerStatusRequest(HttpExchange exchange) throws IOException

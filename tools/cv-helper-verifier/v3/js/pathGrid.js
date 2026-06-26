@@ -22,7 +22,7 @@ export function setGridRadius(r) {
 export function getGridRadius() { return RADIUS; }
 
 /** Cheap signature of the tile layout — lets callers skip rebuilds (hover). */
-export function gridSignature(player, candidates = [], selected = null, pathing = null) {
+export function gridSignature(player, candidates = [], selected = null, pathing = null, tileGrid = null) {
 	if (!player || player.x === undefined) return "none";
 	const cs = candidates.map((c) => {
 		const w = c.worldLocation;
@@ -30,7 +30,8 @@ export function gridSignature(player, candidates = [], selected = null, pathing 
 	}).join("|");
 	const sel = selected?.worldLocation ? `${selected.worldLocation.x},${selected.worldLocation.y}` : "";
 	const doors = Array.isArray(pathing?.doors) ? pathing.doors.map((d) => `${d.x},${d.y},${d.open ? 1 : 0}`).join("|") : "";
-	return `${RADIUS}:${player.x},${player.y}:${sel}:${cs}:${doors}`;
+	const grid = tileGrid?.player ? `${tileGrid.radius}:${tileGrid.player.x},${tileGrid.player.y}:${tileGrid.tiles?.length ?? 0}` : "";
+	return `${RADIUS}:${player.x},${player.y}:${sel}:${cs}:${doors}:${grid}`;
 }
 
 function cellCenter(col, row) { return [(col + 0.5) * CELL, (row + 0.5) * CELL]; }
@@ -149,6 +150,34 @@ function drawDoors(doors, player) {
 	}).join("");
 }
 
+/**
+ * Base layer: every tile the backend's /pathing/grid flood-fill reports within
+ * its radius, reachable or not. Drawn first (lowest z) so candidate footprint
+ * fills, the selected-target highlight, route and doors render on top of it.
+ * `tileGrid` is the raw payload: {player:{x,y,plane}, radius, tiles:[{x,y,dx,dy,
+ * reachable,pathDistance,blockedReason}]}.
+ */
+function tileGridFills(tileGrid, player) {
+	const tiles = Array.isArray(tileGrid?.tiles) ? tileGrid.tiles : [];
+	if (!tiles.length || !player) return "";
+	let out = "";
+	for (const t of tiles) {
+		// Recompute the offset from the CURRENT player position rather than trusting
+		// the payload's snapshot-time dx/dy -- the grid can be a tick or two stale
+		// (fetched async, not on the critical render path) while the player walks,
+		// and reprojecting keeps every tile aligned under the live "you are here" dot.
+		const { col, row, offGrid } = project(t.x - player.x, t.y - player.y);
+		if (offGrid) continue;
+		const fill = t.reachable ? "var(--good, #6f9a4a)" : "var(--obstacle, #c0563a)";
+		const op = t.reachable ? 0.07 : 0.12;
+		const title = t.reachable
+			? `(${t.x}, ${t.y}) reachable · ${t.pathDistance} tile${t.pathDistance === 1 ? "" : "s"}`
+			: `(${t.x}, ${t.y}) blocked · ${escapeHtml(t.blockedReason || "no-route")}`;
+		out += `<g><title>${title}</title><rect x="${col * CELL + 0.5}" y="${row * CELL + 0.5}" width="${CELL - 1}" height="${CELL - 1}" fill="${fill}" fill-opacity="${op}"/></g>`;
+	}
+	return out;
+}
+
 function targetLine(player, selected) {
 	if (!player || !selected?.worldLocation) return "";
 	const { col, row } = project(selected.worldLocation.x - player.x, selected.worldLocation.y - player.y);
@@ -209,7 +238,7 @@ function playerMarker(player) {
 		<circle cx="${cx}" cy="${cy}" r="${CELL * 0.28}" fill="var(--you)"/></g>`;
 }
 
-export function buildPathGrid(player, candidates = [], selected = null, pathing = null) {
+export function buildPathGrid(player, candidates = [], selected = null, pathing = null, tileGrid = null) {
 	if (!player || player.x === undefined) {
 		return `<div class="empty compact">Awaiting player location…</div>`;
 	}
@@ -217,6 +246,7 @@ export function buildPathGrid(player, candidates = [], selected = null, pathing 
 	return `
 		<svg viewBox="0 0 ${VIEW} ${VIEW}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Reachability grid">
 			<rect x="0" y="0" width="${VIEW}" height="${VIEW}" fill="transparent"/>
+			${tileGridFills(tileGrid, player)}
 			${cellFills(candidates, player, selected)}
 			${gridLines()}
 			${centerMarks(candidates, player)}
