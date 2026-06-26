@@ -434,6 +434,9 @@ public class CvHelperModPlugin extends Plugin
 	protected volatile int lastWoodcuttingInvalidationTick = -1;
 	// key "x,y,plane" -> game tick until which the tile is skipped after a successful mine
 	protected final Map<String, Integer> miningDepletedTileUntilTick = new java.util.concurrent.ConcurrentHashMap<>();
+	// key "skill:x,y,plane" -> game tick this tile was last selected; breaks pathDistance
+	// ties round-robin across equally-close candidates (see selectSkillFarmerObject).
+	protected final Map<String, Integer> skillFarmerTileLastUsedTick = new java.util.concurrent.ConcurrentHashMap<>();
 	// number of ticks a just-mined tile stays on the cooldown blacklist
 	protected static final int MINING_DEPLETED_TILE_COOLDOWN_TICKS = 3;
 	protected final Map<String, Integer> lastMobFarmerActionTickByKey = new LinkedHashMap<>();
@@ -8100,6 +8103,14 @@ public class CvHelperModPlugin extends Plugin
 		int sceneBlocked = 0;
 		boolean mining = "mining".equals(skill);
 		List<String> rejectedStaleTiles = new ArrayList<>();
+		// Tile of whatever we picked LAST tick (still unchanged here -- the lifecycle/
+		// completion checks that null it out run after selection, later in
+		// runSkillFarmerStep). Used below so equidistant ties prefer continuing the
+		// SAME rock/tree we're already mining/chopping rather than hopping between
+		// tied neighbors mid-action; rotation to a different tile only happens once
+		// the previous one is actually gone (depleted/cooldown/invalidated).
+		Map<String, Object> lastTarget = mining ? lastSelectedMiningTarget : lastSelectedWoodcuttingTarget;
+		String lastTileKey = lastTarget == null ? null : tileKey(mapValue(lastTarget.get("worldLocation")));
 		for (Map<String, Object> candidate : collectSkillFarmerObjects(skill, targetText, action, localPlayer))
 		{
 			totalCandidates++;
@@ -8166,9 +8177,48 @@ public class CvHelperModPlugin extends Plugin
 			{
 				continue;
 			}
-			if (best == null || intValue(candidate.get("pathDistance"), Integer.MAX_VALUE) < intValue(best.get("pathDistance"), Integer.MAX_VALUE))
+			int candidateDistance = intValue(candidate.get("pathDistance"), Integer.MAX_VALUE);
+			int bestDistance = best == null ? Integer.MAX_VALUE : intValue(best.get("pathDistance"), Integer.MAX_VALUE);
+			if (best == null || candidateDistance < bestDistance)
 			{
 				best = candidate;
+			}
+			else if (candidateDistance == bestDistance)
+			{
+				String bestTile = tileKey(mapValue(best.get("worldLocation")));
+				String candidateTile = tileKey(mapValue(candidate.get("worldLocation")));
+				boolean candidateIsLast = lastTileKey != null && lastTileKey.equals(candidateTile);
+				boolean bestIsLast = lastTileKey != null && lastTileKey.equals(bestTile);
+				if (candidateIsLast && !bestIsLast)
+				{
+					// Keep mining/chopping the same tile we were already on instead of
+					// hopping to an equally-close neighbor mid-action.
+					best = candidate;
+				}
+				else if (!candidateIsLast && !bestIsLast)
+				{
+					// Neither tied candidate is the one we were just on -- the previous
+					// target is gone (depleted/cooldown/invalidated), so rotate to
+					// whichever tile was used longest ago (or never) instead of always
+					// resolving to the same scan-order winner.
+					String bestKey = skill + ":" + bestTile;
+					String candidateKey = skill + ":" + candidateTile;
+					int bestLastUsed = skillFarmerTileLastUsedTick.getOrDefault(bestKey, -1);
+					int candidateLastUsed = skillFarmerTileLastUsedTick.getOrDefault(candidateKey, -1);
+					if (candidateLastUsed < bestLastUsed)
+					{
+						best = candidate;
+					}
+				}
+				// else bestIsLast && !candidateIsLast: keep best, already continuing correctly.
+			}
+		}
+		if (best != null)
+		{
+			String bestTileKey = tileKey(mapValue(best.get("worldLocation")));
+			if (bestTileKey != null)
+			{
+				skillFarmerTileLastUsedTick.put(skill + ":" + bestTileKey, client.getTickCount());
 			}
 		}
 		int maxCandidates = getSkillFarmerMaxCandidates(skill);
