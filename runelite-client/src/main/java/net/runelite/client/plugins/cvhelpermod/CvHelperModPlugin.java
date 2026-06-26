@@ -8233,20 +8233,22 @@ public class CvHelperModPlugin extends Plugin
 			}
 		}
 		int maxCandidates = getSkillFarmerMaxCandidates(skill);
-		// maxCandidates only caps the DISPLAYED/debug candidate list; every reachable
-		// object in collectSkillFarmerObjects() was already evaluated above so a small
-		// maxCandidates can never hide the actual best target behind nearer stale ones.
-		// The selected target is always guaranteed a slot even if it falls outside the cap.
-		List<Map<String, Object>> displayCandidates = candidates;
-		if (candidates.size() > maxCandidates)
+		// maxCandidates never hides objects from the response -- collectSkillFarmerObjects()
+		// already evaluates every reachable object within scan radius (bounded only by the
+		// hard safety cap), so a small maxCandidates can't hide the actual best target behind
+		// nearer stale ones. It's exposed here purely as a per-candidate priority flag: the
+		// frontend renders the nearest maxCandidates in full color on the minimap and table,
+		// and the rest (still real, still shown) in a deemphasized style instead of omitting
+		// them -- the grid stays exhaustive regardless of how low maxCandidates is set.
+		for (int i = 0; i < candidates.size(); i++)
 		{
-			displayCandidates = new ArrayList<>(candidates.subList(0, maxCandidates));
-			if (best != null && !displayCandidates.contains(best))
-			{
-				displayCandidates.set(displayCandidates.size() - 1, best);
-			}
+			candidates.get(i).put("withinMaxCandidates", i < maxCandidates);
 		}
-		out.put("candidates", displayCandidates);
+		if (best != null)
+		{
+			best.put("withinMaxCandidates", true);
+		}
+		out.put("candidates", candidates);
 		out.put("selected", best);
 		out.put("scanRadiusTiles", getSkillFarmerScanRadius(skill));
 		out.put("maxCandidates", maxCandidates);

@@ -69,11 +69,16 @@ function centerPoint(c) {
 
 function cellTone(c, isSel) {
 	if (isSel) return { fill: "var(--gold)", op: 0.32 };
+	// Beyond maxCandidates: still a real scanned object -- the grid is exhaustive
+	// regardless of how low maxCandidates is set -- but deemphasized to grey/low
+	// opacity so the prioritized set the farmer actually considers stays legible.
+	const deemphasized = c.withinMaxCandidates === false;
+	const grey = "rgba(170,179,154,.6)";
 	if (c.reachable === false || (Array.isArray(c.reasons) && c.reasons.some((r) => /missing-action|blocked|depleted/.test(r)))) {
-		return { fill: "var(--obstacle, #c0563a)", op: 0.22 };
+		return deemphasized ? { fill: grey, op: 0.10 } : { fill: "var(--obstacle, #c0563a)", op: 0.22 };
 	}
-	if (c.selectable === true) return { fill: "var(--good, #6f9a4a)", op: 0.20 };
-	if (c.targetMatched === true) return { fill: "var(--path, #58b6c9)", op: 0.14 };
+	if (c.selectable === true) return deemphasized ? { fill: grey, op: 0.09 } : { fill: "var(--good, #6f9a4a)", op: 0.20 };
+	if (c.targetMatched === true) return deemphasized ? { fill: grey, op: 0.07 } : { fill: "var(--path, #58b6c9)", op: 0.14 };
 	return null;
 }
 
@@ -210,6 +215,11 @@ function marker(c, player, selected) {
 	const isSel = c === selected || (selected && selected.id === c.id && selected.worldLocation && selected.worldLocation.x === c.worldLocation.x && selected.worldLocation.y === c.worldLocation.y);
 	const engagedOther = c.engagedByOther === true;
 	const isTarget = c.selectable === true || c.engagedWithLocalPlayer === true || c.targetMatched === true;
+	// Beyond maxCandidates: same marker shape, deemphasized to grey/low opacity
+	// instead of being omitted, so the minimap stays exhaustive.
+	const deemphasized = c.withinMaxCandidates === false && !isSel;
+	const dimOpacity = deemphasized ? 0.45 : 1;
+	const colorFor = (normal) => (deemphasized ? "rgba(170,179,154,.55)" : normal);
 
 	let glyph;
 	if (isSel) {
@@ -217,11 +227,11 @@ function marker(c, player, selected) {
 		glyph = `<path d="M ${cx} ${cy - s} L ${cx + s} ${cy} L ${cx} ${cy + s} L ${cx - s} ${cy} Z" fill="var(--gold)" stroke="var(--gold-bright)" stroke-width="1.5"/>`;
 	} else if (c.reachable === false) {
 		const s = CELL * 0.26;
-		glyph = `<path d="M ${cx - s} ${cy - s} L ${cx + s} ${cy + s} M ${cx + s} ${cy - s} L ${cx - s} ${cy + s}" stroke="var(--obstacle)" stroke-width="2"/>`;
+		glyph = `<path d="M ${cx - s} ${cy - s} L ${cx + s} ${cy + s} M ${cx + s} ${cy - s} L ${cx - s} ${cy + s}" stroke="${colorFor("var(--obstacle)")}" stroke-width="2" opacity="${dimOpacity}"/>`;
 	} else if (isTarget) {
-		glyph = `<circle cx="${cx}" cy="${cy}" r="${CELL * 0.26}" fill="var(--path)"/>`;
+		glyph = `<circle cx="${cx}" cy="${cy}" r="${CELL * 0.26}" fill="${colorFor("var(--path)")}" opacity="${dimOpacity}"/>`;
 	} else {
-		glyph = `<circle cx="${cx}" cy="${cy}" r="${CELL * 0.18}" fill="none" stroke="rgba(170,179,154,.55)" stroke-width="1.4"/>`;
+		glyph = `<circle cx="${cx}" cy="${cy}" r="${CELL * 0.18}" fill="none" stroke="rgba(170,179,154,.55)" stroke-width="1.4" opacity="${dimOpacity}"/>`;
 	}
 	const ring = engagedOther ? `<circle cx="${cx}" cy="${cy}" r="${CELL * 0.42}" fill="none" stroke="var(--door)" stroke-width="1.5"/>` : "";
 	const edge = offGrid ? `<circle cx="${cx}" cy="${cy}" r="${CELL * 0.46}" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="1" stroke-dasharray="2 2"/>` : "";
