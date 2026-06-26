@@ -10339,6 +10339,20 @@ public class CvHelperModPlugin extends Plugin
 			{
 				return null;
 			}
+			// Prefer the centre of the actual game viewport when one is rendered. In fixed
+			// (classic) layout the play area sits to the LEFT of the sidebar, so the raw
+			// canvas centre would land on/near the sidebar instead of the play area; the
+			// viewport offsets account for that whether the sidebar is on or off. On the
+			// login / "click here to play" screen there is no viewport (and no sidebar),
+			// so this falls back to the canvas centre, which is the correct target there.
+			int vpW = safeValue(client::getViewportWidth, 0);
+			int vpH = safeValue(client::getViewportHeight, 0);
+			if (vpW > 0 && vpH > 0)
+			{
+				int vpX = safeValue(client::getViewportXOffset, 0);
+				int vpY = safeValue(client::getViewportYOffset, 0);
+				return new Point(canvasLocation.x + vpX + vpW / 2, canvasLocation.y + vpY + vpH / 2);
+			}
 			return new Point(canvasLocation.x + size.width / 2, canvasLocation.y + size.height / 2);
 		}
 		catch (RuntimeException e)
@@ -10661,9 +10675,25 @@ public class CvHelperModPlugin extends Plugin
 						clickLoginScreen();
 						break;
 					case LOGIN_SCREEN:
-						reason = "login-widget-not-visible";
-						nextAction = "manual-auth-required";
-						manualRequired = true;
+						// Saved-credential / "click here to play" login art is drawn by the
+						// client and is NOT exposed as a clickable widget, so findLoginClickWidget
+						// returns null and we used to give up here. But this is exactly the case
+						// the user wants automated: when the world is allowed, click the play-area
+						// centre (sidebar/viewport-aware) + Enter via clickLoginScreen's fallback.
+						// Only genuinely manual states (authenticator) below stay manual-required.
+						if (mobFarmerLoginWorldAllowed())
+						{
+							reason = "login-screen-click-to-play";
+							nextAction = "click-canvas-center";
+							manualRequired = false;
+							clickLoginScreen();
+						}
+						else
+						{
+							reason = "login-widget-not-visible";
+							nextAction = "manual-auth-required";
+							manualRequired = true;
+						}
 						break;
 					case LOADING:
 						reason = "client-loading";
@@ -10685,7 +10715,8 @@ public class CvHelperModPlugin extends Plugin
 				response.put("nextAction", nextAction);
 				response.put("manualRequired", manualRequired);
 				
-				int statusCode = (state == LoginRecoveryState.CLICK_TO_PLAY || state == LoginRecoveryState.DISCONNECTED) ? 202 : 200;
+				int statusCode = (state == LoginRecoveryState.CLICK_TO_PLAY || state == LoginRecoveryState.DISCONNECTED
+					|| (state == LoginRecoveryState.LOGIN_SCREEN && !manualRequired)) ? 202 : 200;
 				writeJson(exchange, statusCode, response);
 			});
 			server.createContext("/capture", exchange ->

@@ -175,9 +175,10 @@ function tileGridFills(tileGrid, player) {
 		if (offGrid) continue;
 		const fill = t.reachable ? "var(--good, #6f9a4a)" : "var(--obstacle, #c0563a)";
 		const op = t.reachable ? 0.07 : 0.12;
+		const scene = (t.sceneX !== undefined && t.sceneX !== null) ? `  scene ${t.sceneX},${t.sceneY}` : "";
 		const title = t.reachable
-			? `(${t.x}, ${t.y}) reachable · ${t.pathDistance} tile${t.pathDistance === 1 ? "" : "s"}`
-			: `(${t.x}, ${t.y}) blocked · ${escapeHtml(t.blockedReason || "no-route")}`;
+			? `world ${t.x}, ${t.y}${scene}\nreachable · ${t.pathDistance} tile${t.pathDistance === 1 ? "" : "s"}`
+			: `world ${t.x}, ${t.y}${scene}\nblocked · ${escapeHtml(t.blockedReason || "no-route")}`;
 		out += `<g><title>${title}</title><rect x="${col * CELL + 0.5}" y="${row * CELL + 0.5}" width="${CELL - 1}" height="${CELL - 1}" fill="${fill}" fill-opacity="${op}"/></g>`;
 	}
 	return out;
