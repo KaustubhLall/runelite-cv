@@ -393,6 +393,14 @@ public class CvHelperModPlugin extends Plugin
 	protected volatile boolean mobFarmerLiveMode;
 	protected volatile Thread mobFarmerThread;
 	protected volatile long lastMobFarmerLoginClickMillis;
+	// Dedicated wall-clock recovery thread for Mining/Woodcutting, mirroring Mob
+	// Farmer's own recovery-loop thread (see startMobFarmer). onGameTick early-returns
+	// whenever the client isn't LOGGED_IN, so a farmer driven purely by game ticks can
+	// never recover itself from a disconnect/logout -- it just sits frozen reporting
+	// stale status forever. This thread is what actually drives recovery while logged
+	// out; runSkillFarmerStep/onGameTick only cover the already-logged-in case.
+	protected volatile Thread skillFarmerRecoveryThread;
+	protected final AtomicInteger skillFarmerRecoveryGeneration = new AtomicInteger();
 	protected volatile String activeMobFarmerLootKey;
 	protected volatile int activeMobFarmerLootStartTick;
 	protected volatile int activeMobFarmerLootLastDistance = Integer.MAX_VALUE;
@@ -7870,6 +7878,60 @@ public class CvHelperModPlugin extends Plugin
 		}
 		runSkillFarmerStep(skill, live, "start");
 		updateAntiIdleState();
+		if (live)
+		{
+			ensureSkillFarmerRecoveryLoop();
+		}
+	}
+
+	/**
+	 * Starts the dedicated wall-clock recovery thread for Mining/Woodcutting if one
+	 * isn't already running. Mirrors startMobFarmer's recovery-loop thread exactly:
+	 * sleeps getMobFarmerRecoveryLoopDelayMs() between checks, only acts while NOT
+	 * logged in (logged-in stepping stays game-tick driven via onGameTick), and exits
+	 * once neither skill farmer is live-running anymore.
+	 */
+	private void ensureSkillFarmerRecoveryLoop()
+	{
+		Thread existing = skillFarmerRecoveryThread;
+		if (existing != null && existing.isAlive())
+		{
+			return;
+		}
+		int generation = skillFarmerRecoveryGeneration.incrementAndGet();
+		Thread loopThread = new Thread(() ->
+		{
+			try
+			{
+				while (skillFarmerRecoveryGeneration.get() == generation
+					&& ((miningFarmerRunning.get() && miningFarmerLiveMode) || (woodcuttingFarmerRunning.get() && woodcuttingFarmerLiveMode)))
+				{
+					clientThread.invokeLater(() ->
+					{
+						if (client.getGameState() == GameState.LOGGED_IN)
+						{
+							return;
+						}
+						if (miningFarmerRunning.get() && miningFarmerLiveMode)
+						{
+							reportSkillFarmerNeedsLogin("mining", true);
+						}
+						if (woodcuttingFarmerRunning.get() && woodcuttingFarmerLiveMode)
+						{
+							reportSkillFarmerNeedsLogin("woodcutting", true);
+						}
+					});
+					Thread.sleep(getMobFarmerRecoveryLoopDelayMs());
+				}
+			}
+			catch (InterruptedException e)
+			{
+				Thread.currentThread().interrupt();
+			}
+		}, "cv-helper-skill-farmer-recovery");
+		loopThread.setDaemon(true);
+		skillFarmerRecoveryThread = loopThread;
+		loopThread.start();
 	}
 
 	private void stopSkillFarmer(String skill)
@@ -8037,16 +8099,28 @@ public class CvHelperModPlugin extends Plugin
 		return true;
 	}
 
+	/**
+	 * Reports needs-login status for a skill farmer and attempts recovery if live.
+	 * Shared by runSkillFarmerStep's own not-logged-in branch (game-tick driven, only
+	 * reachable while LOGGED_IN -- see onGameTick's early return) AND the dedicated
+	 * wall-clock skill-farmer recovery thread (which is what actually drives this
+	 * while logged out, mirroring Mob Farmer's recovery-loop thread).
+	 */
+	private void reportSkillFarmerNeedsLogin(String skill, boolean live)
+	{
+		Map<String, Object> status = getSkillFarmerStatus(skill);
+		boolean recoveryActive = live && tryGenericLoginRecovery();
+		status.put("currentAction", recoveryActive ? "login-recovery-active" : "needs-login");
+		status.put("lastFailureReason", recoveryActive ? null : "not-logged-in");
+		status.put("loginRecoveryActive", recoveryActive);
+		setSkillFarmerStatus(skill, status);
+	}
+
 	private void runSkillFarmerStep(String skill, boolean live, String source)
 	{
 		if (client.getGameState() != GameState.LOGGED_IN || client.getLocalPlayer() == null)
 		{
-			Map<String, Object> status = getSkillFarmerStatus(skill);
-			boolean recoveryActive = live && tryGenericLoginRecovery();
-			status.put("currentAction", recoveryActive ? "login-recovery-active" : "needs-login");
-			status.put("lastFailureReason", recoveryActive ? null : "not-logged-in");
-			status.put("loginRecoveryActive", recoveryActive);
-			setSkillFarmerStatus(skill, status);
+			reportSkillFarmerNeedsLogin(skill, live);
 			return;
 		}
 		Map<String, Object> inventory = inventoryPolicyStatus();
