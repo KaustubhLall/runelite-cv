@@ -126,6 +126,26 @@ async function skillAction(skill, action) {
 /* ---- presets ------------------------------------------------------------ */
 function targetInputId(farmer) { return farmer === "mob" ? "mf-target" : `${farmer}-target`; }
 
+function presetIconPath(farmer, name) {
+	if (!name) return "";
+	const file = name.toLowerCase().replace(/\//g, "-").replace(/\s+/g, "-");
+	if (farmer === "mining") {
+		return `asset-library/mining-presets/mining-preset-${file}.png`;
+	} else if (farmer === "woodcutting") {
+		return `asset-library/woodcutting-presets/woodcutting-preset-${file}.png`;
+	}
+	return "";
+}
+
+function updatePresetIcon(farmer) {
+	const sel = $(`#${farmer}-preset`);
+	const icon = $(`#${farmer}-preset-icon`);
+	if (!icon) return;
+	const path = presetIconPath(farmer, sel && sel.value);
+	icon.src = path;
+	icon.alt = (sel && sel.value) || "";
+}
+
 function populatePresets(farmer) {
 	const sel = $(`#${farmer}-preset`);
 	if (!sel) return;
@@ -135,11 +155,13 @@ function populatePresets(farmer) {
 		? items.map((p) => `<option value="${p.name}">${p.builtin ? "★ " : ""}${p.name}</option>`).join("")
 		: `<option value="">(no presets)</option>`;
 	if (cur && items.some((p) => p.name === cur)) sel.value = cur;
+	updatePresetIcon(farmer);
 }
 
 async function applyPreset(farmer) {
 	const sel = $(`#${farmer}-preset`);
 	const name = sel && sel.value;
+	updatePresetIcon(farmer);
 	const preset = name && getPreset(farmer, name);
 	if (!preset || !(await ensurePort())) return;
 	try {
@@ -597,9 +619,22 @@ function wire() {
 
 	$("#btn-login").addEventListener("click", async () => {
 		if (!(await ensurePort())) return;
-		try { await request("/login/click", { method: "POST" }); addEvent("login click queued"); }
-		catch (err) { addEvent(`login click failed: ${formatError(err)}`); }
-		await delay(800); await refreshAll();
+		// /login/click re-detects state fresh every call and dispatches whichever
+		// action that state needs (dismiss the disconnect dialog, click-to-play on
+		// the title screen, click-to-play on the post-auth lobby screen, or switch
+		// world) -- but a real disconnect can chain through several of those
+		// screens, each only revealed once the previous one is dismissed. One click
+		// only ever advances one step, so retry a few times with a short wait
+		// between attempts instead of making the user click repeatedly.
+		for (let attempt = 0; attempt < 5; attempt++) {
+			let result;
+			try { result = await request("/login/click", { method: "POST" }); }
+			catch (err) { addEvent(`login click failed: ${formatError(err)}`); break; }
+			addEvent(`login: ${result.reason || result.nextAction || "queued"}`);
+			if (result.state === "IN_GAME" || result.manualRequired) break;
+			await delay(1200);
+		}
+		await refreshAll();
 	});
 
 	$("#dock-form").addEventListener("submit", async (e) => {

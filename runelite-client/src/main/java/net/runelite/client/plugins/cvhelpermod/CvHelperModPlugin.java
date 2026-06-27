@@ -5457,6 +5457,64 @@ public class CvHelperModPlugin extends Plugin
 		return true;
 	}
 
+	/**
+	 * Skill-agnostic "enable and wait" login-recovery service for Mining/Woodcutting
+	 * (or any future farmer): reuses the SAME detectLoginRecoveryState()/clickLoginScreen()/
+	 * switchToWorld() machinery tryMobFarmerLoginRecovery already drives, and the SAME
+	 * cooldown timer, since there is one client login state shared by every farmer, not
+	 * one per farmer. Gated by the existing mob-farmer login-recovery config -- it's a
+	 * shared client-level toggle in spirit even though the keys are mob-farmer-prefixed
+	 * for historical reasons, so enabling it for Mob Farmer also covers skill farmers.
+	 * Returns true while recovery is actively in progress (so the caller can report
+	 * "waiting on login recovery" instead of a bare "needs-login" failure).
+	 */
+	private boolean tryGenericLoginRecovery()
+	{
+		if (!getMobFarmerLoginRecoveryEnabled() || !getMobFarmerAutoResumeAfterLogin())
+		{
+			return false;
+		}
+		LoginRecoveryState state = detectLoginRecoveryState();
+		if (state == LoginRecoveryState.IN_GAME)
+		{
+			return false;
+		}
+		if (state == LoginRecoveryState.LOADING)
+		{
+			return true;
+		}
+		if (state == LoginRecoveryState.WORLD_SWITCH_REQUIRED)
+		{
+			switchToWorld(selectFallbackWorld(getMobFarmerLoginRecoveryF2pOnly()));
+			return true;
+		}
+		if ((state == LoginRecoveryState.LOGIN_SCREEN || state == LoginRecoveryState.AUTH_REQUIRED_MANUAL)
+			&& !getMobFarmerLoginClickToPlayEnabled())
+		{
+			return false;
+		}
+		if (state == LoginRecoveryState.DISCONNECTED && !getMobFarmerLoginDisconnectRecoveryEnabled())
+		{
+			return false;
+		}
+		long now = System.currentTimeMillis();
+		long elapsed = now - lastMobFarmerLoginClickMillis;
+		if (elapsed >= 0 && elapsed < MOB_FARMER_LOGIN_CLICK_COOLDOWN_MS)
+		{
+			return true;
+		}
+		lastMobFarmerLoginClickMillis = now;
+		if (state == LoginRecoveryState.DISCONNECTED)
+		{
+			pressLoginEnterFallback("login-disconnect-enter-fallback", "Skill farmer queued connection-lost recovery");
+		}
+		else
+		{
+			clickLoginScreen();
+		}
+		return true;
+	}
+
 	private void setMobFarmerLoginRecoveryDecision(String decision, Map<String, Object> details)
 	{
 		Map<String, Object> payload = new LinkedHashMap<>();
@@ -7984,8 +8042,10 @@ public class CvHelperModPlugin extends Plugin
 		if (client.getGameState() != GameState.LOGGED_IN || client.getLocalPlayer() == null)
 		{
 			Map<String, Object> status = getSkillFarmerStatus(skill);
-			status.put("currentAction", "needs-login");
-			status.put("lastFailureReason", "not-logged-in");
+			boolean recoveryActive = live && tryGenericLoginRecovery();
+			status.put("currentAction", recoveryActive ? "login-recovery-active" : "needs-login");
+			status.put("lastFailureReason", recoveryActive ? null : "not-logged-in");
+			status.put("loginRecoveryActive", recoveryActive);
 			setSkillFarmerStatus(skill, status);
 			return;
 		}
