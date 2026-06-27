@@ -10425,6 +10425,21 @@ public class CvHelperModPlugin extends Plugin
 
 	private Widget findLoginClickWidget()
 	{
+		// A generic system message dialog ("You were disconnected from the server", Ok)
+		// can render OVER the title screen after a disconnect. It carries no GameState
+		// signal of its own -- the client still reports LOGIN_SCREEN the whole time -- and
+		// the real click-to-play widget underneath is not visible/clickable until this is
+		// dismissed first. This is a genuinely separate step, confirmed by watching a live
+		// disconnect screen: dismiss "Ok" -> THEN the Play Now widget appears. Checked first
+		// so detectLoginRecoveryState() classifies this as CLICK_TO_PLAY (not manual-required)
+		// and the existing auto-click flow dismisses it, then dismisses the real widget on
+		// the very next tick once it's revealed.
+		Widget messageBoxContinue = client.getWidget(InterfaceID.Messagebox.CONTINUE);
+		if (isVisibleWidget(messageBoxContinue))
+		{
+			return messageBoxContinue;
+		}
+
 		for (int componentId : new int[]{InterfaceID.WelcomeScreen.PLAY, InterfaceID.WelcomeScreen.CLICKHERE_TEXT})
 		{
 			Widget widget = client.getWidget(componentId);
