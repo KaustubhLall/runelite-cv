@@ -139,6 +139,10 @@ public interface CvHelperModConfig extends Config
 	String MOB_FARMER_LOGIN_RECOVERY_F2P_ONLY = "mobFarmerLoginRecoveryF2pOnly";
 	String MOB_FARMER_LOGIN_CLICK_TO_PLAY_ENABLED = "mobFarmerLoginClickToPlayEnabled";
 	String MOB_FARMER_LOGIN_DISCONNECT_RECOVERY_ENABLED = "mobFarmerLoginDisconnectRecoveryEnabled";
+	String MOB_FARMER_DOOR_AUTO_OPEN_ENABLED = "mobFarmerDoorAutoOpenEnabled";
+	String MOB_FARMER_DOOR_AUTO_CLOSE_ENABLED = "mobFarmerDoorAutoCloseEnabled";
+	String MOB_FARMER_DOOR_ALLOWLIST = "mobFarmerDoorAllowlist";
+	String MOB_FARMER_DOOR_DENYLIST = "mobFarmerDoorDenylist";
 	String MOB_FARMER_AUTO_RESUME_AFTER_LOGIN = "mobFarmerAutoResumeAfterLogin";
 	String MOB_FARMER_PREFERRED_LOGIN_WORLD = "mobFarmerPreferredLoginWorld";
 	String AUTO_LOGIN_ON_LAUNCH = "autoLoginOnLaunch";
@@ -775,6 +779,50 @@ public interface CvHelperModConfig extends Config
 	default boolean mobFarmerLoginDisconnectRecoveryEnabled()
 	{
 		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_DOOR_AUTO_OPEN_ENABLED,
+		name = "Auto-open closed doors to path",
+		description = "Allow the farmer to click Open on a closed, allowlisted and non-denylisted door/gate that blocks its path, then wait for collision to confirm the transition is clear.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerDoorAutoOpenEnabled()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_DOOR_AUTO_CLOSE_ENABLED,
+		name = "Auto-close open doors to path",
+		description = "Allow the farmer to click Close on an open, allowlisted and non-denylisted door/gate that blocks its path (rare). Off by default since this is less common than opening a closed door.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerDoorAutoCloseEnabled()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_DOOR_ALLOWLIST,
+		name = "Door allowlist (id or name)",
+		description = "Doors/gates the farmer may click Open/Close on, separated by |, comma, semicolon, or newlines (object id or exact name). Empty means no automatic door interaction; unknown doors report manual-action-required.",
+		section = mobFarmerSection
+	)
+	default String mobFarmerDoorAllowlist()
+	{
+		return "";
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_DOOR_DENYLIST,
+		name = "Door denylist (id or name)",
+		description = "Doors/gates the farmer must never click Open/Close on or path through, separated by |, comma, semicolon, or newlines (object id or exact name). A denylisted door always reports blocked-by-door/manual-action-required, even if auto-open/auto-close is enabled. Use this for locked, dangerous, quest, or wilderness doors.",
+		section = mobFarmerSection
+	)
+	default String mobFarmerDoorDenylist()
+	{
+		return "";
 	}
 
 	@ConfigItem(

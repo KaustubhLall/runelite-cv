@@ -23,6 +23,7 @@ const SECTIONS = [
 	{ title: "Targeting", keys: TARGETING_KEYS },
 	{ title: "Survival & Run", keys: ["autoEatEnabled", "eatHitpointPercent", "foodItems", "stopIfNoFood", "survivalPreemptsActions", "autorunEnabled", "autorunMinEnergy", "recoveryLoopDelayMs", "focusClickAfterLogin", "panicStopHotkey"] },
 	{ title: "Login Recovery", keys: ["loginRecoveryEnabled", "loginRecoveryF2pOnly", "loginClickToPlayEnabled", "loginDisconnectRecoveryEnabled", "autoResumeAfterLogin", "preferredLoginWorld"] },
+	{ title: "Pathing", keys: ["doorAutoOpenEnabled", "doorAutoCloseEnabled", "doorAllowlist", "doorDenylist"] },
 	{ title: "Looting", keys: ["lootEnabled", "lootDuringCombat", "attackBeforeLoot", "lootMinValueGe", "lootMinSingleGe", "lootMinStackGe", "lootMinStackQuantity", "lootAlwaysStackGe", "lootNeverStackBelowGe", "highPriorityLootValueGe", "lootUrgentDespawnTicks", "lootCleanupPileCount", "lootRadius", "lootItems", "lootBlacklist", "lootOwnershipMode", "groundItemsMode", "respectGroundItemsHidden"] },
 	{ title: "Intermediate Actions", keys: ["intermediateActionsEnabled", "intermediateItems", "intermediateActionMappings", "neverDropItems"] },
 	{ title: "High Alchemy", keys: ["highAlchEnabled", "highAlchMinHa", "highAlchMinDelta", "highAlchMaxLoss", "highAlchItems", "highAlchBlacklist"] },

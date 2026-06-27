@@ -173,13 +173,41 @@ function tileGridFills(tileGrid, player) {
 		// and reprojecting keeps every tile aligned under the live "you are here" dot.
 		const { col, row, offGrid } = project(t.x - player.x, t.y - player.y);
 		if (offGrid) continue;
-		const fill = t.reachable ? "var(--good, #6f9a4a)" : "var(--obstacle, #c0563a)";
-		const op = t.reachable ? 0.07 : 0.12;
+		// Four distinct states, not one red "blocked" bucket:
+		//  - reachable          : walkable right now, no action needed (green)
+		//  - reachable-via-door : walkable ONLY after CV Helper opens/closes a permitted
+		//                         door and that's verified -- shown hatched amber so it
+		//                         reads as "conditionally clear", not plain green
+		//  - blocked-by-door    : a door blocks it but CV Helper can't act on it (denylisted,
+		//                         or the auto-open/auto-close flag is off) -- solid amber
+		//  - collision-blocked  : a real physical obstacle (rock/wall/tree) -- orange
+		//  - scene-blocked/no-route : off-loaded-scene or no path found -- muted grey
+		const viaDoor = t.reachableViaDoor === true;
+		const isDoorBlocked = typeof t.blockedReason === "string" && t.blockedReason.startsWith("blocked-by-door");
+		const isObstacle = !viaDoor && !isDoorBlocked && t.blockedReason === "collision-blocked";
+		const fill = t.reachable ? "var(--good, #6f9a4a)"
+			: viaDoor || isDoorBlocked ? "var(--door, #e0a82e)"
+			: isObstacle ? "var(--obstacle, #c0563a)"
+			: "var(--unreachable, #8d96a8)";
+		const op = t.reachable ? 0.07 : viaDoor ? 0.14 : isDoorBlocked ? 0.20 : isObstacle ? 0.16 : 0.08;
 		const scene = (t.sceneX !== undefined && t.sceneX !== null) ? `  scene ${t.sceneX},${t.sceneY}` : "";
+		const reasonLabel = viaDoor ? "reachable via door (pending)" : isDoorBlocked ? "blocked by door" : isObstacle ? "obstacle" : "unreachable";
+		const door = t.blockingDoor;
+		const doorLine = door ? `\n${escapeHtml(door.name || "door")} (#${door.id}) · ${escapeHtml(door.requiredAction ? door.requiredAction + " required" : "")} · ${escapeHtml(door.allowlistStatus || "unknown")}${Array.isArray(door.actions) && door.actions.length ? ` · actions: ${escapeHtml(door.actions.join(", "))}` : ""}` : "";
 		const title = t.reachable
 			? `world ${t.x}, ${t.y}${scene}\nreachable · ${t.pathDistance} tile${t.pathDistance === 1 ? "" : "s"}`
-			: `world ${t.x}, ${t.y}${scene}\nblocked · ${escapeHtml(t.blockedReason || "no-route")}`;
-		out += `<g><title>${title}</title><rect x="${col * CELL + 0.5}" y="${row * CELL + 0.5}" width="${CELL - 1}" height="${CELL - 1}" fill="${fill}" fill-opacity="${op}"/></g>`;
+			: viaDoor
+				? `world ${t.x}, ${t.y}${scene}\n${reasonLabel} · ${t.pathDistance} tile${t.pathDistance === 1 ? "" : "s"}${doorLine}`
+				: `world ${t.x}, ${t.y}${scene}\n${reasonLabel} · ${escapeHtml(t.blockedReason || "no-route")}${doorLine}`;
+		// Hatch pattern for "reachable-via-door" so it's visually distinct from a solid
+		// blocked tile AND from plain green -- a diagonal stripe overlay reads as "conditional".
+		const hatch = viaDoor
+			? `<g clip-path="url(#pg-door-clip-${col}-${row})"><clipPath id="pg-door-clip-${col}-${row}"><rect x="${col * CELL + 0.5}" y="${row * CELL + 0.5}" width="${CELL - 1}" height="${CELL - 1}"/></clipPath>${[...Array(4)].map((_, i) => {
+				const lx = col * CELL + i * (CELL / 4);
+				return `<line x1="${lx}" y1="${row * CELL + CELL}" x2="${lx + CELL}" y2="${row * CELL}" stroke="var(--door, #e0a82e)" stroke-width="1.5" opacity="0.5"/>`;
+			}).join("")}</g>`
+			: "";
+		out += `<g><title>${title}</title><rect x="${col * CELL + 0.5}" y="${row * CELL + 0.5}" width="${CELL - 1}" height="${CELL - 1}" fill="${fill}" fill-opacity="${op}"/>${hatch}</g>`;
 	}
 	return out;
 }

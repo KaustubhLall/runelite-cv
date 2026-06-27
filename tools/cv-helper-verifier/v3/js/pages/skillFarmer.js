@@ -147,7 +147,7 @@ function pathingBody(skill, s, candidates, sel, player, tileGrid) {
 	return `
 		<div class="path-info-grid">${cells.map((r) => `<div class="pi-cell"><span class="pi-k">${escapeHtml(r.k)}</span><span class="pi-v ${r.tone || ""}">${r.v}</span></div>`).join("")}</div>
 		<div class="path-grid-box"><div class="compass">N</div>${buildPathGrid(loc, candidates, selCand, null, tileGrid)}</div>
-		<div class="path-legend"><span><i class="lg-you"></i>You</span><span><i class="lg-reach"></i>Reachable</span><span><i class="lg-target"></i>Selected</span><span><i class="lg-obstacle"></i>Blocked / no-action</span><span><i class="lg-center"></i>Object centre</span></div>`;
+		<div class="path-legend"><span><i class="lg-you"></i>You</span><span><i class="lg-reach"></i>Reachable</span><span><i class="lg-target"></i>Selected</span><span><i class="lg-obstacle"></i>Obstacle</span><span><i class="lg-unreachable"></i>Unreachable / no-action</span><span><i class="lg-door-pending"></i>Pending door</span><span><i class="lg-center"></i>Object centre</span></div>`;
 }
 
 function zoomControls() {

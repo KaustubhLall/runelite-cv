@@ -156,7 +156,7 @@ function pathingBody(status, player, candidates, selected, tileGrid) {
 	return `
 		<div class="path-info-grid">${cells.map((r) => `<div class="pi-cell"><span class="pi-k">${escapeHtml(r.k)}</span><span class="pi-v ${r.tone || ""}">${r.v}</span></div>`).join("")}</div>
 		<div class="path-grid-box"><div class="compass">N</div>${grid}</div>
-		<div class="path-legend"><span><i class="lg-you"></i>You</span><span><i class="lg-path"></i>Target</span><span><i class="lg-target"></i>Selected</span><span><i class="lg-obstacle"></i>Blocked</span><span><i class="lg-door"></i>Door</span></div>`;
+		<div class="path-legend"><span><i class="lg-you"></i>You</span><span><i class="lg-path"></i>Target</span><span><i class="lg-target"></i>Selected</span><span><i class="lg-obstacle"></i>Obstacle</span><span><i class="lg-unreachable"></i>Unreachable</span><span><i class="lg-door-pending"></i>Pending door</span><span><i class="lg-door-blocked"></i>Blocked door</span><span><i class="lg-door"></i>Door</span></div>`;
 }
 
 function hpDisplay(c) {

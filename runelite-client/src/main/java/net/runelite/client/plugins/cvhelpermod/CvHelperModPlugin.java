@@ -388,6 +388,12 @@ public class CvHelperModPlugin extends Plugin
 	protected volatile Map<String, Object> lastMobFarmerFocusClickStatus = new LinkedHashMap<>();
 	protected volatile List<Map<String, Object>> lastMobFarmerIntents = new ArrayList<>();
 	protected volatile boolean lastMobFarmerMultiCombat;
+	protected volatile Map<String, Object> lastMobFarmerDoorTransitionStatus = new LinkedHashMap<>();
+	private volatile String mobFarmerDoorTransitionKey;
+	private volatile long mobFarmerDoorTransitionLastClickMillis;
+	private volatile int mobFarmerDoorTransitionAttempts;
+	private static final long MOB_FARMER_DOOR_TRANSITION_CLICK_COOLDOWN_MS = 1200L;
+	private static final int MOB_FARMER_DOOR_TRANSITION_MAX_ATTEMPTS = 5;
 	protected volatile String lastStableSidePanel = "inventory";
 	protected volatile String mobFarmerTarget = "cow";
 	protected volatile boolean mobFarmerLiveMode;
@@ -528,6 +534,22 @@ public class CvHelperModPlugin extends Plugin
 		protected final int searchLimit;
 		protected final int visited;
 		protected final String failureReason;
+		/**
+		 * Non-null only when the winning route required crossing one closed door/gate CV
+		 * Helper is permitted to act on (not denylisted, relevant auto-open/close flag on).
+		 * The caller must still issue the actual Open/Close click and verify the door's real
+		 * state before treating the route as walkable -- this is a contingent route, not a
+		 * guarantee.
+		 */
+		protected Map<String, Object> doorTransition;
+		/** True when the ONLY reason this is unreachable is a door/gate CV Helper can't act on. */
+		protected boolean blockedByDoor;
+		/** True when {@link #blockedByDoor} and the door is denylisted/unknown/auto-flag-disabled. */
+		protected boolean manualActionRequired;
+		/** Human-readable reason paired with {@link #manualActionRequired}, eg. "door-denylisted". */
+		protected String manualActionReason;
+		/** id/name/tile/actions/allowlistStatus of the blocking door when {@link #blockedByDoor}. */
+		protected Map<String, Object> blockingDoor;
 
 		protected PathingResult(boolean reachable, int pathDistance, int searchLimit, int visited, String failureReason)
 		{
@@ -563,6 +585,16 @@ public class CvHelperModPlugin extends Plugin
 		protected final int blockedInteractionTiles;
 		protected final int blockedByCollision;
 		protected final int blockedByScene;
+		/** See {@link PathingResult#doorTransition}. */
+		protected Map<String, Object> doorTransition;
+		/** See {@link PathingResult#blockedByDoor}. */
+		protected boolean blockedByDoor;
+		/** See {@link PathingResult#manualActionRequired}. */
+		protected boolean manualActionRequired;
+		/** See {@link PathingResult#manualActionReason}. */
+		protected String manualActionReason;
+		/** See {@link PathingResult#blockingDoor}. */
+		protected Map<String, Object> blockingDoor;
 
 		protected InteractionPathingResult(boolean reachable, int pathDistance, int searchLimit, int visited,
 			String failureReason, WorldPoint interactionTile, WorldArea objectFootprint,
@@ -617,6 +649,11 @@ public class CvHelperModPlugin extends Plugin
 			map.put("blockedInteractionTiles", blockedInteractionTiles);
 			map.put("blockedByCollision", blockedByCollision);
 			map.put("blockedByScene", blockedByScene);
+			map.put("doorTransition", doorTransition);
+			map.put("blockedByDoor", blockedByDoor);
+			map.put("manualActionRequired", manualActionRequired);
+			map.put("manualActionReason", manualActionReason);
+			map.put("blockingDoor", blockingDoor);
 			return map;
 		}
 	}
@@ -634,6 +671,32 @@ public class CvHelperModPlugin extends Plugin
 		map.put("width", footprint.getWidth());
 		map.put("height", footprint.getHeight());
 		return map;
+	}
+
+	/**
+	 * Builds the world-space occupancy footprint of a tile object using its scene-min
+	 * corner, not {@link TileObject#getWorldLocation()}. For multi-tile GameObjects,
+	 * getWorldLocation() returns the "center most tile, rounded to the south-west", which
+	 * is offset from the true SW occupied tile whenever size is even -- routing interaction
+	 * tiles around that offset footprint skipped the actually-adjacent reachable tiles
+	 * (the root cause of normal trees showing as unreachable).
+	 */
+	private WorldArea buildObjectFootprint(TileObject object, WorldView worldView, int sizeX, int sizeY)
+	{
+		if (object instanceof GameObject && worldView != null)
+		{
+			GameObject gameObject = (GameObject) object;
+			net.runelite.api.Point sceneMin = gameObject.getSceneMinLocation();
+			if (sceneMin != null)
+			{
+				WorldPoint origin = WorldPoint.fromScene(worldView, sceneMin.getX(), sceneMin.getY(), object.getPlane());
+				if (origin != null)
+				{
+					return new WorldArea(origin, sizeX, sizeY);
+				}
+			}
+		}
+		return new WorldArea(object.getWorldLocation(), sizeX, sizeY);
 	}
 
 	protected static Map<String, Object> worldPointMap(WorldPoint point)
@@ -4043,6 +4106,46 @@ public class CvHelperModPlugin extends Plugin
 		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_HIGH_ALCH_BLACKLIST, items == null ? "" : items.trim());
 	}
 
+	String getMobFarmerDoorDenylist()
+	{
+		return config.mobFarmerDoorDenylist();
+	}
+
+	String getMobFarmerDoorAllowlist()
+	{
+		return config.mobFarmerDoorAllowlist();
+	}
+
+	void setMobFarmerDoorAllowlist(String value)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_DOOR_ALLOWLIST, value);
+	}
+
+	void setMobFarmerDoorDenylist(String value)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_DOOR_DENYLIST, value);
+	}
+
+	boolean getMobFarmerDoorAutoOpenEnabled()
+	{
+		return config.mobFarmerDoorAutoOpenEnabled();
+	}
+
+	void setMobFarmerDoorAutoOpenEnabled(boolean enabled)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_DOOR_AUTO_OPEN_ENABLED, enabled);
+	}
+
+	boolean getMobFarmerDoorAutoCloseEnabled()
+	{
+		return config.mobFarmerDoorAutoCloseEnabled();
+	}
+
+	void setMobFarmerDoorAutoCloseEnabled(boolean enabled)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_DOOR_AUTO_CLOSE_ENABLED, enabled);
+	}
+
 	private String normalizedMobFarmerTarget(String target)
 	{
 		String cleaned = target == null ? "" : target.trim();
@@ -4077,6 +4180,7 @@ public class CvHelperModPlugin extends Plugin
 		status.put("scheduler", mobFarmerSchedulerStatus());
 		status.put("deathLootTiming", lastMobFarmerDeathLootStatus);
 		status.put("reattachAfterPickup", lastMobFarmerReattackStatus);
+		status.put("doorTransition", lastMobFarmerDoorTransitionStatus);
 		status.put("stabilization", lastMobFarmerStabilizationStatus);
 		status.put("progress", lastMobFarmerProgressStatus);
 		status.put("recentIntents", lastMobFarmerIntents);
@@ -4187,6 +4291,10 @@ public class CvHelperModPlugin extends Plugin
 		settings.put("loginRecoveryF2pOnly", getMobFarmerLoginRecoveryF2pOnly());
 		settings.put("loginClickToPlayEnabled", getMobFarmerLoginClickToPlayEnabled());
 		settings.put("loginDisconnectRecoveryEnabled", getMobFarmerLoginDisconnectRecoveryEnabled());
+		settings.put("doorAutoOpenEnabled", getMobFarmerDoorAutoOpenEnabled());
+		settings.put("doorAutoCloseEnabled", getMobFarmerDoorAutoCloseEnabled());
+		settings.put("doorAllowlist", getMobFarmerDoorAllowlist());
+		settings.put("doorDenylist", getMobFarmerDoorDenylist());
 		settings.put("autoResumeAfterLogin", getMobFarmerAutoResumeAfterLogin());
 		settings.put("preferredLoginWorld", getMobFarmerPreferredLoginWorld());
 		settings.put("lootEnabled", getMobFarmerLootEnabled());
@@ -4245,6 +4353,10 @@ public class CvHelperModPlugin extends Plugin
 		schema.add(settingSchema("loginRecoveryF2pOnly", "F2P recovery only", "boolean", "Skip automatic login recovery on members, PvP, seasonal, or special worlds.", null));
 		schema.add(settingSchema("loginClickToPlayEnabled", "Click-to-play", "boolean", "Allow the guarded login-screen click/Enter helper.", null));
 		schema.add(settingSchema("loginDisconnectRecoveryEnabled", "Disconnect recovery", "boolean", "Allow guarded Enter recovery from CONNECTION_LOST.", null));
+		schema.add(settingSchema("doorAutoOpenEnabled", "Auto-open closed doors", "boolean", "Click Open on a closed, allowlisted and non-denylisted door blocking the path, then wait for native collision to confirm the transition is clear.", null));
+		schema.add(settingSchema("doorAutoCloseEnabled", "Auto-close open doors", "boolean", "Click Close on an open, allowlisted and non-denylisted door/gate blocking the path (rare). Off by default.", null));
+		schema.add(settingSchema("doorAllowlist", "Door allowlist (id or name)", "textarea", "Doors/gates the farmer may click, separated by |, comma, semicolon, or newlines. Empty means unknown/unallowlisted doors require manual action.", null));
+		schema.add(settingSchema("doorDenylist", "Door denylist (id or name)", "textarea", "Doors/gates the farmer must never click or path through, separated by |, comma, semicolon, or newlines. Always reports blocked-by-door/manual-action-required regardless of the auto-open/auto-close flags.", null));
 		schema.add(settingSchema("autoResumeAfterLogin", "Resume after login", "boolean", "Keep the farmer alive through login recovery so it resumes after login.", null));
 		schema.add(settingSchema("preferredLoginWorld", "Preferred world", "number", "Preferred F2P world used in recovery diagnostics and safety checks.", null));
 		schema.add(settingSchema("lootEnabled", "Loot pickup", "boolean", "Allow pickup of matching or valuable ground items.", null));
@@ -4360,6 +4472,10 @@ public class CvHelperModPlugin extends Plugin
 		applyBooleanSetting(settings, "loginRecoveryF2pOnly", updates, this::setMobFarmerLoginRecoveryF2pOnly, errors);
 		applyBooleanSetting(settings, "loginClickToPlayEnabled", updates, this::setMobFarmerLoginClickToPlayEnabled, errors);
 		applyBooleanSetting(settings, "loginDisconnectRecoveryEnabled", updates, this::setMobFarmerLoginDisconnectRecoveryEnabled, errors);
+		applyBooleanSetting(settings, "doorAutoOpenEnabled", updates, this::setMobFarmerDoorAutoOpenEnabled, errors);
+		applyBooleanSetting(settings, "doorAutoCloseEnabled", updates, this::setMobFarmerDoorAutoCloseEnabled, errors);
+		applyStringSetting(settings, "doorAllowlist", updates, this::setMobFarmerDoorAllowlist);
+		applyStringSetting(settings, "doorDenylist", updates, this::setMobFarmerDoorDenylist);
 		applyBooleanSetting(settings, "autoResumeAfterLogin", updates, this::setMobFarmerAutoResumeAfterLogin, errors);
 		applyIntSetting(settings, "preferredLoginWorld", updates, this::setMobFarmerPreferredLoginWorld, errors);
 		applyBooleanSetting(settings, "lootEnabled", updates, this::setMobFarmerLootEnabled, errors);
@@ -5196,6 +5312,13 @@ public class CvHelperModPlugin extends Plugin
 		}
 
 		Map<String, Object> target = selection.target;
+		if (tryHandleMobFarmerDoorTransition(localPlayer, target, true))
+		{
+			status.put("result", "door-transition");
+			status.put("target", target);
+			lastMobFarmerReattackStatus = status;
+			return true;
+		}
 		Map<String, Object> clickPoint = firstPoint(target, "clickPoint", "center", "canvasTileCenter");
 		if (getMobFarmerAttackInteractionMode() == CvHelperMobInteractionMode.DIRECT_CLICK && canvasPointToScreen(clickPoint) == null)
 		{
@@ -6021,6 +6144,11 @@ public class CvHelperModPlugin extends Plugin
 			}
 			mobFarmerStatus.set(selection.decision + ":" + mobFarmerTarget);
 			updatePanelStatus("Mob farmer found no valid target: " + mobFarmerTarget + " | " + selection.decision);
+			return;
+		}
+
+		if (tryHandleMobFarmerDoorTransition(localPlayer, target, live))
+		{
 			return;
 		}
 
@@ -8750,7 +8878,7 @@ public class CvHelperModPlugin extends Plugin
 			sizeY = Math.max(1, composition.getSizeY());
 		}
 		int distance = localPlayer == null || object.getWorldLocation() == null ? Integer.MAX_VALUE : localPlayer.getWorldLocation().distanceTo(object.getWorldLocation());
-		WorldArea footprint = new WorldArea(object.getWorldLocation(), sizeX, sizeY);
+		WorldArea footprint = buildObjectFootprint(object, localPlayer == null ? null : localPlayer.getWorldView(), sizeX, sizeY);
 		boolean reachable = false;
 		Integer pathDistance = null;
 		if (visible && localPlayer != null)
@@ -8880,7 +9008,7 @@ public class CvHelperModPlugin extends Plugin
 			reasons.add("not-visible");
 		}
 		Map<String, Object> target = new LinkedHashMap<>();
-		WorldArea objectFootprint = new WorldArea(object.getWorldLocation(), sizeX, sizeY);
+		WorldArea objectFootprint = buildObjectFootprint(object, localPlayer == null ? null : localPlayer.getWorldView(), sizeX, sizeY);
 		target.put("skill", skill);
 		target.put("surface", skill);
 		target.put("objectType", object.getClass().getSimpleName());
@@ -8888,6 +9016,7 @@ public class CvHelperModPlugin extends Plugin
 		target.put("name", name);
 		target.put("id", object.getId());
 		target.put("distance", distance);
+		target.put("playerWorldLocation", localPlayer == null ? null : pointValue(localPlayer.getWorldLocation()));
 		target.put("worldLocation", pointValue(object.getWorldLocation()));
 		target.put("localLocation", pointValue(object.getLocalLocation()));
 		target.put("sceneMinLocation", sceneMin);
@@ -8928,9 +9057,14 @@ public class CvHelperModPlugin extends Plugin
 			target.put("pathSearchLimit", pathing.searchLimit);
 			target.put("pathVisited", pathing.visited);
 			target.put("pathFailureReason", pathing.failureReason);
+			target.put("doorTransition", pathing.doorTransition);
+			target.put("blockedByDoor", pathing.blockedByDoor);
+			target.put("manualActionRequired", pathing.manualActionRequired);
+			target.put("manualActionReason", pathing.manualActionReason);
+			target.put("blockingDoor", pathing.blockingDoor);
 			if (!pathing.reachable)
 			{
-				reasons.add("unreachable:" + pathing.failureReason);
+				reasons.add(pathing.manualActionRequired ? "manual-action-required:" + pathing.manualActionReason : "unreachable:" + pathing.failureReason);
 			}
 		}
 		else
@@ -9725,6 +9859,173 @@ public class CvHelperModPlugin extends Plugin
 		lastMobFarmerIntermediateDecision = payload;
 	}
 
+	/**
+	 * The "hijack": if the selected target's path required a door transition (see
+	 * {@link PathingResult#doorTransition}), this takes over the tick instead of letting the
+	 * caller attack/walk immediately. It verifies the door's REAL current state, and only
+	 * once that state actually matches what's needed does it let normal target logic resume
+	 * -- it does not trust the path being "theoretically" clear. Returns true if this tick
+	 * was consumed by door handling (caller should return without attacking).
+	 */
+	private boolean tryHandleMobFarmerDoorTransition(Player localPlayer, Map<String, Object> target, boolean live)
+	{
+		Map<String, Object> doorTransition = mapValue(target.get("doorTransition"));
+		if (doorTransition.isEmpty())
+		{
+			if (mobFarmerDoorTransitionKey != null)
+			{
+				mobFarmerDoorTransitionKey = null;
+				mobFarmerDoorTransitionAttempts = 0;
+			}
+			return false;
+		}
+
+		int doorId = intValue(doorTransition.get("id"), -1);
+		String requiredAction = String.valueOf(doorTransition.get("requiredAction"));
+		String doorName = String.valueOf(doorTransition.get("name"));
+		Map<String, Object> tileMap = mapValue(doorTransition.get("worldTile"));
+		Map<String, Object> fromTileMap = mapValue(doorTransition.get("fromTile"));
+		Map<String, Object> toTileMap = mapValue(doorTransition.get("toTile"));
+		boolean knownAction = "Open".equals(requiredAction) || "Close".equals(requiredAction);
+		if (doorId < 0 || tileMap == null || !knownAction)
+		{
+			// Unknown/ambiguous required action (eg. unknown-door-action / disabled / denylisted
+			// status from the kernel) -- nothing CV Helper is allowed to click. Surface as
+			// manual action required and let normal selection logic reject the target.
+			recordMobFarmerDoorTransition("manual-action-required", doorTransition);
+			return false;
+		}
+		int wx = intValue(tileMap.get("x"), Integer.MIN_VALUE);
+		int wy = intValue(tileMap.get("y"), Integer.MIN_VALUE);
+		if (wx == Integer.MIN_VALUE)
+		{
+			return false;
+		}
+		int plane = intValue(tileMap.get("plane"), localPlayer.getWorldLocation().getPlane());
+		WorldPoint doorTile = new WorldPoint(wx, wy, plane);
+		WorldPoint fromTile = worldPointValue(fromTileMap, plane);
+		WorldPoint toTile = worldPointValue(toTileMap, plane);
+
+		Integer state = pathfinding.currentDoorState(localPlayer, doorTile);
+		boolean alreadyDone = pathfinding.isDoorTransitionSatisfied(localPlayer, fromTile, toTile, requiredAction)
+			|| ("Open".equals(requiredAction) && state != null && state == 1)
+			|| ("Close".equals(requiredAction) && state != null && state == 0);
+		String doorKey = doorId + "@" + wx + "," + wy + "," + plane + ":" + requiredAction;
+
+		if (alreadyDone)
+		{
+			if (doorKey.equals(mobFarmerDoorTransitionKey))
+			{
+				mobFarmerDoorTransitionKey = null;
+				mobFarmerDoorTransitionAttempts = 0;
+			}
+			recordMobFarmerDoorTransition("door-now-clear", doorTransition);
+			return false;
+		}
+
+		if (!live)
+		{
+			recordMobFarmerDoorTransition("dry-pending", doorTransition);
+			mobFarmerStatus.set("dry-door-transition:" + requiredAction + ":" + doorName);
+			updatePanelStatus("Mob farmer dry door transition: " + requiredAction + " " + doorName);
+			return true;
+		}
+
+		if (!doorKey.equals(mobFarmerDoorTransitionKey))
+		{
+			mobFarmerDoorTransitionKey = doorKey;
+			mobFarmerDoorTransitionAttempts = 0;
+			mobFarmerDoorTransitionLastClickMillis = 0;
+		}
+
+		if (mobFarmerDoorTransitionAttempts >= MOB_FARMER_DOOR_TRANSITION_MAX_ATTEMPTS)
+		{
+			recordMobFarmerDoorTransition("timeout", doorTransition);
+			mobFarmerStatus.set("door-transition-timeout:" + doorName);
+			updatePanelStatus("Mob farmer gave up on door transition: " + doorName);
+			return true;
+		}
+
+		long now = System.currentTimeMillis();
+		if (now - mobFarmerDoorTransitionLastClickMillis < MOB_FARMER_DOOR_TRANSITION_CLICK_COOLDOWN_MS)
+		{
+			recordMobFarmerDoorTransition("waiting", doorTransition);
+			mobFarmerStatus.set("waiting-door-transition:" + doorName);
+			return true;
+		}
+
+		boolean clicked = invokeDoorTransitionAction(localPlayer, doorTile, doorId, requiredAction, doorName);
+		mobFarmerDoorTransitionLastClickMillis = now;
+		mobFarmerDoorTransitionAttempts++;
+		recordMobFarmerDoorTransition(clicked ? "clicked" : "click-failed", doorTransition);
+		mobFarmerStatus.set((clicked ? "door-transition-clicked:" : "door-transition-click-failed:") + doorName);
+		updatePanelStatus("Mob farmer " + requiredAction.toLowerCase() + "ing door: " + doorName);
+		return true;
+	}
+
+	private void recordMobFarmerDoorTransition(String result, Map<String, Object> doorTransition)
+	{
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("result", result);
+		payload.put("door", doorTransition);
+		payload.put("attempts", mobFarmerDoorTransitionAttempts);
+		payload.put("updatedAt", Instant.now().toString());
+		lastMobFarmerDoorTransitionStatus = payload;
+	}
+
+	private WorldPoint worldPointValue(Map<String, Object> value, int defaultPlane)
+	{
+		if (value == null)
+		{
+			return null;
+		}
+		int x = intValue(value.get("x"), Integer.MIN_VALUE);
+		int y = intValue(value.get("y"), Integer.MIN_VALUE);
+		if (x == Integer.MIN_VALUE || y == Integer.MIN_VALUE)
+		{
+			return null;
+		}
+		return new WorldPoint(x, y, intValue(value.get("plane"), defaultPlane));
+	}
+
+	private boolean invokeDoorTransitionAction(Player localPlayer, WorldPoint doorTile, int doorId, String action, String name)
+	{
+		WorldView worldView = localPlayer.getWorldView();
+		if (worldView == null)
+		{
+			worldView = client.getTopLevelWorldView();
+		}
+		if (worldView == null)
+		{
+			return false;
+		}
+		LocalPoint localPoint = LocalPoint.fromWorld(worldView, doorTile);
+		if (localPoint == null)
+		{
+			return false;
+		}
+		ObjectComposition composition = safeValue(() -> client.getObjectDefinition(doorId), null);
+		int actionIndex = objectActionIndex(composition, action);
+		MenuAction menuAction = gameObjectMenuActionForIndex(actionIndex);
+		if (menuAction == null)
+		{
+			return false;
+		}
+		if (!actionInProgress.compareAndSet(false, true))
+		{
+			return false;
+		}
+		try
+		{
+			client.menuAction(localPoint.getSceneX(), localPoint.getSceneY(), menuAction, doorId, -1, action, name);
+			return true;
+		}
+		finally
+		{
+			actionInProgress.set(false);
+		}
+	}
+
 	private MobFarmerSelection selectMobFarmerTarget(Player localPlayer)
 	{
 		MobFarmerSelection selection = new MobFarmerSelection();
@@ -9801,6 +10102,11 @@ public class CvHelperModPlugin extends Plugin
 		entity.put("pathSearchLimit", pathing.searchLimit);
 		entity.put("pathVisited", pathing.visited);
 		entity.put("pathFailureReason", pathing.failureReason);
+		entity.put("doorTransition", pathing.doorTransition);
+		entity.put("blockedByDoor", pathing.blockedByDoor);
+		entity.put("manualActionRequired", pathing.manualActionRequired);
+		entity.put("manualActionReason", pathing.manualActionReason);
+		entity.put("blockingDoor", pathing.blockingDoor);
 		if (pathing.reachable)
 		{
 			candidate.score = pathing.pathDistance;
@@ -9811,7 +10117,7 @@ public class CvHelperModPlugin extends Plugin
 		}
 		else
 		{
-			candidate.reject("unreachable:" + pathing.failureReason);
+			candidate.reject(pathing.manualActionRequired ? "manual-action-required:" + pathing.manualActionReason : "unreachable:" + pathing.failureReason);
 		}
 
 		boolean lineOfSight = hasLineOfSight(localPlayer, npc);
@@ -9890,6 +10196,12 @@ public class CvHelperModPlugin extends Plugin
 		report.put("pathSearchLimit", candidate.entity.get("pathSearchLimit"));
 		report.put("pathVisited", candidate.entity.get("pathVisited"));
 		report.put("pathFailureReason", candidate.entity.get("pathFailureReason"));
+		report.put("playerWorldLocation", candidate.entity.get("playerWorldLocation"));
+		report.put("doorTransition", candidate.entity.get("doorTransition"));
+		report.put("blockedByDoor", candidate.entity.get("blockedByDoor"));
+		report.put("manualActionRequired", candidate.entity.get("manualActionRequired"));
+		report.put("manualActionReason", candidate.entity.get("manualActionReason"));
+		report.put("blockingDoor", candidate.entity.get("blockingDoor"));
 		report.put("attackActionIndex", candidate.entity.get("attackActionIndex"));
 		report.put("attackMenuAction", candidate.entity.get("attackMenuAction"));
 		report.put("clickPoint", candidate.entity.get("clickPoint"));
@@ -12685,6 +12997,7 @@ public class CvHelperModPlugin extends Plugin
 		entity.put("inCombat", actor.getInteracting() != null || actor.isInteracting());
 		entity.put("interacting", actorSummary(actor.getInteracting()));
 		entity.put("worldLocation", pointValue(actor.getWorldLocation()));
+		entity.put("playerWorldLocation", origin == null ? null : pointValue(origin));
 		entity.put("localLocation", pointValue(actor.getLocalLocation()));
 		entity.put("worldArea", worldAreaMap(actor.getWorldArea()));
 		entity.put("canvasBounds", canvasBounds);

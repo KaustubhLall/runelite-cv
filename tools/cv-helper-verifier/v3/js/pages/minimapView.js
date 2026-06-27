@@ -90,7 +90,7 @@ function candidatesBody(candidates) {
 }
 
 function legendHtml(lens) {
-	const base = `<span><i class="lg-you"></i>You</span><span><i class="lg-reach"></i>Reachable</span><span><i class="lg-obstacle"></i>Blocked / no-action</span><span><i class="lg-center"></i>Object centre</span>`;
+	const base = `<span><i class="lg-you"></i>You</span><span><i class="lg-reach"></i>Reachable</span><span><i class="lg-obstacle"></i>Obstacle</span><span><i class="lg-unreachable"></i>Unreachable</span><span><i class="lg-door-pending"></i>Pending door</span><span><i class="lg-center"></i>Object centre</span>`;
 	return lens === "scene"
 		? `${base}<span><i class="lg-target"></i>Scanned object</span>`
 		: `${base}<span><i class="lg-target"></i>Selected</span>`;

@@ -55,6 +55,7 @@
 	--you:           #58b6c9;
 	--path:          #74c66f;
 	--obstacle:      #e0654a;
+	--unreachable:   #8d96a8;   /* out of scene / no route found -- not a physical blocker */
 	--door:          #e0a82e;
 
 	/* ---- Radius / spacing / motion */
