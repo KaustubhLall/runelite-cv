@@ -1,0 +1,77 @@
+/* ============================================================================
+ * CV Helper WebHelper Console v3 — Design tokens
+ * Dark "engraved bronze on weathered wood" RuneScape-adjacent theme.
+ * All colours, spacing, radii, and type live here so the rest of the app
+ * never hard-codes a hex value.
+ * ========================================================================== */
+:root {
+	/* ---- Surfaces (dark, slightly warm green-black like aged parchment/wood) */
+	--bg-abyss:      #090d0a;   /* page backdrop */
+	--bg-panel:      #131a14;   /* card body */
+	--bg-panel-2:    #0f1510;   /* inset / table body */
+	--bg-rail:       #0c120d;   /* left nav rail */
+	--bg-raise:      #1b241b;   /* hovered/raised surface */
+	--bg-input:      #0c110c;
+	--bg-header:     #161e16;   /* card header strip */
+
+	/* ---- Bronze / brass frame system */
+	--frame:         #3c4a33;   /* default ornate border */
+	--frame-soft:    #2a3527;
+	--frame-bright:  #6f8254;   /* highlighted edge */
+	--frame-gold:    #b8923a;   /* gilt accent edge */
+
+	/* ---- Gilt text accents */
+	--gold:          #d9b25e;   /* section titles, emblems */
+	--gold-bright:   #f0cd76;
+	--gold-dim:      #9a7e3f;
+
+	/* ---- Text */
+	--ink:           #d7ddc8;   /* primary value text (parchment cream) */
+	--ink-soft:      #aab39a;   /* secondary */
+	--ink-faint:     #6f7a64;   /* labels / captions */
+	--ink-id:        #8fb0c9;   /* entity ids (italicised, cool tint) */
+
+	/* ---- Semantic states */
+	--good:          #74c66f;   /* take / reachable / running */
+	--good-bright:   #9fe39a;
+	--warn:          #e0a82e;   /* skip-by-value / waiting */
+	--warn-bright:   #f2c659;
+	--bad:           #e0654a;   /* unreachable / blocked / stop */
+	--bad-bright:    #f08a72;
+	--info:          #58b6c9;   /* cyan accents */
+	--info-bright:   #7fd6e6;
+	--purple:        #b98ce0;
+
+	/* ---- GP value tiers (match v1/v2 semantics) */
+	--gp-gold:       #f0cd76;
+	--gp-purple:     #b98ce0;
+	--gp-green:      #74c66f;
+	--gp-yellow:     #e0c84e;
+	--gp-white:      #d7ddc8;
+
+	/* ---- Path grid */
+	--grid-line:     rgba(111, 130, 84, 0.16);
+	--grid-line-mid: rgba(111, 130, 84, 0.30);
+	--you:           #58b6c9;
+	--path:          #74c66f;
+	--obstacle:      #e0654a;
+	--door:          #e0a82e;
+
+	/* ---- Radius / spacing / motion */
+	--r-sm: 4px;
+	--r-md: 7px;
+	--r-lg: 11px;
+	--gap: 14px;
+	--gap-sm: 9px;
+	--pad: 14px;
+	--ease: cubic-bezier(.4, 0, .2, 1);
+
+	/* ---- Type */
+	--font-display: "Cinzel", "Trajan Pro", Georgia, serif;
+	--font-body: "Inter", "Segoe UI", system-ui, sans-serif;
+	--font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
+
+	/* ---- Elevation */
+	--shadow-card: 0 2px 0 rgba(0,0,0,.35), 0 10px 24px -14px rgba(0,0,0,.8);
+	--inset: inset 0 0 0 1px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.03);
+}

@@ -45,7 +45,7 @@ These tools are useful for the intended workflow:
 - Confirm GitHub authentication path.
 - Confirm Linear task workflow and labels.
 - Confirm browser verification workflow.
-- Confirm MCP server configuration for GitHub, Linear, and `agent-browser`.
+- MCP server configuration is documented and configured in `.agents/mcp-config.json`.
 - Document required environment variables with names and purpose, excluding secret values.
 - Add smoke-test commands for the server, Python bridge, and plugin once they exist.
 - Record recurring user workflow preferences here when they affect task intake, planning, or handoff so future sessions can reuse them by default.
@@ -119,3 +119,53 @@ For live checks, the practical login flow is: click `Play Now`, wait for the cli
 For prayer target verification, open the prayer tab in RuneLite before calling `/targets/prayer`. The endpoint reports canvas `bounds` and `center` points for visible prayer-related widgets.
 
 For runtime verification that depends on live game widgets, ask the user to log in to the newest launched custom client before interpreting endpoint output. Logged-out state commonly reports unavailable spellbook metadata and empty target surfaces.
+
+## MCP Server Configuration
+
+### Windsurf/Cascade MCP Configuration
+
+MCP servers are configured in `~/.codeium/windsurf/mcp_config.json` for Windsurf/Cascade AI assistant.
+
+#### Setup Steps
+
+1. Ensure the config directory exists:
+   ```powershell
+   New-Item -ItemType Directory -Force -Path $env:USERPROFILE\.codeium\windsurf
+   ```
+
+2. Create or edit `~/.codeium/windsurf/mcp_config.json` with the following:
+   ```json
+   {
+     "mcpServers": {
+       "linear": {
+         "serverUrl": "https://mcp.linear.app/mcp"
+       },
+       "github": {
+         "command": "npx",
+         "args": ["-y", "@modelcontextprotocol/server-github"],
+         "env": {
+           "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+         }
+       }
+     }
+   }
+   ```
+
+3. Set the GITHUB_TOKEN environment variable:
+   ```powershell
+   [Environment]::SetEnvironmentVariable("GITHUB_TOKEN", "your_github_token", "User")
+   ```
+
+4. Restart Windsurf to pick up the new configuration
+
+5. Linear MCP will prompt for OAuth authentication on first use
+
+### Project-Level MCP Configuration
+
+The project also includes `.mcp-config.json` in the repository root for reference and potential project-specific MCP configuration.
+
+### GitHub CLI Fallback
+
+GitHub CLI (`gh`) is available as a fallback for repository operations:
+- Authenticated as KaustubhLall with repo, gist, read:org scopes
+- Use for branches, PRs, and CI operations when MCP is unavailable

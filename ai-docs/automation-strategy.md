@@ -47,3 +47,11 @@ Do not build the live automation loop on unstable primitives. Verify these first
 - Fail closed on missing targets, stale geometry, unsafe HP, or unknown click results.
 - Keep each automation brick independently testable in dry-run mode.
 - Never let a higher-level automation hide a broken primitive. Fix the primitive first.
+
+## Skill Farmer Presets
+
+Every new skill farmer must ship with exhaustive default presets for all trainable targets in that skill, derived from the current OSRS wiki target list. Presets live in `CvHelperPlugin` (`woodcuttingProfiles()`, `miningProfiles()`, and equivalent helpers for future skills) and are exposed through the existing `/automation/<skill>/config` endpoint.
+
+- Woodcutting: all choppable trees from the OSRS wiki `Trees` article (Normal, Achey, Oak, Willow, Teak, Maple, Arctic pine, Hollow, Mahogany, Yew, Blisterwood, Camphor, Magic, Ironwood, Redwood, Rosewood).
+- Mining: all mineable rocks/ores from the OSRS wiki `Mining` article (Clay, Copper, Tin, Blurite, Iron, Silver, Coal, Gold, Mithril, Adamantite, Runite, Amethyst, Gem, Granite, Sandstone, Lovakite, Daeyalt, Limestone, Volcanic sulphur, Rune essence, Pure essence, Lead, Nickel, Ancient essence, etc.).
+- Before marking any future skill farmer complete, repeat this preset exercise and update the decision log with the accepted target list.
