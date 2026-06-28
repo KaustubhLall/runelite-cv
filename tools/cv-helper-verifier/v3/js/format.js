@@ -3,6 +3,8 @@
  * Ported/cleaned from v1/v2 so value semantics stay identical.
  * ========================================================================== */
 
+import { getGpTier } from "./gpSettings.js";
+
 export function escapeHtml(value) {
 	return String(value ?? "")
 		.replace(/&/g, "&amp;")
@@ -51,18 +53,18 @@ export function formatRelativeTime(date) {
 	return `${day}d ${hour % 24}h ago`;
 }
 
-/** GP value coloured by magnitude tier; returns HTML span. */
-export function formatGp(value) {
-	if (typeof value !== "number") return "—";
+/** GP value colored by the shared frontend tier settings; returns HTML span. */
+export function formatGp(value, { label = "GP value" } = {}) {
+	if (typeof value !== "number" || !Number.isFinite(value)) return `<span class="gp-value gp-tier-unknown" title="${escapeHtml(label)}: unknown">—</span>`;
 	const abs = Math.abs(value);
 	let text;
-	let cls;
-	if (abs >= 1_000_000_000) { text = `${(value / 1e9).toFixed(1)}b`; cls = "gp-gold"; }
-	else if (abs >= 100_000_000) { text = `${(value / 1e6).toFixed(0)}m`; cls = "gp-purple"; }
-	else if (abs >= 1_000_000) { text = `${(value / 1e6).toFixed(1)}m`; cls = "gp-green"; }
-	else if (abs >= 1_000) { text = `${(value / 1e3).toFixed(0)}k`; cls = "gp-yellow"; }
-	else { text = `${Math.round(value)}`; cls = "gp-white"; }
-	return `<span class="gp-value ${cls}">${text}</span>`;
+	if (abs >= 1_000_000_000) text = `${(value / 1e9).toFixed(1)}b`;
+	else if (abs >= 1_000_000) text = `${(value / 1e6).toFixed(abs >= 100_000_000 ? 0 : 1)}m`;
+	else if (abs >= 1_000) text = `${(value / 1e3).toFixed(0)}k`;
+	else text = `${Math.round(value)}`;
+	const tier = getGpTier(value);
+	const exact = Math.round(value).toLocaleString("en-US");
+	return `<span class="gp-value gp-tier-${tier}" data-gp-value="${value}" data-gp-tier="${tier}" title="${escapeHtml(label)}: ${exact} GP (${tier})">${text}</span>`;
 }
 
 export function formatPoint(point) {

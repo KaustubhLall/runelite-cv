@@ -3,7 +3,7 @@
  * Every helper returns a string; callers inject and then call refreshIcons().
  * ========================================================================== */
 import { icon } from "./icons.js";
-import { escapeHtml } from "./format.js";
+import { escapeHtml, formatGp } from "./format.js";
 
 const isHtml = (v) => typeof v === "string" && /<\/?[a-z]/i.test(v);
 const safe = (v) => (isHtml(v) ? v : escapeHtml(v));
@@ -54,6 +54,11 @@ export function kvList(rows, twoCol = false) {
 
 export function badge(text, tone = "", { pulse = false, live = false } = {}) {
 	return `<span class="badge ${tone} ${live ? "live" : ""}">${pulse ? '<span class="pulse"></span>' : ""}${escapeHtml(text)}</span>`;
+}
+
+/** Shared renderer for any GE/HA/wealth/threshold amount. */
+export function gpValue(value, label) {
+	return formatGp(value, { label });
 }
 
 /** An italic entity id chip. */

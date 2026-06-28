@@ -6,10 +6,10 @@
  * tile signature. This keeps hover tooltips, table scroll, and <details> open
  * state alive across fast polls, and keeps CPU low.
  * ========================================================================== */
-import { panel, metric, kvList, table, idChip } from "../components.js";
+import { panel, metric, kvList, table, idChip, gpValue } from "../components.js";
 import { icon, refreshIcons, itemIcon } from "../icons.js";
 import {
-	escapeHtml, formatGp, formatDuration, formatRelativeTime, selectedValue,
+	escapeHtml, formatDuration, formatRelativeTime, selectedValue,
 	humanizeAction, decisionTone, compass, compassLong, regionId, formatFoodItems,
 } from "../format.js";
 import { buildPathGrid, gridSignature, getGridRadius } from "../pathGrid.js";
@@ -53,6 +53,7 @@ function scalarRows(source, twoCol = false) {
 		else if (typeof v === "object") continue;
 		else if (typeof v === "boolean") { value = v ? "Yes" : "No"; tone = v ? "good" : ""; }
 		else if (typeof v === "string" && (k === "food" || k === "foodItems" || k === "foodList")) { value = formatFoodItems(v); }
+		else if (typeof v === "number" && /(gp|ge|ha|price|value|threshold|maxDrop)/i.test(k)) { value = gpValue(v, prettyKey(k)); }
 		else { value = String(v); tone = decisionTone(v); }
 		rows.push({ k: prettyKey(k), v: value, tone });
 	}
@@ -177,7 +178,7 @@ function lootCandidateTable(candidates) {
 		const take = c.highPriority || c.selectable;
 		const decision = c.highPriority ? `<span class="cell-prio">priority</span>` : c.selectable ? `<span class="cell-take">take</span>` : `<span class="cell-skip">skip</span>`;
 		const itemIconHtml = itemIcon(c.itemId, c.name, "sm");
-		return { cls: take ? "row-good" : "row-bad", cells: [`${itemIconHtml} ${escapeHtml(c.name || "item")} <small>${idChip(c.itemId)} ×${escapeHtml(c.quantity ?? 1)}</small>`, formatGp(num(c.gePriceEach)), formatGp(num(c.totalStackGeValue) ?? num(c.gePrice)), formatGp(num(c.haPriceEach)), formatGp(num(c.totalStackHaValue) ?? num(c.haPrice)), decision, `<span class="muted">${escapeHtml(arr(c.reasons).join(", ") || "—")}</span>`] };
+		return { cls: take ? "row-good" : "row-bad", cells: [`${itemIconHtml} ${escapeHtml(c.name || "item")} <small>${idChip(c.itemId)} ×${escapeHtml(c.quantity ?? 1)}</small>`, gpValue(num(c.gePriceEach), "Loot GE each"), gpValue(num(c.totalStackGeValue) ?? num(c.gePrice), "Loot GE stack total"), gpValue(num(c.haPriceEach), "Loot HA each"), gpValue(num(c.totalStackHaValue) ?? num(c.haPrice), "Loot HA stack total"), decision, `<span class="muted">${escapeHtml(arr(c.reasons).join(", ") || "—")}</span>`] };
 	});
 	return table({ columns: [{ label: "Item" }, { label: "GE each" }, { label: "GE stack" }, { label: "HA each" }, { label: "HA stack" }, { label: "Decision" }, { label: "Reason" }], rows, empty: "No loot candidates nearby." });
 }
@@ -188,7 +189,7 @@ function menuEntryTable(entries) {
 function highAlchTable(candidates) {
 	const rows = candidates.slice(0, 20).map((c) => {
 		const itemIconHtml = itemIcon(c.id, c.name, "sm");
-		return { cls: c.eligible ? "row-good" : "row-bad", cells: [`${itemIconHtml} ${escapeHtml(c.name || "item")} <small>${idChip(c.id)}</small>`, formatGp(num(c.geEach)), formatGp(num(c.haEach)), formatGp(num(c.deltaEach)), c.eligible ? `<span class="cell-take">alch</span>` : `<span class="cell-skip">skip</span>`] };
+		return { cls: c.eligible ? "row-good" : "row-bad", cells: [`${itemIconHtml} ${escapeHtml(c.name || "item")} <small>${idChip(c.id)}</small>`, gpValue(num(c.geEach), "High alch candidate GE each"), gpValue(num(c.haEach), "High alch candidate HA each"), gpValue(num(c.deltaEach), "High alch value delta each"), c.eligible ? `<span class="cell-take">alch</span>` : `<span class="cell-skip">skip</span>`] };
 	});
 	return table({ columns: [{ label: "Item" }, { label: "GE" }, { label: "HA" }, { label: "Delta" }, { label: "Decision" }], rows, empty: "No high-alch candidates." });
 }
@@ -198,8 +199,8 @@ function inventoryOverview(inventory) {
 	return `<div class="inv-summary">
 		<div class="inv-stat"><div class="s-label">Slots used</div><div class="s-value">${escapeHtml(slots)}</div></div>
 		<div class="inv-stat"><div class="s-label">Free slots</div><div class="s-value">${escapeHtml(selectedValue(i.freeSlots, "—"))}</div></div>
-		<div class="inv-stat"><div class="s-label">Total GE</div><div class="s-value">${formatGp(num(i.gePrice))}</div></div>
-		<div class="inv-stat"><div class="s-label">Total HA</div><div class="s-value">${formatGp(num(i.haPrice))}</div></div>
+		<div class="inv-stat"><div class="s-label">Total GE</div><div class="s-value">${gpValue(num(i.gePrice), "Inventory GE total")}</div></div>
+		<div class="inv-stat"><div class="s-label">Total HA</div><div class="s-value">${gpValue(num(i.haPrice), "Inventory HA total")}</div></div>
 	</div>`;
 }
 function eventsPanel(events) {

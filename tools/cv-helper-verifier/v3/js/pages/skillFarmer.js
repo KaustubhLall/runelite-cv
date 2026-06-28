@@ -4,9 +4,9 @@
  * candidate table, Inventory & Drop Policy, Candidate Summary stat cards, Run &
  * Status — plus the shared 2D path grid. Mount-once + per-cell patching.
  * ========================================================================== */
-import { panel, metric, kvList, table, idChip, badge } from "../components.js";
+import { panel, metric, kvList, table, idChip, badge, gpValue } from "../components.js";
 import { icon, refreshIcons, itemIcon } from "../icons.js";
-import { escapeHtml, formatGp, formatRelativeTime, selectedValue, humanizeAction, decisionTone, compass, compassLong } from "../format.js";
+import { escapeHtml, formatRelativeTime, selectedValue, humanizeAction, decisionTone, compass, compassLong } from "../format.js";
 import { buildPathGrid, gridSignature, getGridRadius } from "../pathGrid.js";
 
 const arr = (v) => (Array.isArray(v) ? v : []);
@@ -38,8 +38,8 @@ function metricStrip(skill, s, sel, inv, player) {
 		${metric({ iconName: "check-circle", label: "Reachable", value: sel.reachable === true ? "Yes" : sel.reachable === false ? "No" : "—", tone: sel.reachable ? "good" : sel.reachable === false ? "bad" : "" })}
 		${metric({ iconName: "radar", label: "Scan Radius", value: `${selectedValue(s.scanRadiusTiles, "—")} tiles` })}
 		${metric({ iconName: "backpack", label: "Free Slots", value: `${selectedValue(inv.freeSlots, "—")} / ${selectedValue(inv.slotCount, 28)}`, tone: inv.full ? "warn" : "good" })}
-		${metric({ iconName: "coins", label: "Inventory GE", value: formatGp(num(inv.gePrice)), tone: "gold" })}
-		${metric({ iconName: "wand-2", label: "Inventory HA", value: formatGp(num(inv.haPrice)), tone: "gold" })}`;
+		${metric({ iconName: "coins", label: "Inventory GE", value: gpValue(num(inv.gePrice), "Inventory GE total") })}
+		${metric({ iconName: "wand-2", label: "Inventory HA", value: gpValue(num(inv.haPrice), "Inventory HA total") })}`;
 }
 
 function selectedDetails(sel) {
@@ -125,7 +125,7 @@ function dropPolicy(dp, inv) {
 		? `<div class="drop-cands"><div class="drop-cands-h">Drop Candidates (${cands.length})</div>${cands.slice(0, 5).map((d) => {
 			const itemId = d.id ?? d.itemId;
 			const itemIconHtml = itemIcon(itemId, d.name, "sm");
-			return `<div class="drop-cand"><span class="dc-name">${itemIconHtml} ${escapeHtml(d.name || "item")} <small>${idChip(itemId)}</small></span><span class="dc-meta">×${escapeHtml(d.quantity ?? 1)} · ${formatGp(num(d.gePriceEach) ?? num(d.gePrice))}</span></div>`;
+			return `<div class="drop-cand"><span class="dc-name">${itemIconHtml} ${escapeHtml(d.name || "item")} <small>${idChip(itemId)}</small></span><span class="dc-meta">×${escapeHtml(d.quantity ?? 1)} · ${gpValue(num(d.gePriceEach) ?? num(d.gePrice), "Drop candidate GE each")}</span></div>`;
 		}).join("")}</div>`
 		: `<p class="empty compact">No drop candidates.</p>`;
 	return `<div class="dp-head"><span class="gilt-label">Policy Status</span>${status}</div>${rows}${policyChips(dp)}${dropList}`;

@@ -19,6 +19,7 @@ import { renderSkillConfigTab, applySkillConfig, resetSkillConfig, loadSkillConf
 import { renderMinimapView } from "./pages/minimapView.js";
 import { renderActionsView } from "./pages/actionsView.js";
 import { renderGlobalConfigTab, applyGlobalConfig, resetGlobalConfig, loadGlobalConfigIntoDraft, importGlobalConfig, exportGlobalConfig } from "./pages/globalConfig.js";
+import { mountGpSettings } from "./gpSettings.js";
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -667,6 +668,8 @@ function init() {
 	$$("[data-emblem]").forEach((el) => { el.innerHTML = icon(el.dataset.emblem); });
 
 	wire();
+	mountGpSettings();
+	window.addEventListener("cvhelper:gp-settings-changed", () => refreshAll());
 	["mob", "mining", "woodcutting"].forEach(populatePresets);
 	showView("mob-farmer");   // open on the centrepiece per spec
 	showTab("overview");

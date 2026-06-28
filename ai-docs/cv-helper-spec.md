@@ -482,3 +482,7 @@ The mob-farmer verifier panel shows status, controls, runtime details, configura
 - Add stable target IDs/names so Python can ask for a semantic click point.
 - Prototype `OSR-5` hotkey logging for one prayer and one spell before implementing direct action execution.
 - Run `powershell -ExecutionPolicy Bypass -File .\tools\cv-helper-verifier\serve.ps1` after relaunch and confirm the dashboard auto-discovers the fresh CV Helper port, distinguishes `LOGIN_SCREEN` from transport failure, and still polls the live status surfaces.
+
+## WebHelper GP tiers
+
+WebHelper v3 applies one configurable GP presentation contract across Dashboard, Mob Farmer, Mining, Woodcutting, and Inventory. The shared renderer distinguishes GE/HA each, stack totals, inventory totals, loot values, value deltas, and policy thresholds through exact-value tooltips. Defaults are gray below 1k, white from 1k, yellow from 100k, green from 1m, purple from 100m, and orange-gold from 1b. Frontend Configuration can disable coloring, change strictly ascending thresholds, change all six colors, or reset defaults; settings persist locally and do not alter RuneLite valuation or automation behavior.

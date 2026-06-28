@@ -177,3 +177,10 @@ Files changed:
 - Normal hotkeys fail closed for OSRS chat/meslayer input, Swing text focus, or an inactive RuneLite window. Suppression clears pre-dispatch pressed-key state and does not consume the key.
 - Panic stop remains the documented global exception.
 - `/status.hotkeyGuard` reports only focus/input booleans and string lengths, never chat content.
+
+## OSR-47 shared GP tier presentation (2026-06-27)
+
+- WebHelper v3 now routes existing Dashboard, Mob/Mining/Woodcutting Farmer, Inventory, loot, high-alch, and monetary policy values through one `gpValue` renderer with semantic exact-GP tooltips.
+- Correct default boundaries are trivial below 1k, common 1k, valuable 100k, wealthy 1m, elite 100m, and legendary 1b.
+- The frontend Configuration page exposes enable/disable, strictly ascending thresholds, six colors, live preview, Apply, and Reset defaults. Preferences use versioned local storage and do not change backend valuation or automation.
+- OSR-47 intentionally excludes item/object asset expansion and backend behavior changes.

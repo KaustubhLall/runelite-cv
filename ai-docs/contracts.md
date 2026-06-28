@@ -187,3 +187,10 @@ Expose lightweight RuneLite UI capture state to local development tools without 
 ### Notes
 
 The next feature step is a combined target endpoint, stable semantic target names for Python, equipment label cleanup, Python receiver implementation, tick-synchronized export flushing, and hotkey intent prototyping.
+
+### WebHelper GP value styling
+
+- WebHelper v3 uses `gpValue(value, label)` as the shared renderer for GE, HA, inventory totals, loot stacks, high-alch deltas, drop-policy values, and dashboard wealth.
+- Default tier boundaries are exact: trivial `<1,000`, common `1,000..<100,000`, valuable `100,000..<1,000,000`, wealthy `1,000,000..<100,000,000`, elite `100,000,000..<1,000,000,000`, and legendary `>=1,000,000,000`.
+- The Configuration page owns frontend-only enable, threshold, color, and reset controls persisted under versioned browser local storage. Thresholds must be non-negative and strictly ascending.
+- Rendered values carry an exact-GP tooltip identifying semantics such as GE each, GE stack total, or inventory HA. Missing values remain neutral/unknown.

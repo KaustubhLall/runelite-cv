@@ -3,9 +3,9 @@
  * Faithful-enough subset of the reference dashboard; deeper widgets (captures,
  * full warnings) are intentionally staged for a later pass.
  * ========================================================================== */
-import { panel, kvList, badge } from "../components.js";
+import { panel, kvList, badge, gpValue } from "../components.js";
 import { icon } from "../icons.js";
-import { escapeHtml, formatGp, formatRelativeTime, selectedValue } from "../format.js";
+import { escapeHtml, formatRelativeTime, selectedValue } from "../format.js";
 
 const root = () => document.querySelector("#dashboard-page");
 const obj = (v) => (v && typeof v === "object" ? v : {});
@@ -115,10 +115,10 @@ export function renderDashboard(status, mobFarmer, events, counts) {
 				{ iconName: "weight", k: "Weight", v: `${selectedValue(player.weight, "—")} kg` },
 			]) })}
 			${panel({ title: "Wealth", iconName: "coins", body: kvList([
-				{ iconName: "coins", k: "Carried (GE)", v: formatGp(num(wealth.totalCarriedValueGe)), tone: "gold" },
-				{ iconName: "wand-2", k: "Carried (HA)", v: formatGp(num(wealth.totalCarriedValueHa)), tone: "gold" },
-				{ iconName: "shield", k: "Equipment (GE)", v: formatGp(num(obj(wealth.equipment).gePrice)) },
-				{ iconName: "alert-triangle", k: "Risked (GE)", v: formatGp(num(wealth.riskedValueGeApprox)) },
+				{ iconName: "coins", k: "Carried (GE)", v: gpValue(num(wealth.totalCarriedValueGe), "Carried GE total") },
+				{ iconName: "wand-2", k: "Carried (HA)", v: gpValue(num(wealth.totalCarriedValueHa), "Carried HA total") },
+				{ iconName: "shield", k: "Equipment (GE)", v: gpValue(num(obj(wealth.equipment).gePrice), "Equipment GE total") },
+				{ iconName: "alert-triangle", k: "Risked (GE)", v: gpValue(num(wealth.riskedValueGeApprox), "Risked GE total") },
 			]) })}
 			${panel({ title: "Interface", iconName: "layout", body: kvList([
 				{ iconName: "panel-top", k: "Open panel", v: escapeHtml(selectedValue(iface.openPanel || iface.tab, "—")) },

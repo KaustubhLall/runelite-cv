@@ -66,13 +66,15 @@ svg.ico { width: 1em; height: 1em; vertical-align: -0.14em; }
 .tone-gold   { color: var(--gold-bright); }
 .tone-muted  { color: var(--ink-faint); }
 
-/* GP coloured values (carried from v1/v2 semantics) */
+/* Shared GP tiers; colors can be overridden by the frontend settings panel. */
 .gp-value { font-family: var(--font-mono); font-weight: 600; }
-.gp-gold   { color: var(--gp-gold); }
-.gp-purple { color: var(--gp-purple); }
-.gp-green  { color: var(--gp-green); }
-.gp-yellow { color: var(--gp-yellow); }
-.gp-white  { color: var(--gp-white); }
+.gp-tier-trivial { color: var(--gp-trivial); }
+.gp-tier-common { color: var(--gp-common); }
+.gp-tier-valuable { color: var(--gp-valuable); }
+.gp-tier-wealthy { color: var(--gp-wealthy); }
+.gp-tier-elite { color: var(--gp-elite); }
+.gp-tier-legendary { color: var(--gp-legendary); text-shadow: 0 0 8px color-mix(in srgb, var(--gp-legendary) 35%, transparent); }
+.gp-tier-neutral, .gp-tier-unknown { color: var(--ink-soft); }
 
 /* Section-title small-caps gilt label used across panels */
 .gilt-label {
