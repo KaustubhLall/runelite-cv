@@ -8,6 +8,10 @@ This is the working product/specification note for `OSR-2`.
 
 The Python process should not have to infer every UI coordinate from pixels. When RuneLite already knows widget bounds, names, actions, and visibility, `CV Helper` should expose that data as a stable helper API.
 
+## Implementation Baseline
+
+As of the OSR-48 / PR #2 cutover, `net.runelite.client.plugins.cvhelpermod` is the source of truth for CV Helper behavior and WebHelper v3 is its primary human verification surface. The older `net.runelite.client.plugins.cvhelper` package is retained only as legacy/reference code and must not receive new feature work by default.
+
 ## Current Verified Baseline
 
 - Custom RuneLite launches through `scripts/launch-dev-runelite.ps1`.

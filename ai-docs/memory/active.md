@@ -4,11 +4,12 @@ Use this file as the short working map for the current session. Keep it concise.
 
 ## Current Focus
 
-- Branch: `master` with local uncommitted config sync & panel updates
-- Linear task: `OSR-2` (CV Helper automation)
-- State: Browser config form sync issue fixed, plugin panel updated with newer loot/alchemy fields
-- Last merged PR: https://github.com/KaustubhLall/runelite-cv/pull/1
-- Current task: Config editing flow fix + plugin panel parity with HTTP config schema
+- Branch: `feature/cvhelper-clean-modular` until PR #2 merges, then `master`
+- Linear task: `OSR-48` modular source-of-truth cutover
+- State: PR #2 smoke gate and merge checkpoint
+- Source of truth: `net.runelite.client.plugins.cvhelpermod` and WebHelper v3
+- Legacy reference only: `net.runelite.client.plugins.cvhelper`; do not extend it with new work
+- Next work: continue from merged modular `master` in focused OSR tickets
 
 ## Active Task Stack
 

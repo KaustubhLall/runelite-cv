@@ -10,6 +10,10 @@ The first modular rewrite (`cvhelpermod`, scrapped) was re-derived from scratch 
 and drifted off parity. The replacement is built by **verbatim decomposition** of the proven
 reference (`cvhelper`): copy working code, reorganize it, never re-implement it.
 
+## Source-of-truth status
+
+PR #2 is the cutover checkpoint for the modular implementation. After merge, all new CV Helper work starts from `cvhelpermod` on `master`. The old `cvhelper` package remains available only for legacy comparison; it is not an alternate implementation target or an open feature bucket.
+
 ## Current state (branch `feature/cvhelper-clean-modular`)
 
 - Package `net.runelite.client.plugins.cvhelpermod`, plugin `CvHelperModPlugin`,
@@ -18,8 +22,8 @@ reference (`cvhelper`): copy working code, reorganize it, never re-implement it.
   verbatim (type renames only) and compile clean. So the modular plugin is already behaviorally
   identical to `cvhelper`; the remaining work is purely splitting the big file for maintainability.
 - Shares config group `"cvhelper"` (see `CvHelperModConfig.GROUP`) so saved settings and the
-  verifier dashboard transfer seamlessly. Reference `cvhelper` stays enabled as the fallback until
-  cutover.
+  verifier dashboard transfer seamlessly. After the PR #2 cutover, reference `cvhelper` is legacy
+  comparison code only and must not receive new features.
 - `CvHelperModPlugin` **directly extends `Plugin`** (required — see Splitting technique) and holds
   the shared state/constants/inner-types. `PathfindingService` is split out as a composition
   `@Singleton`. (An earlier `CvHelperModData` inheritance base was reverted because it broke plugin

@@ -39,6 +39,26 @@ Open questions, migration notes, or known limitations.
 
 ## Active Contracts
 
+## Contract: CV Helper implementation source of truth
+
+- Status: active
+- Owners: OSR-48, PR #2
+- Components: plugin | verifier | docs
+- Last updated: 2026-06-27
+
+### Contract
+
+- `net.runelite.client.plugins.cvhelpermod` is the implementation baseline for all new CV Helper work.
+- WebHelper v3 under `tools/cv-helper-verifier/v3/` is the human verification surface for that implementation.
+- `net.runelite.client.plugins.cvhelper` remains in the tree as legacy/reference code only. Do not add features or fixes there unless a ticket explicitly requires legacy comparison.
+- Future work starts from the merged modular branch and preserves the existing localhost contracts.
+
+### Verification
+
+- Compile `:client:compileJava` from the modular PR head.
+- Relaunch the client and confirm `/status` and at least one `/automation/*/status` endpoint respond from the modular plugin.
+- Open WebHelper v3 and confirm Dashboard plus one farmer page consume the live modular endpoint.
+
 ## Contract: CV Helper Local Export
 
 - Status: active
