@@ -1,11 +1,18 @@
 param(
     [string] $JavaHome = "",
-    [string] $ServiceVersion = "1.12.30"
+    [string] $ServiceVersion = "1.12.30",
+    [string] $AccountProfile = ""
 )
 
 $ErrorActionPreference = "Stop"
 
-$credentialsPath = Join-Path $env:USERPROFILE ".runelite\credentials.properties"
+if ([string]::IsNullOrWhiteSpace($AccountProfile)) {
+    $runeliteDir = Join-Path $env:USERPROFILE ".runelite"
+} else {
+    $runeliteDir = Join-Path $env:USERPROFILE ".runelite-$AccountProfile"
+}
+
+$credentialsPath = Join-Path $runeliteDir "credentials.properties"
 $libsDir = Join-Path $PSScriptRoot "..\runelite-client\build\libs"
 
 if ([string]::IsNullOrWhiteSpace($JavaHome)) {
@@ -26,7 +33,8 @@ if ([string]::IsNullOrWhiteSpace($JavaHome)) {
 $javaExe = Join-Path $JavaHome "bin\java.exe"
 
 if (!(Test-Path $credentialsPath)) {
-    throw "Jagex launcher credentials are missing. Run scripts\bootstrap-jagex-credentials.ps1, then launch RuneLite from Jagex Launcher once for CoreDump/C0REDUMPED."
+    $profileMsg = if ([string]::IsNullOrWhiteSpace($AccountProfile)) { "" } else { " for profile '$AccountProfile'" }
+    throw "Jagex launcher credentials are missing$profileMsg. Run scripts\bootstrap-jagex-credentials.ps1, then launch RuneLite from Jagex Launcher once for CoreDump/C0REDUMPED."
 }
 
 if (!(Test-Path $javaExe)) {
@@ -55,6 +63,7 @@ $arguments = @(
     "-Drunelite.pluginhub.version=$ServiceVersion",
     "-Drunelite.http-service.url=$serviceBase",
     "-Dcvhelper.forceLocalExport=true",
+    "-Drunelite.dir=$runeliteDir",
     "-jar",
     (Resolve-Path $jarPath).Path
 )
