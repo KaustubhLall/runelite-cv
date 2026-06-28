@@ -28,10 +28,9 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.turbo.TurboFilter;
 import ch.qos.logback.core.spi.FilterReply;
+import java.util.Arrays;
 import java.util.Deque;
 import java.util.concurrent.ConcurrentLinkedDeque;
-import lombok.EqualsAndHashCode;
-import lombok.RequiredArgsConstructor;
 import org.slf4j.Marker;
 import org.slf4j.MarkerFactory;
 
@@ -41,16 +40,7 @@ public class DeduplicationFilter extends TurboFilter
 	private static final int CACHE_SIZE = 8;
 	private static final int DUPLICATE_LOG_COUNT = 1000;
 
-	@RequiredArgsConstructor
-	@EqualsAndHashCode(exclude = {"count"})
-	private static class LogException
-	{
-		private final String message;
-		private final StackTraceElement[] stackTraceElements;
-		private volatile int count;
-	}
-
-	private final Deque<LogException> cache = new ConcurrentLinkedDeque<>();
+	private final Deque<DeduplicationLogException> cache = new ConcurrentLinkedDeque<>();
 
 	@Override
 	public void stop()
@@ -67,30 +57,73 @@ public class DeduplicationFilter extends TurboFilter
 			return FilterReply.NEUTRAL;
 		}
 
-		LogException logException = new LogException(s, throwable.getStackTrace());
-		for (LogException e : cache)
+		try
 		{
-			if (logException.equals(e))
+			DeduplicationLogException logException = new DeduplicationLogException(s, throwable.getStackTrace());
+			for (DeduplicationLogException e : cache)
 			{
-				// this iinc is not atomic, but doesn't matter in practice
-				if (++e.count % DUPLICATE_LOG_COUNT == 0)
+				if (logException.equals(e))
 				{
-					logger.warn("following log message logged " + DUPLICATE_LOG_COUNT + " times!");
-					return FilterReply.NEUTRAL;
+					// this iinc is not atomic, but doesn't matter in practice
+					if (++e.count % DUPLICATE_LOG_COUNT == 0)
+					{
+						logger.warn("following log message logged " + DUPLICATE_LOG_COUNT + " times!");
+						return FilterReply.NEUTRAL;
+					}
+					return FilterReply.DENY;
 				}
-				return FilterReply.DENY;
+			}
+
+			synchronized (cache)
+			{
+				if (cache.size() >= CACHE_SIZE)
+				{
+					cache.pop();
+				}
+				cache.push(logException);
 			}
 		}
-
-		synchronized (cache)
+		catch (Throwable t)
 		{
-			if (cache.size() >= CACHE_SIZE)
-			{
-				cache.pop();
-			}
-			cache.push(logException);
+			// If the helper class cannot be loaded by the current context classloader,
+			// do not let the deduplication filter crash the client thread.
+			return FilterReply.NEUTRAL;
 		}
 
 		return FilterReply.NEUTRAL;
+	}
+}
+
+final class DeduplicationLogException
+{
+	private final String message;
+	private final StackTraceElement[] stackTraceElements;
+	volatile int count;
+
+	DeduplicationLogException(String message, StackTraceElement[] stackTraceElements)
+	{
+		this.message = message;
+		this.stackTraceElements = stackTraceElements;
+	}
+
+	@Override
+	public boolean equals(Object o)
+	{
+		if (this == o)
+		{
+			return true;
+		}
+		if (!(o instanceof DeduplicationLogException))
+		{
+			return false;
+		}
+		DeduplicationLogException other = (DeduplicationLogException) o;
+		return message.equals(other.message) && Arrays.equals(stackTraceElements, other.stackTraceElements);
+	}
+
+	@Override
+	public int hashCode()
+	{
+		return 31 * message.hashCode() + Arrays.hashCode(stackTraceElements);
 	}
 }

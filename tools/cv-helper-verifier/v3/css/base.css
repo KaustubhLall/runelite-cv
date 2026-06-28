@@ -1,0 +1,92 @@
+/* ============================================================================
+ * base.css — reset, typography, textures, shared atoms
+ * ========================================================================== */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+	margin: 0;
+	font-family: var(--font-body);
+	font-size: 14px;
+	line-height: 1.5;
+	color: var(--ink);
+	background-color: var(--bg-abyss);
+	/* layered "weathered surface" texture: vignette + faint grain via gradients */
+	background-image:
+		radial-gradient(120% 90% at 50% -10%, rgba(60, 74, 51, 0.10), transparent 60%),
+		radial-gradient(80% 60% at 110% 110%, rgba(20, 30, 20, 0.6), transparent 70%),
+		repeating-linear-gradient(0deg, rgba(255,255,255,.010) 0 1px, transparent 1px 3px);
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4 { margin: 0; font-weight: 600; }
+
+button { font-family: inherit; cursor: pointer; }
+input, select, textarea { font-family: inherit; }
+
+a { color: var(--info); text-decoration: none; }
+
+/* ---- Scrollbars --------------------------------------------------------- */
+* { scrollbar-width: thin; scrollbar-color: var(--frame) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+	background: linear-gradient(var(--frame-soft), var(--frame));
+	border-radius: 8px;
+	border: 2px solid transparent;
+	background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--frame-bright); background-clip: padding-box; }
+
+/* ---- Icon sizing (Lucide <i> and custom emblem <svg>) ------------------- */
+[data-lucide] { width: 1em; height: 1em; vertical-align: -0.14em; stroke-width: 2; }
+.ico-wrap { display: inline-flex; line-height: 0; }
+svg.ico { width: 1em; height: 1em; vertical-align: -0.14em; }
+
+/* ---- Utility atoms ------------------------------------------------------ */
+.id { font-style: italic; color: var(--ink-id); font-family: var(--font-mono); font-size: .92em; }
+.muted { color: var(--ink-faint); }
+.mono { font-family: var(--font-mono); }
+.nowrap { white-space: nowrap; }
+
+.empty {
+	color: var(--ink-faint);
+	font-style: italic;
+	padding: 10px 4px;
+	text-align: center;
+}
+.empty.compact { padding: 6px 4px; font-size: 12px; }
+
+.tone-good   { color: var(--good-bright); }
+.tone-warn   { color: var(--warn-bright); }
+.tone-bad    { color: var(--bad-bright); }
+.tone-info   { color: var(--info-bright); }
+.tone-gold   { color: var(--gold-bright); }
+.tone-muted  { color: var(--ink-faint); }
+
+/* GP coloured values (carried from v1/v2 semantics) */
+.gp-value { font-family: var(--font-mono); font-weight: 600; }
+.gp-gold   { color: var(--gp-gold); }
+.gp-purple { color: var(--gp-purple); }
+.gp-green  { color: var(--gp-green); }
+.gp-yellow { color: var(--gp-yellow); }
+.gp-white  { color: var(--gp-white); }
+
+/* Section-title small-caps gilt label used across panels */
+.gilt-label {
+	font-family: var(--font-display);
+	font-size: 11px;
+	letter-spacing: .14em;
+	text-transform: uppercase;
+	color: var(--gold);
+}
+
+.scaffold-note {
+	margin: 0;
+	padding: 28px;
+	text-align: center;
+	color: var(--ink-faint);
+	font-style: italic;
+}

@@ -23,7 +23,9 @@ import javax.swing.JComponent;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
+import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.Timer;
 import javax.swing.JToggleButton;
@@ -41,6 +43,7 @@ class CvHelperPanel extends PluginPanel
 	private final CvHelperPlugin plugin;
 	private final JLabel status = new JLabel("Ready");
 	private final JLabel serverStatus = new JLabel("Server: starting");
+	private final JLabel loginRecoveryStatus = new JLabel("Login: unknown");
 
 	CvHelperPanel(CvHelperPlugin plugin)
 	{
@@ -111,6 +114,7 @@ class CvHelperPanel extends PluginPanel
 		JCheckBox panelTargets = new JCheckBox("Panel tab boxes", plugin.getConfig().showPanelTargets());
 		JCheckBox combatTargets = new JCheckBox("Combat option boxes", plugin.getConfig().showCombatTargets());
 		JCheckBox entityTargets = new JCheckBox("Nearby entity boxes", plugin.getConfig().showEntityTargets());
+		JCheckBox skillFarmerTargets = new JCheckBox("Skilling target boxes", plugin.getConfig().showSkillFarmerTargets());
 		JCheckBox targetLabels = new JCheckBox("Target labels", plugin.getConfig().showTargetLabels());
 		JCheckBox localExport = new JCheckBox("Localhost export", plugin.getConfig().enableLocalExport());
 
@@ -124,10 +128,11 @@ class CvHelperPanel extends PluginPanel
 		panelTargets.addActionListener(e -> plugin.setShowPanelTargets(panelTargets.isSelected()));
 		combatTargets.addActionListener(e -> plugin.setShowCombatTargets(combatTargets.isSelected()));
 		entityTargets.addActionListener(e -> plugin.setShowEntityTargets(entityTargets.isSelected()));
+		skillFarmerTargets.addActionListener(e -> plugin.setShowSkillFarmerTargets(skillFarmerTargets.isSelected()));
 		targetLabels.addActionListener(e -> plugin.setShowTargetLabels(targetLabels.isSelected()));
 		localExport.addActionListener(e -> plugin.setLocalExportEnabled(localExport.isSelected()));
 
-		for (JCheckBox checkbox : new JCheckBox[]{hoverOverlay, widgetInfo, prayerTargets, spellTargets, minimapTargets, inventoryTargets, equipmentTargets, panelTargets, combatTargets, entityTargets, targetLabels, localExport})
+		for (JCheckBox checkbox : new JCheckBox[]{hoverOverlay, widgetInfo, prayerTargets, spellTargets, minimapTargets, inventoryTargets, equipmentTargets, panelTargets, combatTargets, entityTargets, skillFarmerTargets, targetLabels, localExport})
 		{
 			styleCheckbox(checkbox);
 			toggles.add(checkbox);
@@ -137,6 +142,8 @@ class CvHelperPanel extends PluginPanel
 		JPanel spellSection = createNestedSection("Spellbook toggles", plugin.getSpellbookNames(), false, true);
 		JPanel actionSection = createActionSection();
 		JPanel mobFarmerSection = createMobFarmerSection();
+		JPanel woodcuttingSection = createWoodcuttingSection();
+		JPanel miningSection = createMiningSection();
 
 		JPanel serverSettings = new JPanel(new BorderLayout(0, 4));
 		serverSettings.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -171,6 +178,19 @@ class CvHelperPanel extends PluginPanel
 		playerPanel.add(playerStatus, BorderLayout.CENTER);
 		playerPanel.add(refreshPlayer, BorderLayout.SOUTH);
 
+		JPanel loginRecoveryPanel = new JPanel(new BorderLayout(0, 4));
+		loginRecoveryPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		loginRecoveryPanel.setBorder(BorderFactory.createTitledBorder("Login Recovery"));
+		loginRecoveryStatus.setForeground(Color.LIGHT_GRAY);
+		JButton refreshLoginRecovery = new JButton("Refresh login status");
+		refreshLoginRecovery.addActionListener(e ->
+		{
+			loginRecoveryStatus.setText(plugin.getLoginRecoveryStatusText());
+			updateStatus("Login recovery status refreshed");
+		});
+		loginRecoveryPanel.add(loginRecoveryStatus, BorderLayout.CENTER);
+		loginRecoveryPanel.add(refreshLoginRecovery, BorderLayout.SOUTH);
+
 		JPanel center = new JPanel(new BorderLayout(0, 4));
 		center.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		center.add(toggles, BorderLayout.NORTH);
@@ -181,8 +201,11 @@ class CvHelperPanel extends PluginPanel
 		lower.add(spellSection);
 		lower.add(actionSection);
 		lower.add(mobFarmerSection);
+		lower.add(woodcuttingSection);
+		lower.add(miningSection);
 		lower.add(serverSettings);
 		lower.add(playerPanel);
+		lower.add(loginRecoveryPanel);
 		center.add(lower, BorderLayout.SOUTH);
 
 		JPanel content = new JPanel(new BorderLayout(0, 8));
@@ -484,6 +507,28 @@ class CvHelperPanel extends PluginPanel
 		JCheckBox stopIfNoFood = new JCheckBox("Stop if no food", plugin.getMobFarmerStopIfNoFood());
 		styleCheckbox(stopIfNoFood);
 		stopIfNoFood.addActionListener(e -> plugin.setMobFarmerStopIfNoFood(stopIfNoFood.isSelected()));
+		JCheckBox survivalPreempts = new JCheckBox("Survival preempts actions", plugin.getMobFarmerSurvivalPreemptsActions());
+		styleCheckbox(survivalPreempts);
+		survivalPreempts.setToolTipText("When HP is low, auto-eat takes priority over loot and combat.");
+		survivalPreempts.addActionListener(e -> plugin.setMobFarmerSurvivalPreemptsActions(survivalPreempts.isSelected()));
+		JCheckBox loginRecovery = new JCheckBox("Recover after logout", plugin.getMobFarmerLoginRecoveryEnabled());
+		styleCheckbox(loginRecovery);
+		loginRecovery.setToolTipText("Clicks RuneLite's visible login widget after a normal logout; it does not generate anti-idle input.");
+		loginRecovery.addActionListener(e -> plugin.setMobFarmerLoginRecoveryEnabled(loginRecovery.isSelected()));
+		JCheckBox loginRecoveryF2p = new JCheckBox("F2P-world recovery only", plugin.getMobFarmerLoginRecoveryF2pOnly());
+		styleCheckbox(loginRecoveryF2p);
+		loginRecoveryF2p.setToolTipText("Blocks autonomous login recovery on member, PvP, Deadman, seasonal, or minigame/special worlds.");
+		loginRecoveryF2p.addActionListener(e -> plugin.setMobFarmerLoginRecoveryF2pOnly(loginRecoveryF2p.isSelected()));
+		JCheckBox disconnectRecovery = new JCheckBox("Inactivity disconnect recovery", plugin.getMobFarmerLoginDisconnectRecoveryEnabled());
+		styleCheckbox(disconnectRecovery);
+		disconnectRecovery.setToolTipText("Handles RuneLite CONNECTION_LOST with a guarded Enter press. This is not anti-idle input.");
+		disconnectRecovery.addActionListener(e -> plugin.setMobFarmerLoginDisconnectRecoveryEnabled(disconnectRecovery.isSelected()));
+		JCheckBox autoResumeAfterLogin = new JCheckBox("Auto-resume after login", plugin.getMobFarmerAutoResumeAfterLogin());
+		styleCheckbox(autoResumeAfterLogin);
+		autoResumeAfterLogin.setToolTipText("Keep the farmer loop alive through logout/disconnect so it resumes after login.");
+		autoResumeAfterLogin.addActionListener(e -> plugin.setMobFarmerAutoResumeAfterLogin(autoResumeAfterLogin.isSelected()));
+		JTextField preferredLoginWorld = new JTextField(String.valueOf(plugin.getMobFarmerPreferredLoginWorld()));
+		preferredLoginWorld.setToolTipText("Preferred local dev login world for status/reporting; current world is still validated before clicking.");
 
 		JCheckBox lootEnabled = new JCheckBox("Loot pickup", plugin.getMobFarmerLootEnabled());
 		styleCheckbox(lootEnabled);
@@ -496,12 +541,42 @@ class CvHelperPanel extends PluginPanel
 		attackBeforeLoot.addActionListener(e -> plugin.setMobFarmerAttackBeforeLoot(attackBeforeLoot.isSelected()));
 		JTextField lootMinValue = new JTextField(String.valueOf(plugin.getMobFarmerLootMinValueGe()));
 		lootMinValue.setToolTipText("Minimum total GE value for items not in the always-loot list.");
+		JTextField highPriorityLootValue = new JTextField(String.valueOf(plugin.getMobFarmerHighPriorityLootValueGe()));
+		highPriorityLootValue.setToolTipText("Loot at or above this GE value can override attack-before-loot.");
+		JTextField urgentLootTicks = new JTextField(String.valueOf(plugin.getMobFarmerLootUrgentDespawnTicks()));
+		urgentLootTicks.setToolTipText("Loot with this many ticks left becomes high priority; 0 disables despawn urgency.");
+		JTextField cleanupPileCount = new JTextField(String.valueOf(plugin.getMobFarmerLootCleanupPileCount()));
+		cleanupPileCount.setToolTipText("If this many selectable loot piles are present, cleanup can override combat; 0 disables pile pressure.");
 		JTextField lootRadius = new JTextField(String.valueOf(plugin.getMobFarmerLootRadius()));
 		lootRadius.setToolTipText("0 disables the loot radius guard.");
 		JTextField lootItems = new JTextField(plugin.getMobFarmerLootItems());
 		lootItems.setToolTipText("Items to always loot even below the value threshold.");
 		JTextField lootBlacklist = new JTextField(plugin.getMobFarmerLootBlacklist());
 		lootBlacklist.setToolTipText("Items to never loot.");
+		JTextField lootMinSingleGe = new JTextField(String.valueOf(plugin.getMobFarmerLootMinSingleGe()));
+		lootMinSingleGe.setToolTipText("Minimum GE value per individual item before unlisted loot is eligible.");
+		JTextField lootMinStackGe = new JTextField(String.valueOf(plugin.getMobFarmerLootMinStackGe()));
+		lootMinStackGe.setToolTipText("Minimum total stack GE value before unlisted loot is eligible.");
+		JTextField lootMinStackQuantity = new JTextField(String.valueOf(plugin.getMobFarmerLootMinStackQuantity()));
+		lootMinStackQuantity.setToolTipText("Minimum quantity for stackable unlisted items.");
+		JTextField lootAlwaysStackGe = new JTextField(String.valueOf(plugin.getMobFarmerLootAlwaysStackGe()));
+		lootAlwaysStackGe.setToolTipText("Treat stacks at or above this GE value as high-priority loot.");
+		JTextField lootNeverStackBelowGe = new JTextField(String.valueOf(plugin.getMobFarmerLootNeverStackBelowGe()));
+		lootNeverStackBelowGe.setToolTipText("Reject unlisted stacks below this GE value even if broad rules allow them.");
+		JCheckBox highAlchEnabled = new JCheckBox("High Alch policy", plugin.getMobFarmerHighAlchEnabled());
+		styleCheckbox(highAlchEnabled);
+		highAlchEnabled.setToolTipText("Evaluate safe High Alchemy candidates while farming.");
+		highAlchEnabled.addActionListener(e -> plugin.setMobFarmerHighAlchEnabled(highAlchEnabled.isSelected()));
+		JTextField highAlchMinHa = new JTextField(String.valueOf(plugin.getMobFarmerHighAlchMinHa()));
+		highAlchMinHa.setToolTipText("Minimum single-item HA value for candidate reporting.");
+		JTextField highAlchMinDelta = new JTextField(String.valueOf(plugin.getMobFarmerHighAlchMinDelta()));
+		highAlchMinDelta.setToolTipText("Require HA value minus GE value to be at least this amount.");
+		JTextField highAlchMaxLoss = new JTextField(String.valueOf(plugin.getMobFarmerHighAlchMaxLoss()));
+		highAlchMaxLoss.setToolTipText("Maximum acceptable GE-to-HA loss per item when inventory space matters.");
+		JTextField highAlchItems = new JTextField(plugin.getMobFarmerHighAlchItems());
+		highAlchItems.setToolTipText("If non-empty, only these item names or id:<item id> are eligible for High Alchemy.");
+		JTextField highAlchBlacklist = new JTextField(plugin.getMobFarmerHighAlchBlacklist());
+		highAlchBlacklist.setToolTipText("Items that must never be high-alched.");
 		JComboBox<CvHelperLootOwnershipMode> lootOwnership = new JComboBox<>(CvHelperLootOwnershipMode.values());
 		lootOwnership.setSelectedItem(plugin.getMobFarmerLootOwnershipMode());
 		lootOwnership.addActionListener(e -> plugin.setMobFarmerLootOwnershipMode((CvHelperLootOwnershipMode) lootOwnership.getSelectedItem()));
@@ -514,11 +589,17 @@ class CvHelperPanel extends PluginPanel
 		JCheckBox respectGroundItemsHidden = new JCheckBox("Respect hidden Ground Items", plugin.getMobFarmerRespectGroundItemsHidden());
 		styleCheckbox(respectGroundItemsHidden);
 		respectGroundItemsHidden.addActionListener(e -> plugin.setMobFarmerRespectGroundItemsHidden(respectGroundItemsHidden.isSelected()));
-		JCheckBox intermediateActions = new JCheckBox("Use bones/ashes", plugin.getMobFarmerIntermediateActionsEnabled());
+		JCheckBox intermediateActions = new JCheckBox("Use intermediate actions", plugin.getMobFarmerIntermediateActionsEnabled());
 		styleCheckbox(intermediateActions);
 		intermediateActions.addActionListener(e -> plugin.setMobFarmerIntermediateActionsEnabled(intermediateActions.isSelected()));
 		JTextField intermediateItems = new JTextField(plugin.getMobFarmerIntermediateItems());
 		intermediateItems.setToolTipText("Items to use during farming, such as bones or ashes.");
+		JTextArea intermediateMappings = new JTextArea(plugin.getMobFarmerIntermediateActionMappings(), 3, 18);
+		intermediateMappings.setLineWrap(true);
+		intermediateMappings.setWrapStyleWord(true);
+		intermediateMappings.setToolTipText("Examples: bones -> Bury; big bones -> Bury; ashes -> Scatter|Bury");
+		JScrollPane intermediateMappingsPane = new JScrollPane(intermediateMappings);
+		intermediateMappingsPane.setPreferredSize(new Dimension(0, 76));
 		JTextField neverDrop = new JTextField(plugin.getMobFarmerNeverDropItems());
 		neverDrop.setToolTipText("Inventory items that future drop processing must never drop.");
 
@@ -535,19 +616,40 @@ class CvHelperPanel extends PluginPanel
 			plugin.setMobFarmerEatHitpointPercent(parseNonNegativeInt(eatThreshold.getText(), plugin.getMobFarmerEatHitpointPercent()));
 			plugin.setMobFarmerFoodItems(foodItems.getText());
 			plugin.setMobFarmerStopIfNoFood(stopIfNoFood.isSelected());
+			plugin.setMobFarmerSurvivalPreemptsActions(survivalPreempts.isSelected());
+			plugin.setMobFarmerLoginRecoveryEnabled(loginRecovery.isSelected());
+			plugin.setMobFarmerLoginRecoveryF2pOnly(loginRecoveryF2p.isSelected());
+			plugin.setMobFarmerLoginDisconnectRecoveryEnabled(disconnectRecovery.isSelected());
+			plugin.setMobFarmerAutoResumeAfterLogin(autoResumeAfterLogin.isSelected());
+			plugin.setMobFarmerPreferredLoginWorld(parseNonNegativeInt(preferredLoginWorld.getText(), plugin.getMobFarmerPreferredLoginWorld()));
 			plugin.setMobFarmerLootEnabled(lootEnabled.isSelected());
 			plugin.setMobFarmerLootDuringCombat(lootDuringCombat.isSelected());
 			plugin.setMobFarmerAttackBeforeLoot(attackBeforeLoot.isSelected());
 			plugin.setMobFarmerLootMinValueGe(parseNonNegativeInt(lootMinValue.getText(), plugin.getMobFarmerLootMinValueGe()));
+			plugin.setMobFarmerHighPriorityLootValueGe(parseNonNegativeInt(highPriorityLootValue.getText(), plugin.getMobFarmerHighPriorityLootValueGe()));
+			plugin.setMobFarmerLootUrgentDespawnTicks(parseNonNegativeInt(urgentLootTicks.getText(), plugin.getMobFarmerLootUrgentDespawnTicks()));
+			plugin.setMobFarmerLootCleanupPileCount(parseNonNegativeInt(cleanupPileCount.getText(), plugin.getMobFarmerLootCleanupPileCount()));
 			plugin.setMobFarmerLootRadius(parseNonNegativeInt(lootRadius.getText(), plugin.getMobFarmerLootRadius()));
 			plugin.setMobFarmerLootItems(lootItems.getText());
 			plugin.setMobFarmerLootBlacklist(lootBlacklist.getText());
+			plugin.setMobFarmerLootMinSingleGe(parseNonNegativeInt(lootMinSingleGe.getText(), plugin.getMobFarmerLootMinSingleGe()));
+			plugin.setMobFarmerLootMinStackGe(parseNonNegativeInt(lootMinStackGe.getText(), plugin.getMobFarmerLootMinStackGe()));
+			plugin.setMobFarmerLootMinStackQuantity(parseNonNegativeInt(lootMinStackQuantity.getText(), plugin.getMobFarmerLootMinStackQuantity()));
+			plugin.setMobFarmerLootAlwaysStackGe(parseNonNegativeInt(lootAlwaysStackGe.getText(), plugin.getMobFarmerLootAlwaysStackGe()));
+			plugin.setMobFarmerLootNeverStackBelowGe(parseNonNegativeInt(lootNeverStackBelowGe.getText(), plugin.getMobFarmerLootNeverStackBelowGe()));
+			plugin.setMobFarmerHighAlchEnabled(highAlchEnabled.isSelected());
+			plugin.setMobFarmerHighAlchMinHa(parseNonNegativeInt(highAlchMinHa.getText(), plugin.getMobFarmerHighAlchMinHa()));
+			plugin.setMobFarmerHighAlchMinDelta(parseNonNegativeInt(highAlchMinDelta.getText(), plugin.getMobFarmerHighAlchMinDelta()));
+			plugin.setMobFarmerHighAlchMaxLoss(parseNonNegativeInt(highAlchMaxLoss.getText(), plugin.getMobFarmerHighAlchMaxLoss()));
+			plugin.setMobFarmerHighAlchItems(highAlchItems.getText());
+			plugin.setMobFarmerHighAlchBlacklist(highAlchBlacklist.getText());
 			plugin.setMobFarmerLootOwnershipMode((CvHelperLootOwnershipMode) lootOwnership.getSelectedItem());
 			plugin.setMobFarmerLootInteractionMode((CvHelperMobInteractionMode) lootInteraction.getSelectedItem());
 			plugin.setMobFarmerGroundItemsMode((CvHelperGroundItemsMode) groundItemsMode.getSelectedItem());
 			plugin.setMobFarmerRespectGroundItemsHidden(respectGroundItemsHidden.isSelected());
 			plugin.setMobFarmerIntermediateActionsEnabled(intermediateActions.isSelected());
 			plugin.setMobFarmerIntermediateItems(intermediateItems.getText());
+			plugin.setMobFarmerIntermediateActionMappings(intermediateMappings.getText());
 			plugin.setMobFarmerNeverDropItems(neverDrop.getText());
 			updateStatus("Mob farmer guards saved");
 		});
@@ -603,12 +705,37 @@ class CvHelperPanel extends PluginPanel
 			label("Food items"),
 			foodItems,
 			stopIfNoFood,
+			survivalPreempts,
+			label("Login recovery"),
+			loginRecovery,
+			loginRecoveryF2p,
+			disconnectRecovery,
+			autoResumeAfterLogin,
+			label("Preferred login world"),
+			preferredLoginWorld,
+			label("<html>Idle handling: use RuneLite's Logout Timer plugin/settings for longer idle windows. CV Helper only recovers after logout.</html>"),
 			label("Loot"),
 			lootEnabled,
 			lootDuringCombat,
 			attackBeforeLoot,
 			label("Loot min GE value"),
 			lootMinValue,
+			label("Loot per-item GE"),
+			lootMinSingleGe,
+			label("Loot stack GE"),
+			lootMinStackGe,
+			label("Loot stack qty"),
+			lootMinStackQuantity,
+			label("Always loot stack GE"),
+			lootAlwaysStackGe,
+			label("Never loot below GE"),
+			lootNeverStackBelowGe,
+			label("High-priority GE value"),
+			highPriorityLootValue,
+			label("Urgent loot ticks"),
+			urgentLootTicks,
+			label("Cleanup pile count"),
+			cleanupPileCount,
 			label("Loot radius"),
 			lootRadius,
 			label("Always-loot items"),
@@ -622,10 +749,24 @@ class CvHelperPanel extends PluginPanel
 			label("Ground Items lists"),
 			groundItemsMode,
 			respectGroundItemsHidden,
+			label("High Alchemy"),
+			highAlchEnabled,
+			label("Min HA value"),
+			highAlchMinHa,
+			label("Min HA delta"),
+			highAlchMinDelta,
+			label("Max HA loss"),
+			highAlchMaxLoss,
+			label("Alch allowlist"),
+			highAlchItems,
+			label("Never alch"),
+			highAlchBlacklist,
 			label("Intermediate actions"),
 			intermediateActions,
 			label("Intermediate items"),
 			intermediateItems,
+			label("Item -> action mappings"),
+			intermediateMappingsPane,
 			label("Protected inventory"),
 			neverDrop,
 			saveGuards,
@@ -635,6 +776,184 @@ class CvHelperPanel extends PluginPanel
 			startDry,
 			startLive,
 			stop
+		})
+		{
+			stretch(component);
+			body.add(component);
+		}
+
+		JToggleButton expand = new JToggleButton("Expand");
+		body.setVisible(false);
+		expand.setSelected(true);
+		expand.addActionListener(e ->
+		{
+			boolean isCollapsed = expand.isSelected();
+			expand.setText(isCollapsed ? "Expand" : "Collapse");
+			body.setVisible(!isCollapsed);
+			section.revalidate();
+		});
+		expand.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		expand.setForeground(Color.LIGHT_GRAY);
+
+		section.add(expand, BorderLayout.NORTH);
+		section.add(body, BorderLayout.CENTER);
+		setCompact(section);
+		return section;
+	}
+
+	private JPanel createWoodcuttingSection()
+	{
+		JPanel section = new JPanel(new BorderLayout(0, 4));
+		section.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		section.setBorder(BorderFactory.createTitledBorder("Woodcutting farmer"));
+
+		JPanel body = new JPanel();
+		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
+		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
+
+		JTextField target = new JTextField(plugin.getWoodcuttingFarmerTarget());
+		target.setToolTipText("Partial name or id:<object id>, for example oak|tree|willow|maple");
+
+		JLabel statusLabel = new JLabel("Status: " + (plugin.getWoodcuttingFarmerRunning() ? "Running" : "Stopped"));
+		statusLabel.setForeground(Color.LIGHT_GRAY);
+
+		JButton dryStep = new JButton("Dry step");
+		dryStep.addActionListener(e ->
+		{
+			plugin.setWoodcuttingFarmerTarget(target.getText());
+			plugin.runWoodcuttingFarmerStep(false);
+		});
+		JButton liveStep = new JButton("Live chop step");
+		liveStep.addActionListener(e ->
+		{
+			plugin.setWoodcuttingFarmerTarget(target.getText());
+			plugin.runWoodcuttingFarmerStep(true);
+		});
+		JButton startDry = new JButton("Start dry loop");
+		startDry.addActionListener(e ->
+		{
+			plugin.setWoodcuttingFarmerTarget(target.getText());
+			plugin.startWoodcuttingFarmer(false);
+		});
+		JButton startLive = new JButton("Start live loop");
+		startLive.addActionListener(e ->
+		{
+			plugin.setWoodcuttingFarmerTarget(target.getText());
+			plugin.startWoodcuttingFarmer(true);
+		});
+		JButton stop = new JButton("Stop loop");
+		stop.addActionListener(e -> plugin.stopWoodcuttingFarmer());
+
+		JButton refreshStatus = new JButton("Refresh status");
+		refreshStatus.addActionListener(e ->
+		{
+			statusLabel.setText("Status: " + (plugin.getWoodcuttingFarmerRunning() ? "Running" : "Stopped"));
+			updateStatus("Woodcutting status refreshed");
+		});
+
+		JLabel help = new JLabel("<html>Woodcutting farmer: selects nearest reachable tree, chops until inventory full or tree depleted. Drop policy is enabled by default - configure in RuneLite plugin config (woodcutter section) or WebHelper.</html>");
+		help.setForeground(Color.LIGHT_GRAY);
+
+		for (JComponent component : new JComponent[]{
+			help,
+			label("Target trees"),
+			target,
+			statusLabel,
+			dryStep,
+			liveStep,
+			startDry,
+			startLive,
+			stop,
+			refreshStatus
+		})
+		{
+			stretch(component);
+			body.add(component);
+		}
+
+		JToggleButton expand = new JToggleButton("Expand");
+		body.setVisible(false);
+		expand.setSelected(true);
+		expand.addActionListener(e ->
+		{
+			boolean isCollapsed = expand.isSelected();
+			expand.setText(isCollapsed ? "Expand" : "Collapse");
+			body.setVisible(!isCollapsed);
+			section.revalidate();
+		});
+		expand.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		expand.setForeground(Color.LIGHT_GRAY);
+
+		section.add(expand, BorderLayout.NORTH);
+		section.add(body, BorderLayout.CENTER);
+		setCompact(section);
+		return section;
+	}
+
+	private JPanel createMiningSection()
+	{
+		JPanel section = new JPanel(new BorderLayout(0, 4));
+		section.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		section.setBorder(BorderFactory.createTitledBorder("Mining farmer"));
+
+		JPanel body = new JPanel();
+		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
+		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
+
+		JTextField target = new JTextField(plugin.getMiningFarmerTarget());
+		target.setToolTipText("Partial name or id:<object id>, for example iron rocks|iron ore rocks|rocks");
+
+		JLabel statusLabel = new JLabel("Status: " + (plugin.getMiningFarmerRunning() ? "Running" : "Stopped"));
+		statusLabel.setForeground(Color.LIGHT_GRAY);
+
+		JButton dryStep = new JButton("Dry step");
+		dryStep.addActionListener(e ->
+		{
+			plugin.setMiningFarmerTarget(target.getText());
+			plugin.runMiningFarmerStep(false);
+		});
+		JButton liveStep = new JButton("Live mine step");
+		liveStep.addActionListener(e ->
+		{
+			plugin.setMiningFarmerTarget(target.getText());
+			plugin.runMiningFarmerStep(true);
+		});
+		JButton startDry = new JButton("Start dry loop");
+		startDry.addActionListener(e ->
+		{
+			plugin.setMiningFarmerTarget(target.getText());
+			plugin.startMiningFarmer(false);
+		});
+		JButton startLive = new JButton("Start live loop");
+		startLive.addActionListener(e ->
+		{
+			plugin.setMiningFarmerTarget(target.getText());
+			plugin.startMiningFarmer(true);
+		});
+		JButton stop = new JButton("Stop loop");
+		stop.addActionListener(e -> plugin.stopMiningFarmer());
+
+		JButton refreshStatus = new JButton("Refresh status");
+		refreshStatus.addActionListener(e ->
+		{
+			statusLabel.setText("Status: " + (plugin.getMiningFarmerRunning() ? "Running" : "Stopped"));
+			updateStatus("Mining status refreshed");
+		});
+
+		JLabel help = new JLabel("<html>Mining farmer: selects nearest reachable rock, mines until inventory full or rock depleted. Drop policy is enabled by default - configure in RuneLite plugin config (woodcutter section) or WebHelper.</html>");
+		help.setForeground(Color.LIGHT_GRAY);
+
+		for (JComponent component : new JComponent[]{
+			help,
+			label("Target rocks"),
+			target,
+			statusLabel,
+			dryStep,
+			liveStep,
+			startDry,
+			startLive,
+			stop,
+			refreshStatus
 		})
 		{
 			stretch(component);

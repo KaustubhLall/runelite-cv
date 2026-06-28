@@ -8,6 +8,10 @@ This is the working product/specification note for `OSR-2`.
 
 The Python process should not have to infer every UI coordinate from pixels. When RuneLite already knows widget bounds, names, actions, and visibility, `CV Helper` should expose that data as a stable helper API.
 
+## Implementation Baseline
+
+As of the OSR-48 / PR #2 cutover, `net.runelite.client.plugins.cvhelpermod` is the source of truth for CV Helper behavior and WebHelper v3 is its primary human verification surface. The older `net.runelite.client.plugins.cvhelper` package is retained only as legacy/reference code and must not receive new feature work by default.
+
 ## Current Verified Baseline
 
 - Custom RuneLite launches through `scripts/launch-dev-runelite.ps1`.
@@ -163,9 +167,78 @@ Returns visible equipped-item/equipment slot targets with click centers, item id
 
 Returns player and client state, including login state, world info, base coordinates, player world/local coordinates, mouse canvas position, optional self/player screen bounds, run energy, special attack energy/enabled state, HP/prayer boosted and real levels, weight, current spellbook, selected widget state, current visible interface/tab metadata, coarse inventory/equipment/current-loot/risked-value summaries, all skills, and prayer active/export state where available.
 
+Inventory/equipment summary counts should reflect real slot capacity, not just the number of occupied `Item[]` entries. The standard player inventory is 28 slots, so `freeSlots` should remain meaningful even when the exported item list is sparse or only partially refreshed.
+
 ### `POST /login/click` / `GET /login/click`
 
-Queues a guarded click on RuneLite's visible click-to-play/login widget. This is a convenience for local testing when the client is waiting at the login screen. It must skip and report status if the client is not on a login screen or if RuneLite does not expose a visible login widget.
+Queues a guarded click on RuneLite's visible click-to-play/login widget. This is a convenience for local testing when the client is waiting at the login screen. It must skip and report status if the client is not on a login screen or if RuneLite does not expose a visible login widget. When no visible login widget is exported but the client is on a safe login screen/world, CV Helper may press Enter as a bounded login recovery fallback and records that exact fallback in status.
+
+The mob farmer can optionally reuse this guarded login click for live-loop recovery after a normal logout/login-screen state. It also has a separate inactivity-disconnect recovery setting for RuneLite `CONNECTION_LOST`, which queues a guarded Enter press to advance the disconnect/login flow. Recovery is cooldown-gated, reports current client login state, detected screen/state, click-to-play/disconnect/auto-resume settings, whether the live macro worker is active, current/preferred world, `preferredWorldReady`, `currentWorldAllowed`, `worldBlockReason`, and F2P guard decisions under `/automation/mob-farmer/status`. `loginRecovery.lastClickAttempt` records the selected login widget, canvas/screen click point, Enter fallback eligibility, actual Robot action invoked, and failure reason when available. Recovery is intentionally separate from idle-extension behavior. To extend the idle logout window, configure RuneLite's Logout Timer plugin/settings rather than relying on CV Helper to move the mouse or generate fake activity.
+
+Mob-farmer status also includes progress diagnostics under `progress` and `recentIntents`. These fields record recent high-level intents such as `ATTACK_TARGET` and `LOOT_ITEM`, expose target keys/distances, flag attack/loot alternation, and report whether the short make-progress preference window is active.
+
+Mob-farmer status includes tick-aware scheduling diagnostics under `scheduler`. Logged-in farming steps run from RuneLite `GameTick`; the background loop is retained for login/recovery states where ticks may not advance. The scheduler payload reports the current tick, last step tick/source, action-kind minimums, last issued action ticks, and the last allow/wait reason for combat, movement, loot pickup, inventory, survival, UI/config, and login-recovery actions.
+
+Mob-farmer status includes death/loot timing diagnostics under `deathLootTiming`. When the current target is effectively dead or zero-HP, it records the detected tick, expected loot tile, target HP/death state, and a short loot-spawn grace window. This is diagnostic and conservative for now: it does not yet issue speculative movement clicks toward the expected tile.
+
+Mob-farmer status also reports configurable recovery-loop delay, autorun, startup focus-click, and after-loot combat policy. `autorun` includes enabled/min-energy/current energy/run-enabled/last result. `startupFocus` includes enabled/needed/last result. `afterLootCombatMode` controls whether the farmer resumes normal targeting after loot, holds when an attacker is already on the player, or stops when tagged.
+
+### `GET /automation/mob-farmer/config`
+
+Returns the current mob-farmer config, field schema, and action-slot settings in a readable versioned JSON shape:
+
+```json
+{
+  "version": 1,
+  "settings": {
+    "target": "cow",
+    "recoveryLoopDelayMs": 1200,
+    "autorunEnabled": false,
+    "focusClickAfterLogin": false,
+    "afterLootCombatMode": "STAY_ON_CURRENT_ATTACKER"
+  },
+  "schema": [{"key": "target", "label": "Mob targets", "type": "text", "description": "..."}],
+  "actionSlots": [{"slot": 1, "enabled": true, "hotkey": "1", "surface": "PRAYER", "target": ""}]
+}
+```
+
+### `POST /automation/mob-farmer/config`
+
+Accepts the same readable JSON shape for WebHelper import/save. The plugin validates enum values, booleans, numbers, and text hotkeys before applying any setting. On failure it returns HTTP `400` with `{"ok":false,"applied":false,"errors":[...]}` and does not mutate current settings. Hotkeys use text such as `F12`, `CTRL+1`, `ALT+Q`, or `NOT_SET`.
+
+Mob-farmer config now includes stack-aware loot thresholds (`lootMinSingleGe`, `lootMinStackGe`, `lootMinStackQuantity`, `lootAlwaysStackGe`, `lootNeverStackBelowGe`) and a safe High Alchemy policy (`highAlchEnabled`, `highAlchMinHa`, `highAlchMinDelta`, `highAlchMaxLoss`, `highAlchItems`, `highAlchBlacklist`). Loot candidates report quantity, GE each, GE stack, HA each, HA stack, allowlist/denylist match, Ground Items classification, final decision, and rejection reasons. High Alchemy is currently diagnostic/policy-only and does not cast until spell/rune guards are live-verified.
+
+WebHelper stores named mob-farmer profiles locally in browser storage. Profiles are readable versioned JSON payloads and can be saved, loaded into the draft, duplicated, deleted, imported, and exported. Loading a profile does not mutate RuneLite until the user clicks Apply draft.
+
+### `POST /automation/mob-farmer/focus-click`
+
+Queues a guarded canvas-center focus click for the current RuneLite client. This is intended for the startup/login focus issue where movement or menu actions may not register until one manual click has occurred. The loop can also require this click after login via `focusClickAfterLogin`; survival/auto-eat still runs before startup focus helpers.
+
+### `GET/POST /automation/mining/config`
+
+Returns or applies a versioned mining farmer config:
+
+```json
+{
+  "version": 1,
+  "skill": "mining",
+  "settings": {
+    "target": "iron rocks|iron ore rocks",
+    "live": false,
+    "scanRadiusTiles": 24,
+    "maxCandidates": 80,
+    "protectedItems": "coins|rune pouch",
+    "inventoryPolicy": "REPORT_ONLY"
+  },
+  "presets": [{"name": "Iron", "target": "iron rocks|iron ore rocks|id:11364|id:11365"}]
+}
+```
+
+Mining status chooses the nearest reachable visible tile object with a matching name or `id:<object id>` and a `Mine` action. It scans relevant game/wall/decorative/ground object layers inside the configured `scanRadiusTiles` limit so odd object placements still appear in diagnostics without walking the entire scene. Status exposes selected rock, object type, tile, straight-line distance, path distance, reachability, visible flag, canvas bounds/click point, selected object menu action, candidate rejection reasons, inventory GE/HA value, scan radius, max candidate count, and lowest safe drop candidate. Live mode invokes the guarded object menu action for the matched action index; dropping ores and respawn-timer integration are report-only/follow-up in this pass.
+
+### `GET/POST /automation/woodcutting/config`
+
+Woodcutting mirrors the mining config/status shape with target tree lists, configurable scan radius/candidate limit, and presets for normal trees, oak, willow, maple, and custom targets. It requires a `Chop down` action, scans relevant tile-object layers instead of only plain game objects, chooses by path distance rather than straight-line distance, and exposes the same pathing/inventory/visibility/bounds diagnostics plus object type in candidate rows. Live mode invokes the guarded object menu action for the matched action index; dropping logs and tree-respawn integration are report-only/follow-up in this pass. The RuneLite sidebar exposes `Skilling target boxes`, backed by the `showSkillFarmerTargets` config option, to draw latest mining/woodcutting candidate bounds after scans.
 
 ### `GET /targets/panels`
 
@@ -240,9 +313,11 @@ Current push events:
 
 Tracked by `OSR-6`.
 
-The first verifier is a dependency-free static dashboard at `tools/cv-helper-verifier/index.html`. It polls the CV Helper localhost endpoints, shows target counts and payload tables, and flags suspicious target geometry such as oversized inventory/equipment boxes or unnamed equipment slots.
+The first verifier is a static WebHelper app in `tools/cv-helper-verifier/`, served by `serve.ps1` at `http://127.0.0.1:8765/`. The helper exposes `/api/discover`, which probes `11777` first and then falls back through known browser ports and live local Java listeners until it finds a valid CV Helper `/status` response. The app uses top-level navigation for Dashboard, Farmers, Inventory, Actions, Configuration, Debug, and Raw Data, polls the active localhost endpoints, shows target counts and payload tables, and flags suspicious target geometry such as oversized inventory/equipment boxes or unnamed equipment slots.
 
-The plugin adds CORS headers to JSON responses so the browser can call `http://127.0.0.1:<port>` directly.
+The plugin adds CORS headers to JSON responses so the browser can call `http://127.0.0.1:<port>` directly. The verifier UI must clearly separate "transport is broken" from "transport is healthy but RuneLite is at `LOGIN_SCREEN`", because empty widget-dependent targets are expected until login completes.
+
+Configuration editing in WebHelper separates Live State from Draft Config. Live state may refresh continuously, but editable draft fields must not be rebound to polling payloads once a draft exists. Users explicitly load current config into the draft, apply the draft, reset the draft, import JSON into the draft, or export the current draft. If the live config changes while a draft is dirty, WebHelper warns and preserves the draft. Raw payloads stay available in Raw Data or expandable debug views, while default views use structured cards/tables/badges.
 
 ## Hotkey Action Investigation
 
@@ -317,6 +392,8 @@ The CV Helper right-side panel includes a collapsible `Action hotkeys` section w
 The first automation slice is a guarded mob-farmer controller, not a full unattended combat bot. It exposes:
 
 - `GET /automation/mob-farmer/status`
+- `GET/POST /automation/mob-farmer/config`
+- `POST /automation/mob-farmer/focus-click`
 - `POST/GET /automation/mob-farmer/step?target=cow&live=false`
 - `POST/GET /automation/mob-farmer/start?target=cow&live=false`
 - `POST/GET /automation/mob-farmer/stop`
@@ -330,20 +407,24 @@ Current target-validity checks include:
 - NPC composition has an `Attack` action and is interactible.
 - NPC is not dead and does not have visible health ratio `0`.
 - Local-player combat is handled separately: continue a desired current target; configurable response for undesired aggressive attackers.
+- After a live pickup, `afterLootCombatMode` can prevent re-targeting when the player is already interacting with an attacker or an NPC is tagging the player. `STAY_ON_CURRENT_ATTACKER` holds instead of selecting a new target; `STOP_WHEN_TAGGED` stops the farmer.
 - Single-combat skips mobs already engaged by someone else. Multi-combat uses the configured engaged-mob policy: `FREE_ONLY`, `PREFER_FREE`, or `ALLOW_ENGAGED`.
-- Optional line-of-sight guard, enabled by default, as a conservative first reachability filter. This is not full route/path distance and does not replace the future real pathing brick.
+- Optional line-of-sight guard, enabled by default, plus a conservative local collision-path check for matched NPCs. The pathing pass uses a bounded BFS over RuneLite `WorldArea.canTravelInDirection(...)` and requires a collision-valid route to melee reach before selecting a target.
 - Optional max-distance guard, default `20` tiles.
 
 `/automation/mob-farmer/status` reports the latest decision plus candidate diagnostics, including per-NPC selectability, reasons, health/death state, attackability, engaged-by-other state, line-of-sight state, score, click point, and world location. Use this report before trusting live clicks in crowded or obstructed areas.
 
+Candidate reports also include `reachable`, `pathDistance`, `pathSearchLimit`, `pathVisited`, `pathFailureReason`, and `playerWorldLocation`. Matched NPCs behind ordinary fences/walls/collision blockers are rejected with `unreachable:<reason>` or `path-too-far` instead of being selected. OSR-14 Part E adds one local `Open`/`Close` door transition: unknown, unallowlisted, denylisted, or disabled doors are rejected with `blockedByDoor`, `manualActionRequired`, `manualActionReason`, and `blockingDoor`; explicitly allowlisted doors can produce `doorTransition` metadata for one guarded live menu-action attempt flow. The live flow rechecks the real transition, uses a 1.2-second retry interval, caps attempts at five, and holds after timeout. `/pathing/grid` and WebHelper render currently reachable, reachable-via-door, blocked-door, ordinary obstacle, and unreachable states distinctly. Multi-door routes and `Enter`/`Pass`/`Climb-over` transitions remain follow-up bricks.
+
 First-pass survival, menu interaction, and loot processing is implemented:
 
-- Auto-eat runs before loot or attack decisions. If current HP is at or below the configured percent threshold, the farmer opens inventory if needed, finds a matching food item with an `Eat`, `Drink`, or `Consume` action, and invokes that inventory widget menu action. If no food is found, the loop either stops automatically or records `warning:no-food-continue` and keeps farming based on `Stop if no food`.
-- Loot pickup scans visible scene ground items and reports every candidate in `/automation/mob-farmer/status`. Selection uses explicit always-loot names/ids, Ground Items highlighted/hidden list metadata, minimum GE value, blacklist, ownership policy, loot radius, inventory capacity, stackability, interaction mode, and score.
-- Attack and loot interaction modes default to `MENU_ACTION`. NPC attacks use the exact `Attack` action index exported from NPC composition metadata, and loot uses `GROUND_ITEM_FIRST_OPTION`/`Take` with scene coordinates. Before a live loot action fires, the target is revalidated on its scene tile; stale or newly rejected loot attempts fall through so the loop can attack instead of getting stuck. `DIRECT_CLICK` remains available as a debug/fallback path.
+- Auto-eat runs before loot or attack decisions. If current HP is at or below the configured percent threshold, the farmer opens inventory if needed, finds a matching food item with an `Eat`, `Drink`, or `Consume` action, and invokes that inventory widget menu action. If no food is found, the loop either stops automatically or records `warning:no-food-continue` and keeps farming based on `Stop if no food`. Status includes whether survival is configured to preempt actions, current HP/threshold, selected food, preempted decision/intents, and no-food behavior.
+- Loot pickup scans visible scene ground items and reports every candidate in `/automation/mob-farmer/status`. Selection uses explicit always-loot names/ids, Ground Items highlighted/hidden list metadata, minimum GE value, blacklist, ownership policy, loot radius, inventory capacity, stackability, interaction mode, and score. High-priority loot can override Attack-before-loot when it is explicitly allowlisted, highlighted by Ground Items, above the configured high-priority GE threshold, close to despawning, or when enough selectable loot piles are visible; candidates expose `highPriority` and `priorityReasons`.
+- Attack and loot interaction modes default to `MENU_ACTION`. NPC attacks use the exact `Attack` action index exported from NPC composition metadata, and loot uses `GROUND_ITEM_THIRD_OPTION`/`Take` with scene coordinates. Before a live loot action fires, the target is revalidated on its scene tile; stale or newly rejected loot attempts fall through so the loop can attack instead of getting stuck. `DIRECT_CLICK` remains available as a debug/fallback path.
 - Ground Items list reuse is first-pass implemented. `SUPPLEMENT` treats Ground Items highlighted entries as additional always-loot candidates. Ground Items hidden-list, hide-under-value, and show-highlighted-only suppression metadata are reported on candidates; they block pickup only if `Respect hidden Ground Items` is enabled and the item is not explicitly listed by CV Helper. `Never-loot` still wins over all allowlist/highlight/value rules.
-- Optional intermediate inventory actions can use matching items such as bones or ashes with explicit inventory widget menu actions in priority order: `Bury`, `Scatter`, then `Use`. This is intentionally smaller than a full inventory manager, but it shares the intended future primitive for drop/use inventory processing.
-- Default loot flow prioritizes attacking first when idle, then collecting allowed drops during combat windows or when no valid target is available. This supports the desired "attack next mob first, then loot after the drop appears" rhythm.
+- Optional intermediate inventory actions can use matching items with configurable item-to-action mappings. Defaults preserve `bones -> Bury`, `big bones -> Bury`, and `ashes -> Scatter|Bury`, but future entries can map other item names or ids to different inventory actions. If the configured action is unavailable, the farmer skips the item and reports selected item, slot, matched rule, configured action(s), available item actions, intended/actual action, menu params, result, and failure reason instead of falling back to `Use` or `Drop`.
+- Default loot flow prioritizes survival first, then intermediate inventory actions, then high-priority loot that may be missed, then attacking first when idle, then collecting allowed drops during combat windows or when no valid target is available. This supports the desired "attack next mob first, then loot after the drop appears" rhythm without letting important drops expire behind combat.
+- Successful live `Take` actions queue a next-valid-tick reattack attempt. The next logged-in tick still runs survival first, then `reattachAfterPickup` selects a valid reachable combat target and issues the attack before normal high-priority-loot/attack-before-loot flow. `/automation/mob-farmer/status.reattachAfterPickup` reports pending state, queued/attempt ticks, last pickup and attack ticks, selected target, result, and clear reason. This is currently based on the shared 1-tick scheduler gate; weapon-specific cooldown modelling is a follow-up.
 - Inventory status reports occupied/free slots, protected never-drop list, and the lowest-value unprotected drop candidate for future drop-processing work. The first pass does not drop inventory items automatically.
 
 Real pathing/exit tiles, emergency teleport, automatic dropping, config profiles/presets, and composable external action plans remain follow-up bricks.
@@ -357,14 +438,16 @@ Known farmer follow-ups:
 - Add automatic low-value dropping, item priority tiers, and safe pathing/exit strategies before longer unattended loops.
 - Replace conservative line-of-sight filtering with real route/path distance using collision maps or a pathing plugin integration.
 - Add emergency teleport and configuration profiles/presets after the loop primitives are stable.
-- Add login/reconnect/world-recovery flow after the core combat loop is stable.
+- Add explicit world-switching/reconnect policy after the core combat loop is stable. Login-screen recovery already reuses the guarded `/login/click` helper when enabled.
 
-The verifier dashboard groups `/status` data into connection, vitals, wealth, and interface sections. It shows HP/prayer, run energy, special attack energy/enabled state, active prayers, current loot/equipment/total carried/risked-value approximation, selected widget state, and latest capture preview/path.
+The verifier dashboard groups `/status` data into connection, vitals, wealth, and interface sections. It shows HP/prayer, run energy, special attack energy/enabled state, active prayers, current loot/equipment/total carried/risked-value approximation, selected widget state, and latest capture preview/path. Inventory and equipment should have one authoritative default display with sortable/filterable rows for item name, quantity, slot, and available value fields; duplicate raw inventory dumps belong in Raw Data.
+
+The mob-farmer verifier panel shows status, controls, runtime details, configuration entry points, and debug data as separate surfaces. Its config editor reads current settings from `/automation/mob-farmer/config` only into an explicit draft, renders structured config controls with labels/descriptions/tooltips instead of a raw dump, supports JSON import/export without implicit apply, exposes a focus-click button, and allows action slot hotkey/options editing through WebHelper. Raw JSON remains available behind debug/raw views.
 
 ## Debugging In Game
 
 - The open client must be a freshly launched custom jar; Java changes do not hot-load into an already-open RuneLite window.
-- Use the newest `CV Helper local export listening on http://127.0.0.1:<port>/status` log line to identify the active debug port.
+- Start `tools/cv-helper-verifier/serve.ps1` and let the verifier auto-discover the active debug port. Only fall back to log inspection if the helper itself is not available.
 - In the CV Helper right-side panel, `Debug overlay` writes current state, mouse position, and target counts to in-game chat.
 - `Print overlay bounds` writes current mouse, prayer panel, quick-prayer panel, spellbook, and cached target bounds to in-game chat.
 - Green rectangles are prayer targets. Orange rectangles are spell targets. Mouse coordinates are cyan.
@@ -395,4 +478,4 @@ The verifier dashboard groups `/status` data into connection, vitals, wealth, an
 - Add endpoint for all currently known target surfaces, likely `GET /targets`.
 - Add stable target IDs/names so Python can ask for a semantic click point.
 - Prototype `OSR-5` hotkey logging for one prayer and one spell before implementing direct action execution.
-- Open `tools/cv-helper-verifier/index.html` after relaunch and confirm it can poll the fresh CV Helper port.
+- Run `powershell -ExecutionPolicy Bypass -File .\tools\cv-helper-verifier\serve.ps1` after relaunch and confirm the dashboard auto-discovers the fresh CV Helper port, distinguishes `LOGIN_SCREEN` from transport failure, and still polls the live status surfaces.

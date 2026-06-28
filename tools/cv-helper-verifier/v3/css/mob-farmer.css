@@ -1,0 +1,224 @@
+/* ============================================================================
+ * mob-farmer.css — page header, tab bar, control deck, decisions, path grid
+ * ========================================================================== */
+
+/* ---- Page header band --------------------------------------------------- */
+.page-head {
+	display: flex; align-items: center; gap: 16px;
+	padding: 16px 18px;
+	margin-bottom: var(--gap);
+	background:
+		radial-gradient(120% 200% at 0% 0%, rgba(184,146,58,.07), transparent 55%),
+		linear-gradient(180deg, var(--bg-panel), var(--bg-panel-2));
+	border: 1px solid var(--frame);
+	border-radius: var(--r-md);
+	box-shadow: var(--shadow-card);
+	position: relative;
+}
+.page-head .emblem {
+	font-size: 34px; color: var(--gold);
+	display: inline-flex;
+	filter: drop-shadow(0 0 10px rgba(217,178,94,.3));
+}
+.page-head .ph-titles { display: flex; flex-direction: column; gap: 3px; }
+.page-head h1 {
+	font-family: var(--font-display);
+	font-size: 24px; letter-spacing: .14em; text-transform: uppercase;
+	color: var(--gold-bright);
+	text-shadow: 0 2px 4px #000;
+}
+.page-head .ph-sub { font-size: 12px; color: var(--ink-faint); }
+.page-head .ph-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+/* ---- Tab bar + control deck -------------------------------------------- */
+.deck {
+	display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+	padding: 10px 14px;
+	margin-bottom: var(--gap);
+	background: linear-gradient(180deg, var(--bg-header), var(--bg-panel-2));
+	border: 1px solid var(--frame);
+	border-radius: var(--r-md);
+}
+.tabs { display: flex; gap: 4px; }
+.tab {
+	padding: 7px 13px; border: 1px solid transparent; border-radius: var(--r-sm);
+	background: transparent; color: var(--ink-soft); font-size: 12px;
+	border-bottom: 2px solid transparent; transition: all .12s;
+}
+.tab:hover { color: var(--ink); background: var(--bg-raise); }
+.tab.active { color: var(--gold-bright); border-bottom-color: var(--gold); }
+.deck .spacer { flex: 1; }
+.deck .ctrl { display: flex; flex-direction: column; gap: 3px; }
+.deck .ctrl > span { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint); }
+.deck .ctrl input, .deck .ctrl select { min-width: 90px; }
+.deck .run-btns { display: flex; gap: 6px; align-self: flex-end; }
+
+.tabpane[hidden] { display: none; }
+.skill-pane[hidden] { display: none; }
+
+/* ---- preset control ----------------------------------------------------- */
+.preset-ctl { display: inline-flex; align-items: center; gap: 4px; }
+.preset-ctl .select { min-width: 130px; }
+.preset-ctl .btn.icon { padding: 6px; }
+
+/* ---- Config sub-tabs ---------------------------------------------------- */
+.config-bar {
+	display: flex; align-items: center; gap: 12px;
+	padding: 10px 14px; margin-bottom: var(--gap);
+	background: linear-gradient(180deg, var(--bg-header), var(--bg-panel-2));
+	border: 1px solid var(--frame); border-radius: var(--r-md);
+}
+.config-bar .spacer { flex: 1; }
+.cfg-section { margin-bottom: 18px; }
+.cfg-section-h {
+	font-family: var(--font-display); font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+	color: var(--gold); padding: 6px 0 10px; border-bottom: 1px solid var(--frame-soft); margin-bottom: 12px;
+}
+.cfg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 18px; }
+.cfg-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.cfg-field.wide { grid-column: 1 / -1; }
+.cfg-field .cfg-label {
+	display: flex; align-items: center; gap: 5px;
+	font-size: 11px; letter-spacing: .04em; color: var(--ink-soft);
+}
+.cfg-field .cfg-help { color: var(--gold-dim); font-size: 12px; display: inline-flex; cursor: help; }
+.cfg-field > .toggle { align-self: flex-start; }
+.cfg-field .input, .cfg-field .select, .cfg-field .textarea { width: 100%; }
+
+/* ---- Recent decisions timeline ----------------------------------------- */
+.timeline { display: flex; flex-direction: column; }
+.tl-item {
+	display: grid; grid-template-columns: 48px 18px 1fr auto;
+	gap: 9px; align-items: center;
+	padding: 5px 2px; border-bottom: 1px solid rgba(111,130,84,.07);
+}
+.tl-item:last-child { border-bottom: none; }
+.tl-time { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); }
+.tl-arrow { font-size: 13px; display: inline-flex; justify-content: center; }
+.tl-arrow.up { color: var(--good); }
+.tl-arrow.skip { color: var(--ink-faint); }
+.tl-arrow.bad { color: var(--bad); }
+.tl-arrow.wait { color: var(--warn); }
+.tl-text { font-size: 12px; color: var(--ink); }
+.tl-text .id { margin-left: 3px; }
+.tl-tag { font-size: 10px; color: var(--ink-faint); font-family: var(--font-mono); }
+
+/* ---- Quick controls list ------------------------------------------------ */
+.qc-row {
+	display: flex; align-items: center; gap: 9px;
+	padding: 7px 2px; border-bottom: 1px solid rgba(111,130,84,.07);
+	min-height: 34px;
+}
+.qc-row:last-child { border-bottom: none; }
+.qc-row .qc-label { font-size: 12.5px; color: var(--ink-soft); flex: 1; min-width: 0; }
+.qc-row .qc-ico {
+	color: var(--gold-dim); font-size: 15px; width: 18px; flex-shrink: 0;
+	display: inline-flex; align-items: center; justify-content: center;
+}
+.qc-row .toggle, .qc-row .select { flex-shrink: 0; }
+
+/* ---- Mob farmer top band (2x2 info panels beside a prominent pathing) --- */
+.mf-top {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) clamp(360px, 33vw, 560px);
+	gap: var(--gap); margin-bottom: var(--gap);
+}
+.mf-top-left { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); align-content: start; }
+.mf-top-right { display: flex; }
+.mf-top-right > .panel { width: 100%; }
+@media (max-width: 1180px) { .mf-top { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .mf-top-left { grid-template-columns: 1fr; } }
+
+/* ---- Quick controls: dense 2-column grid ------------------------------- */
+.qc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 18px; }
+@media (max-width: 560px) { .qc-grid { grid-template-columns: 1fr; } }
+.qc-grid .qc-row.span { grid-column: 1 / -1; }
+
+/* ---- collapsible table summaries --------------------------------------- */
+.tbl-summary {
+	cursor: pointer; padding: 9px 13px; font-size: 12px; color: var(--ink-soft);
+	list-style: none; user-select: none; border-bottom: 1px solid var(--frame-soft);
+}
+.tbl-summary::-webkit-details-marker { display: none; }
+.tbl-summary::before { content: "▸"; color: var(--frame-gold); margin-right: 7px; display: inline-block; transition: transform .12s; }
+details[open] > .tbl-summary::before { transform: rotate(90deg); }
+.tbl-summary b { color: var(--gold-bright); }
+
+/* ---- grid zoom control -------------------------------------------------- */
+.zoom-ctl { display: inline-flex; align-items: center; gap: 4px; }
+.zoom-btn {
+	width: 20px; height: 20px; line-height: 1; padding: 0;
+	border: 1px solid var(--frame); border-radius: var(--r-sm);
+	background: var(--bg-raise); color: var(--gold); font-size: 14px; font-weight: 700;
+}
+.zoom-btn:hover { border-color: var(--frame-gold); color: var(--gold-bright); }
+.zoom-val { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); min-width: 30px; text-align: center; }
+
+.lg-door { background: var(--door); border-radius: 1px; }
+
+/* ---- Pathing / reachability grid --------------------------------------- */
+.path-info-grid {
+	display: grid; grid-template-columns: 1fr 1fr; gap: 2px 14px; margin-bottom: 11px;
+}
+.pi-cell {
+	display: flex; justify-content: space-between; align-items: baseline;
+	padding: 3px 0; border-bottom: 1px solid rgba(111,130,84,.07);
+}
+.pi-cell .pi-k { font-size: 11px; color: var(--ink-faint); }
+.pi-cell .pi-v { font-size: 11.5px; font-family: var(--font-mono); color: var(--ink); text-align: right; }
+.pi-cell .pi-v.good { color: var(--good-bright); }
+.pi-cell .pi-v.warn { color: var(--warn-bright); }
+.pi-cell .pi-v.bad { color: var(--bad-bright); }
+
+.path-grid-box {
+	position: relative;
+	aspect-ratio: 1 / 1;
+	width: 100%;
+	max-width: 520px;
+	margin: 0 auto;
+	background:
+		radial-gradient(circle at 50% 50%, rgba(88,182,201,.06), transparent 70%),
+		var(--bg-panel-2);
+	border: 1px solid var(--frame-soft);
+	border-radius: var(--r-sm);
+	overflow: hidden;
+}
+.path-grid-box svg { display: block; width: 100%; height: 100%; }
+.compass {
+	position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
+	font-family: var(--font-display); font-size: 11px; letter-spacing: .1em;
+	color: var(--gold-dim); pointer-events: none;
+}
+.path-info { display: flex; flex-direction: column; gap: 1px; }
+.path-legend {
+	display: flex; flex-wrap: wrap; gap: 10px 14px;
+	margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--frame-soft);
+	font-size: 10.5px; color: var(--ink-faint);
+}
+.path-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.path-legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.lg-you { background: var(--you); }
+.lg-path { background: var(--path); }
+.lg-reach { background: var(--good); border-radius: 1px; }
+.lg-target { background: var(--gold); border-radius: 1px; }
+.lg-obstacle { background: var(--obstacle); }
+.lg-unreachable { background: var(--unreachable); }
+.lg-door-blocked { background: var(--door); }
+.lg-door-pending { background: repeating-linear-gradient(45deg, var(--door) 0, var(--door) 2px, transparent 2px, transparent 4px); }
+.lg-center { background: transparent; border: 1.5px solid var(--gold-bright); border-radius: 50%; }
+
+/* ---- Inventory overview mini -------------------------------------------- */
+.inv-summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 12px; }
+.inv-stat { padding: 9px 11px; background: var(--bg-panel-2); border: 1px solid var(--frame-soft); border-radius: var(--r-sm); }
+.inv-stat .s-label { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint); }
+.inv-stat .s-value { font-size: 16px; font-weight: 600; color: var(--ink); font-family: var(--font-display); }
+
+/* events log */
+.events { display: flex; flex-direction: column; max-height: 230px; overflow-y: auto; }
+.ev-row { display: grid; grid-template-columns: 56px 14px 1fr; gap: 8px; align-items: baseline; padding: 4px 2px; font-size: 11.5px; border-bottom: 1px solid rgba(111,130,84,.06); }
+.ev-row .ev-t { font-family: var(--font-mono); color: var(--ink-faint); font-size: 10.5px; }
+.ev-row .ev-d { width: 7px; height: 7px; border-radius: 50%; background: var(--gold-dim); align-self: center; }
+.ev-row .ev-m { color: var(--ink-soft); }
+
+/* food items with HP placeholder */
+.food-hp { color: var(--gold-dim); font-size: 11px; margin-left: 2px; }

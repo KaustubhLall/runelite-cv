@@ -18,6 +18,8 @@ import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigSection;
+import net.runelite.client.config.Range;
+import net.runelite.client.config.Units;
 
 @ConfigGroup(CvHelperConfig.GROUP)
 public interface CvHelperConfig extends Config
@@ -25,6 +27,14 @@ public interface CvHelperConfig extends Config
 	String GROUP = "cvhelper";
 	String ACTION_SECTION = "actionSection";
 	String MOB_FARMER_SECTION = "mobFarmerSection";
+	String WOODCUTTER_SECTION = "woodcutterSection";
+	String CHAT_RESPONDER_SECTION = "chatResponderSection";
+	String CHAT_RESPONDER_ENABLED = "chatResponderEnabled";
+	String CHAT_RESPONDER_MIN_MESSAGES = "chatResponderMinMessages";
+	String CHAT_RESPONDER_WINDOW_SECONDS = "chatResponderWindowSeconds";
+	String CHAT_RESPONDER_COOLDOWN_SECONDS = "chatResponderCooldownSeconds";
+	String CHAT_RESPONDER_MODEL = "chatResponderModel";
+	String CHAT_RESPONDER_PROMPT = "chatResponderPrompt";
 	String SHOW_HOVER_OVERLAY = "showHoverOverlay";
 	String SHOW_WIDGET_INFO = "showWidgetInfo";
 	String SHOW_PRAYER_TARGETS = "showPrayerTargets";
@@ -35,6 +45,7 @@ public interface CvHelperConfig extends Config
 	String SHOW_PANEL_TARGETS = "showPanelTargets";
 	String SHOW_COMBAT_TARGETS = "showCombatTargets";
 	String SHOW_ENTITY_TARGETS = "showEntityTargets";
+	String SHOW_SKILL_FARMER_TARGETS = "showSkillFarmerTargets";
 	String SHOW_TARGET_LABELS = "showTargetLabels";
 	String ENABLE_LOCAL_EXPORT = "enableLocalExport";
 	String LOCAL_PORT = "localPort";
@@ -102,6 +113,11 @@ public interface CvHelperConfig extends Config
 	String ACTION_RETURN_PRAYER_HOTKEY = "actionReturnPrayerHotkey";
 	String ACTION_RETURN_SPELLBOOK_HOTKEY = "actionReturnSpellbookHotkey";
 	String MOB_FARMER_TARGET = "mobFarmerTarget";
+	String MOB_FARMER_RECOVERY_LOOP_DELAY_MS = "mobFarmerRecoveryLoopDelayMs";
+	String MOB_FARMER_AUTORUN_ENABLED = "mobFarmerAutorunEnabled";
+	String MOB_FARMER_AUTORUN_MIN_ENERGY = "mobFarmerAutorunMinEnergy";
+	String MOB_FARMER_FOCUS_CLICK_AFTER_LOGIN = "mobFarmerFocusClickAfterLogin";
+	String MOB_FARMER_AFTER_LOOT_COMBAT_MODE = "mobFarmerAfterLootCombatMode";
 	String MOB_FARMER_ENGAGED_MODE = "mobFarmerEngagedMode";
 	String MOB_FARMER_AGGRO_RESPONSE = "mobFarmerAggroResponse";
 	String MOB_FARMER_REQUIRE_LINE_OF_SIGHT = "mobFarmerRequireLineOfSight";
@@ -110,21 +126,59 @@ public interface CvHelperConfig extends Config
 	String MOB_FARMER_EAT_HITPOINT_PERCENT = "mobFarmerEatHitpointPercent";
 	String MOB_FARMER_FOOD_ITEMS = "mobFarmerFoodItems";
 	String MOB_FARMER_STOP_IF_NO_FOOD = "mobFarmerStopIfNoFood";
+	String MOB_FARMER_SURVIVAL_PREEMPTS_ACTIONS = "mobFarmerSurvivalPreemptsActions";
+	String MOB_FARMER_LOGIN_RECOVERY_ENABLED = "mobFarmerLoginRecoveryEnabled";
+	String MOB_FARMER_LOGIN_RECOVERY_F2P_ONLY = "mobFarmerLoginRecoveryF2pOnly";
+	String MOB_FARMER_LOGIN_CLICK_TO_PLAY_ENABLED = "mobFarmerLoginClickToPlayEnabled";
+	String MOB_FARMER_LOGIN_DISCONNECT_RECOVERY_ENABLED = "mobFarmerLoginDisconnectRecoveryEnabled";
+	String MOB_FARMER_AUTO_RESUME_AFTER_LOGIN = "mobFarmerAutoResumeAfterLogin";
+	String MOB_FARMER_PREFERRED_LOGIN_WORLD = "mobFarmerPreferredLoginWorld";
+	String AUTO_LOGIN_ON_LAUNCH = "autoLoginOnLaunch";
 	String MOB_FARMER_LOOT_ENABLED = "mobFarmerLootEnabled";
 	String MOB_FARMER_LOOT_DURING_COMBAT = "mobFarmerLootDuringCombat";
 	String MOB_FARMER_ATTACK_BEFORE_LOOT = "mobFarmerAttackBeforeLoot";
 	String MOB_FARMER_LOOT_MIN_VALUE_GE = "mobFarmerLootMinValueGe";
+	String MOB_FARMER_LOOT_MIN_SINGLE_GE = "mobFarmerLootMinSingleGe";
+	String MOB_FARMER_LOOT_MIN_STACK_GE = "mobFarmerLootMinStackGe";
+	String MOB_FARMER_LOOT_MIN_STACK_QUANTITY = "mobFarmerLootMinStackQuantity";
+	String MOB_FARMER_LOOT_ALWAYS_STACK_GE = "mobFarmerLootAlwaysStackGe";
+	String MOB_FARMER_LOOT_NEVER_STACK_BELOW_GE = "mobFarmerLootNeverStackBelowGe";
+	String MOB_FARMER_HIGH_PRIORITY_LOOT_VALUE_GE = "mobFarmerHighPriorityLootValueGe";
+	String MOB_FARMER_LOOT_URGENT_DESPAWN_TICKS = "mobFarmerLootUrgentDespawnTicks";
+	String MOB_FARMER_LOOT_CLEANUP_PILE_COUNT = "mobFarmerLootCleanupPileCount";
 	String MOB_FARMER_LOOT_RADIUS = "mobFarmerLootRadius";
 	String MOB_FARMER_LOOT_ITEMS = "mobFarmerLootItems";
 	String MOB_FARMER_LOOT_BLACKLIST = "mobFarmerLootBlacklist";
 	String MOB_FARMER_LOOT_OWNERSHIP_MODE = "mobFarmerLootOwnershipMode";
 	String MOB_FARMER_NEVER_DROP_ITEMS = "mobFarmerNeverDropItems";
+	String MOB_FARMER_DROP_ITEMS = "mobFarmerDropItems";
+	String MOB_FARMER_MAX_DROP_VALUE = "mobFarmerMaxDropValue";
 	String MOB_FARMER_ATTACK_INTERACTION_MODE = "mobFarmerAttackInteractionMode";
 	String MOB_FARMER_LOOT_INTERACTION_MODE = "mobFarmerLootInteractionMode";
 	String MOB_FARMER_GROUND_ITEMS_MODE = "mobFarmerGroundItemsMode";
 	String MOB_FARMER_RESPECT_GROUND_ITEMS_HIDDEN = "mobFarmerRespectGroundItemsHidden";
 	String MOB_FARMER_INTERMEDIATE_ACTIONS_ENABLED = "mobFarmerIntermediateActionsEnabled";
 	String MOB_FARMER_INTERMEDIATE_ITEMS = "mobFarmerIntermediateItems";
+	String MOB_FARMER_INTERMEDIATE_ACTION_MAPPINGS = "mobFarmerIntermediateActionMappings";
+	String MOB_FARMER_HIGH_ALCH_ENABLED = "mobFarmerHighAlchEnabled";
+	String MOB_FARMER_HIGH_ALCH_MIN_HA = "mobFarmerHighAlchMinHa";
+	String MOB_FARMER_HIGH_ALCH_MIN_DELTA = "mobFarmerHighAlchMinDelta";
+	String MOB_FARMER_HIGH_ALCH_MAX_LOSS = "mobFarmerHighAlchMaxLoss";
+	String MOB_FARMER_HIGH_ALCH_ITEMS = "mobFarmerHighAlchItems";
+	String MOB_FARMER_HIGH_ALCH_BLACKLIST = "mobFarmerHighAlchBlacklist";
+	String DROP_POLICY_ENABLED = "dropPolicyEnabled";
+	String DROP_POLICY_MODE = "dropPolicyMode";
+	String DROP_POLICY_THRESHOLD_SLOTS = "dropPolicyThresholdSlots";
+	String DROP_POLICY_ITEMS = "dropPolicyItems";
+	String DROP_POLICY_PROTECTED_ITEMS = "dropPolicyProtectedItems";
+	String DROP_POLICY_MAX_VALUE = "dropPolicyMaxValue";
+	String WOODCUTTING_STICK_TO_TARGET = "woodcuttingStickToTarget";
+	String WOODCUTTING_RECLICK_WHEN_ACTIVE = "woodcuttingReclickWhenActivelyChopping";
+	String ANTI_IDLE_ENABLED = "antiIdleEnabled";
+	String ANTI_IDLE_TIMEOUT_MINUTES = "antiIdleTimeoutMinutes";
+	String ANTI_IDLE_INPUT_INTERVAL_MINUTES = "antiIdleInputIntervalMinutes";
+	String ANTI_IDLE_MANUAL_OVERRIDE = "antiIdleManualOverride";
+	String ANTI_IDLE_RESTORE_MOUSE = "antiIdleRestoreMouse";
 
 	@ConfigSection(
 		name = "Action hotkeys",
@@ -139,6 +193,20 @@ public interface CvHelperConfig extends Config
 		position = 110
 	)
 	String mobFarmerSection = MOB_FARMER_SECTION;
+
+	@ConfigSection(
+		name = "Woodcutter",
+		description = "Woodcutting automation and inventory management options.",
+		position = 115
+	)
+	String woodcutterSection = WOODCUTTER_SECTION;
+
+	@ConfigSection(
+		name = "Chat responder",
+		description = "Experimental AI chat responder that reads public chat and replies using OpenAI. Toggle off to disable completely.",
+		position = 120
+	)
+	String chatResponderSection = CHAT_RESPONDER_SECTION;
 
 	@ConfigItem(
 		keyName = SHOW_HOVER_OVERLAY,
@@ -236,6 +304,16 @@ public interface CvHelperConfig extends Config
 		description = "Draw nearby player and NPC canvas bounds where RuneLite exposes them."
 	)
 	default boolean showEntityTargets()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = SHOW_SKILL_FARMER_TARGETS,
+		name = "Show skilling target boxes",
+		description = "Draw latest mining and woodcutting candidate object boxes when the farmer scans them."
+	)
+	default boolean showSkillFarmerTargets()
 	{
 		return true;
 	}
@@ -485,6 +563,61 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = MOB_FARMER_RECOVERY_LOOP_DELAY_MS,
+		name = "Recovery loop delay",
+		description = "Wall-clock delay, in milliseconds, for the background recovery loop when logged out or manually stepping. Logged-in farming remains game-tick driven.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerRecoveryLoopDelayMs()
+	{
+		return 1200;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_AUTORUN_ENABLED,
+		name = "Auto-run on",
+		description = "When logged in and safe, click the run orb if run is off and run energy is at or above the configured threshold.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerAutorunEnabled()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_AUTORUN_MIN_ENERGY,
+		name = "Auto-run energy %",
+		description = "Minimum run energy percent required before the farmer toggles run on. Uses the minimap run toggle target and does not toggle run off.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerAutorunMinEnergy()
+	{
+		return 30;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_FOCUS_CLICK_AFTER_LOGIN,
+		name = "Focus click after login",
+		description = "After login/startup, require one guarded canvas-center focus click before farming actions. This works around RuneLite/client focus states where movement or menu actions do not register until one click.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerFocusClickAfterLogin()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_AFTER_LOOT_COMBAT_MODE,
+		name = "After-loot combat",
+		description = "Controls what happens after a pickup if the player is already in combat or an NPC is tagging the player. STAY_ON_CURRENT_ATTACKER prevents tagging another mob; STOP_WHEN_TAGGED stops the farmer.",
+		section = mobFarmerSection
+	)
+	default CvHelperAfterLootCombatMode mobFarmerAfterLootCombatMode()
+	{
+		return CvHelperAfterLootCombatMode.STAY_ON_CURRENT_ATTACKER;
+	}
+
+	@ConfigItem(
 		keyName = MOB_FARMER_ENGAGED_MODE,
 		name = "Already-engaged mobs",
 		description = "Controls whether multi-combat can target mobs already being fought by someone else. Single-combat always skips them.",
@@ -573,6 +706,94 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = MOB_FARMER_SURVIVAL_PREEMPTS_ACTIONS,
+		name = "Survival preempts actions",
+		description = "When HP is below the auto-eat threshold, survival actions interrupt combat/loot scheduling. Survival still wins over high-priority loot.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerSurvivalPreemptsActions()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOGIN_RECOVERY_ENABLED,
+		name = "Recover after logout",
+		description = "When the live farmer reaches RuneLite's login screen, queue the same guarded click-to-play helper used by the panel. This is login recovery only, not anti-idle input.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerLoginRecoveryEnabled()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOGIN_RECOVERY_F2P_ONLY,
+		name = "Recover only on F2P worlds",
+		description = "Skip automatic login recovery on member, PvP, Deadman, seasonal, or minigame/special worlds.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerLoginRecoveryF2pOnly()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOGIN_CLICK_TO_PLAY_ENABLED,
+		name = "Click-to-play on login screen",
+		description = "When RuneLite is on the login screen, queue a guarded click-to-play action. This is recovery only, not anti-idle input.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerLoginClickToPlayEnabled()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOGIN_DISCONNECT_RECOVERY_ENABLED,
+		name = "Recover connection-lost",
+		description = "When RuneLite reports CONNECTION_LOST, allow a guarded Enter press to advance the disconnect/login flow. This is recovery only, not anti-idle input.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerLoginDisconnectRecoveryEnabled()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_AUTO_RESUME_AFTER_LOGIN,
+		name = "Auto-resume after login",
+		description = "Keep the farmer loop alive through login recovery so it resumes after successful login. Disable to stop the farmer when logout/disconnect is detected.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerAutoResumeAfterLogin()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_PREFERRED_LOGIN_WORLD,
+		name = "Preferred login world",
+		description = "Preferred safe F2P world for local development status/reporting. The recovery guard still validates the actual current world before clicking.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerPreferredLoginWorld()
+	{
+		return 326;
+	}
+
+	@ConfigItem(
+		keyName = AUTO_LOGIN_ON_LAUNCH,
+		name = "Auto-login on launch",
+		description = "Automatically attempt login when RuneLite launches and detects the login screen. Works independently of macro state.",
+		section = mobFarmerSection
+	)
+	default boolean autoLoginOnLaunch()
+	{
+		return false;
+	}
+
+	@ConfigItem(
 		keyName = MOB_FARMER_LOOT_ENABLED,
 		name = "Loot pickup enabled",
 		description = "Allow the farmer loop to pick up matching or valuable ground items.",
@@ -614,6 +835,94 @@ public interface CvHelperConfig extends Config
 	default int mobFarmerLootMinValueGe()
 	{
 		return 100;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_MIN_SINGLE_GE,
+		name = "Min single-item GE",
+		description = "Minimum GE value per individual item before unlisted loot is eligible. Use 0 to disable the per-item guard.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerLootMinSingleGe()
+	{
+		return 0;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_MIN_STACK_GE,
+		name = "Min stack GE",
+		description = "Minimum total GE stack value before unlisted loot is eligible. This is the guard that skips tiny coin/rune/arrow stacks.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerLootMinStackGe()
+	{
+		return 100;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_MIN_STACK_QUANTITY,
+		name = "Min stack quantity",
+		description = "Minimum quantity for stackable unlisted items. Use 0 to disable quantity filtering.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerLootMinStackQuantity()
+	{
+		return 0;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_ALWAYS_STACK_GE,
+		name = "Always loot stack GE",
+		description = "Treat any stack at or above this total GE value as high-priority loot even if Attack before loot is enabled. Use 0 to disable.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerLootAlwaysStackGe()
+	{
+		return 1000;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_NEVER_STACK_BELOW_GE,
+		name = "Never stack below GE",
+		description = "Reject unlisted stacks below this total GE value even when other broad value rules would allow them. Explicit always-loot items still pass.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerLootNeverStackBelowGe()
+	{
+		return 0;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_HIGH_PRIORITY_LOOT_VALUE_GE,
+		name = "Priority loot GE",
+		description = "Loot at or above this GE value can override Attack before loot. Use 0 to treat all selectable loot as priority.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerHighPriorityLootValueGe()
+	{
+		return 1000;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_URGENT_DESPAWN_TICKS,
+		name = "Urgent loot despawn ticks",
+		description = "Loot with this many or fewer ticks before despawn can override Attack before loot. Use 0 to disable age urgency.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerLootUrgentDespawnTicks()
+	{
+		return 30;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOOT_CLEANUP_PILE_COUNT,
+		name = "Loot cleanup pile count",
+		description = "When at least this many selectable loot piles are visible, cleanup mode can override Attack before loot. Use 0 to disable cleanup override.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerLootCleanupPileCount()
+	{
+		return 5;
 	}
 
 	@ConfigItem(
@@ -706,8 +1015,8 @@ public interface CvHelperConfig extends Config
 
 	@ConfigItem(
 		keyName = MOB_FARMER_INTERMEDIATE_ACTIONS_ENABLED,
-		name = "Use bones/ashes",
-		description = "During safe loop windows, open inventory and invoke Bury, Scatter, or Use on matching intermediate items such as bones or ashes.",
+		name = "Use intermediate actions",
+		description = "During safe loop windows, open inventory and invoke configured item actions. Missing required actions are skipped rather than using or dropping the item.",
 		section = mobFarmerSection
 	)
 	default boolean mobFarmerIntermediateActionsEnabled()
@@ -727,14 +1036,315 @@ public interface CvHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = MOB_FARMER_INTERMEDIATE_ACTION_MAPPINGS,
+		name = "Intermediate mappings",
+		description = "Inventory action mappings, one per line or separated by semicolon. Example: bones -> Bury; ashes -> Scatter|Bury. Drop is never allowed for intermediate actions.",
+		section = mobFarmerSection
+	)
+	default String mobFarmerIntermediateActionMappings()
+	{
+		return "bones -> Bury; big bones -> Bury; ashes -> Scatter|Bury";
+	}
+
+	@ConfigItem(
 		keyName = MOB_FARMER_NEVER_DROP_ITEMS,
 		name = "Protected inventory",
-		description = "Inventory items that future drop-processing must never drop. Current implementation reports protected/drop candidates but does not drop items yet.",
+		description = "Inventory items that future drop-processing must never drop. Built-in rare/unique safeguards are always protected (for example clue scroll rewards, keys, totems, shards, champion scroll, long/curved bones). Current implementation reports protected/drop candidates but does not drop items yet.",
 		section = mobFarmerSection
 	)
 	default String mobFarmerNeverDropItems()
 	{
 		return "rune pouch|coins";
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_DROP_ITEMS,
+		name = "Drop allowlist",
+		description = "Items that are safe to drop when inventory space is needed. If empty, any non-protected item below the max drop value is a candidate.",
+		section = mobFarmerSection
+	)
+	default String mobFarmerDropItems()
+	{
+		return "";
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_MAX_DROP_VALUE,
+		name = "Max drop value",
+		description = "Maximum GE value of an item that can be dropped automatically. Items above this value are protected even if not in the protected list.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerMaxDropValue()
+	{
+		return 100;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_HIGH_ALCH_ENABLED,
+		name = "High Alch policy",
+		description = "Evaluate safe High Alchemy candidates while farming. Current pass reports candidates and safety/availability; invocation stays disabled unless all guards pass in a future live-cast pass.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerHighAlchEnabled()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_HIGH_ALCH_MIN_HA,
+		name = "Min HA value",
+		description = "Minimum single-item High Alchemy value for candidate reporting.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerHighAlchMinHa()
+	{
+		return 0;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_HIGH_ALCH_MIN_DELTA,
+		name = "Min HA delta",
+		description = "Require HA value minus GE value to be at least this amount. Use 0 to allow break-even, negative values through max-loss, and positive values for profit-only alching.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerHighAlchMinDelta()
+	{
+		return 0;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_HIGH_ALCH_MAX_LOSS,
+		name = "Max HA loss",
+		description = "Maximum acceptable GE-to-HA loss per item when inventory space matters. Use 0 for no loss.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerHighAlchMaxLoss()
+	{
+		return 0;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_HIGH_ALCH_ITEMS,
+		name = "Alch allowlist",
+		description = "If non-empty, only these item names or id:<item id> are eligible for High Alchemy.",
+		section = mobFarmerSection
+	)
+	default String mobFarmerHighAlchItems()
+	{
+		return "";
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_HIGH_ALCH_BLACKLIST,
+		name = "Never alch",
+		description = "Items that must never be high-alched. Food, protected inventory items, and useful items should be listed here.",
+		section = mobFarmerSection
+	)
+	default String mobFarmerHighAlchBlacklist()
+	{
+		return "coins|rune pouch|law rune|nature rune|air rune|fire rune|water rune|earth rune|mind rune|body rune|chaos rune|death rune|blood rune|soul rune|astral rune|wrath rune|teleport|tab|shark|lobster|swordfish|monkfish|karambwan";
+	}
+
+	@ConfigItem(
+		keyName = ANTI_IDLE_ENABLED,
+		name = "Anti-idle timeout prevention",
+		description = "Extend the idle logout timer and periodically move/click the mouse on the character to prevent idle logout while farmers are running.",
+		section = mobFarmerSection
+	)
+	default boolean antiIdleEnabled()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = ANTI_IDLE_TIMEOUT_MINUTES,
+		name = "Anti-idle timeout",
+		description = "Idle logout timeout duration when anti-idle is active. RuneLite hard-caps this at 30 minutes.",
+		section = mobFarmerSection
+	)
+	@Units(Units.MINUTES)
+	@Range(min = 5, max = 30)
+	default int antiIdleTimeoutMinutes()
+	{
+		return 30;
+	}
+
+	@ConfigItem(
+		keyName = ANTI_IDLE_INPUT_INTERVAL_MINUTES,
+		name = "Anti-idle input interval",
+		description = "How often to move and click the mouse on the character to reset idle ticks. Must be less than the timeout.",
+		section = mobFarmerSection
+	)
+	@Units(Units.MINUTES)
+	@Range(min = 1, max = 28)
+	default int antiIdleInputIntervalMinutes()
+	{
+		return 4;
+	}
+
+	@ConfigItem(
+		keyName = ANTI_IDLE_MANUAL_OVERRIDE,
+		name = "Manual anti-idle override",
+		description = "Keep anti-idle active even when no farmers are running.",
+		section = mobFarmerSection
+	)
+	default boolean antiIdleManualOverride()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = ANTI_IDLE_RESTORE_MOUSE,
+		name = "Restore mouse position",
+		description = "Return the OS mouse to its original position after each anti-idle input.",
+		section = mobFarmerSection
+	)
+	default boolean antiIdleRestoreMouse()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "woodcutterInventoryMode",
+		name = "Inventory Handling",
+		description = "What to do when the inventory is full: do nothing, drop logs, or bank.",
+		section = woodcutterSection
+	)
+	default CvHelperWoodcutterInventoryMode woodcutterInventoryMode()
+	{
+		return CvHelperWoodcutterInventoryMode.DROP;
+	}
+
+	@ConfigItem(
+		keyName = "woodcutterDropItemNames",
+		name = "Drop Items",
+		description = "Comma-separated item names that the woodcutter is allowed to drop.",
+		section = woodcutterSection
+	)
+	default String woodcutterDropItemNames()
+	{
+		return "Logs, Oak logs, Willow logs, Teak logs, Maple logs, Mahogany logs, Yew logs, Magic logs, Redwood logs";
+	}
+
+	@ConfigItem(
+		keyName = "woodcutterMaxDropValue",
+		name = "Max Drop Value",
+		description = "Do not drop items worth more than this many GP.",
+		section = woodcutterSection
+	)
+	default int woodcutterMaxDropValue()
+	{
+		return 1000;
+	}
+
+	@ConfigItem(
+		keyName = "woodcutterInventoryTriggerSlots",
+		name = "Inventory Trigger Slots",
+		description = "Start dropping or banking when this many inventory slots are occupied.",
+		section = woodcutterSection
+	)
+	default int woodcutterInventoryTriggerSlots()
+	{
+		return 28;
+	}
+
+	@ConfigItem(
+		keyName = "woodcutterBankItemNames",
+		name = "Bank Items",
+		description = "Comma-separated item names that the woodcutter should deposit when banking.",
+		section = woodcutterSection
+	)
+	default String woodcutterBankItemNames()
+	{
+		return "Logs, Oak logs, Willow logs, Teak logs, Maple logs, Mahogany logs, Yew logs, Magic logs, Redwood logs";
+	}
+
+	@ConfigItem(
+		keyName = "woodcuttingStickToTarget",
+		name = "Stick to current tree",
+		description = "While actively chopping a tree that still matches the target list, do not switch to a different tree. This avoids wasting ticks re-targeting and prevents re-clicking the same tree.",
+		section = woodcutterSection
+	)
+	default boolean woodcuttingStickToTarget()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "woodcuttingReclickWhenActivelyChopping",
+		name = "Re-click while chopping",
+		description = "When enabled, the farmer will continue sending Chop down clicks while the woodcutting animation is running. Most players want this OFF because the click interrupts are slower than letting the axe swing uninterrupted.",
+		section = woodcutterSection
+	)
+	default boolean woodcuttingReclickWhenActivelyChopping()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = DROP_POLICY_ENABLED,
+		name = "Drop policy enabled",
+		description = "Enable the conditional drop policy for skill farmers. When disabled, farmers use their legacy inventory handling.",
+		section = woodcutterSection
+	)
+	default boolean dropPolicyEnabled()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = DROP_POLICY_MODE,
+		name = "Drop mode",
+		description = "When to drop items: NEVER disables dropping; WHEN_FULL drops only when inventory is full; WHEN_IDLE drops when not actively chopping (batch drop while moving between trees); AFTER_TARGET drops after each target cycle completes; AFTER_GATHER drops after each successful gather action; CLEANUP_ONLY drops only during explicit cleanup phases; MANUAL_ONLY requires manual invocation.",
+		section = woodcutterSection
+	)
+	default CvHelperDropMode dropPolicyMode()
+	{
+		return CvHelperDropMode.WHEN_IDLE;
+	}
+
+	@ConfigItem(
+		keyName = DROP_POLICY_THRESHOLD_SLOTS,
+		name = "Drop threshold slots",
+		description = "Minimum occupied inventory slots before dropping is considered. For WHEN_FULL mode, this is typically 28. For other modes, lower values allow earlier cleanup.",
+		section = woodcutterSection
+	)
+	default int dropPolicyThresholdSlots()
+	{
+		return 28;
+	}
+
+	@ConfigItem(
+		keyName = DROP_POLICY_ITEMS,
+		name = "Droppable items",
+		description = "Items that are safe to drop when conditions are met. If empty, any non-protected item below max value is a candidate. Separated by |, comma, semicolon, or newlines.",
+		section = woodcutterSection
+	)
+	default String dropPolicyItems()
+	{
+		return "";
+	}
+
+	@ConfigItem(
+		keyName = DROP_POLICY_PROTECTED_ITEMS,
+		name = "Protected items",
+		description = "Items that must never be dropped. Tools, food, teleport items, runes, and valuable items should be listed here. Built-in safeguards always protect clue/rare unique items.",
+		section = woodcutterSection
+	)
+	default String dropPolicyProtectedItems()
+	{
+		return "bronze pickaxe|iron pickaxe|steel pickaxe|mithril pickaxe|adamant pickaxe|rune pickaxe|bronze axe|iron axe|steel axe|mithril axe|adamant axe|rune axe|bronze hatchet|iron hatchet|steel hatchet|mithril hatchet|adamant hatchet|rune hatchet|shrimp|trout|salmon|tuna|lobster|swordfish|monkfish|shark|manta ray|anglerfish|cake|jug of wine|karambwan|meat|chicken|bread|pizza|pie|teleport|tab|rune pouch|coins";
+	}
+
+	@ConfigItem(
+		keyName = DROP_POLICY_MAX_VALUE,
+		name = "Max drop value",
+		description = "Maximum GE value of an item that can be dropped automatically. Items above this value are protected even if not in the protected list.",
+		section = woodcutterSection
+	)
+	default int dropPolicyMaxValue()
+	{
+		return 1000;
 	}
 
 	@ConfigItem(
@@ -1223,5 +1833,71 @@ public interface CvHelperConfig extends Config
 	default boolean actionReturnMouseCenter4()
 	{
 		return true;
+	}
+
+	@ConfigItem(
+		keyName = CHAT_RESPONDER_ENABLED,
+		name = "Enable chat responder",
+		description = "Enable the experimental AI chat responder. Requires OPENAI_API_KEY environment variable.",
+		section = chatResponderSection
+	)
+	default boolean chatResponderEnabled()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = CHAT_RESPONDER_MIN_MESSAGES,
+		name = "Minimum messages",
+		description = "Wait until this many non-self messages are seen in the window before generating a response.",
+		section = chatResponderSection
+	)
+	default int chatResponderMinMessages()
+	{
+		return 3;
+	}
+
+	@ConfigItem(
+		keyName = CHAT_RESPONDER_WINDOW_SECONDS,
+		name = "Message window seconds",
+		description = "Only consider messages from the last N seconds when deciding whether to respond.",
+		section = chatResponderSection
+	)
+	default int chatResponderWindowSeconds()
+	{
+		return 20;
+	}
+
+	@ConfigItem(
+		keyName = CHAT_RESPONDER_COOLDOWN_SECONDS,
+		name = "Cooldown seconds",
+		description = "Minimum time between AI responses.",
+		section = chatResponderSection
+	)
+	default int chatResponderCooldownSeconds()
+	{
+		return 15;
+	}
+
+	@ConfigItem(
+		keyName = CHAT_RESPONDER_MODEL,
+		name = "OpenAI model",
+		description = "Chat model to use. Leave empty for the default smallest model (gpt-4o-mini).",
+		section = chatResponderSection
+	)
+	default String chatResponderModel()
+	{
+		return "gpt-4o-mini";
+	}
+
+	@ConfigItem(
+		keyName = CHAT_RESPONDER_PROMPT,
+		name = "Custom prompt",
+		description = "Optional override for the system prompt. Leave empty for the built-in OSRS personality prompt.",
+		section = chatResponderSection
+	)
+	default String chatResponderPrompt()
+	{
+		return "";
 	}
 }

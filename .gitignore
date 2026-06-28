@@ -37,3 +37,9 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+### MCP Environment Variables ###
+.mcp.env
+
+### Local build logs ###
+compile.log

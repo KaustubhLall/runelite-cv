@@ -35,6 +35,7 @@ This folder is the operating manual for AI-assisted work on this project. Keep i
 - Task creation policy: `task-creation.md`
 - Planning and subagents: `planning-and-subagents.md`
 - Permanent server/Python/plugin contracts: `contracts.md`
+- Modular plugin architecture + decomposition standard: `modular-architecture.md`
 - Session rules: `session-lifecycle.md`
 - Task states: `task-state-contract.md`
 - Keeping docs small: `doc-maintenance.md`

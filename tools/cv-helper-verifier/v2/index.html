@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>CV Helper WebHelper Console</title>
+	<link rel="stylesheet" href="./styles.css">
+	<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+	<div class="app">
+		<aside class="sidebar">
+			<div class="sidebar-brand">
+				<i data-lucide="compass" class="brand-icon"></i>
+				<div class="brand-text">
+					<div class="brand-title">RUNELITE</div>
+					<div class="brand-subtitle">CV Helper</div>
+				</div>
+				<div class="brand-version">WebHelper</div>
+			</div>
+
+			<nav class="sidebar-nav" aria-label="WebHelper sections">
+				<button class="nav-item active" type="button" data-view="dashboard-view">
+					<i data-lucide="home" class="nav-icon"></i>
+					<span>Dashboard</span>
+				</button>
+
+				<div class="nav-section">FARMERS</div>
+
+				<button class="nav-item" type="button" data-view="farmers-view" data-farmer-target="mob">
+					<i data-lucide="skull" class="nav-icon"></i>
+					<span>Mob Farmer</span>
+				</button>
+
+				<button class="nav-item" type="button" data-view="farmers-view" data-farmer-target="mining">
+					<i data-lucide="pickaxe" class="nav-icon"></i>
+					<span>Mining Farmer</span>
+				</button>
+
+				<button class="nav-item" type="button" data-view="farmers-view" data-farmer-target="woodcutting">
+					<i data-lucide="tree-pine" class="nav-icon"></i>
+					<span>Woodcutting Farmer</span>
+				</button>
+
+				<div class="nav-section">TOOLS</div>
+
+				<button class="nav-item" type="button" data-view="inventory-view">
+					<i data-lucide="backpack" class="nav-icon"></i>
+					<span>Inventory</span>
+				</button>
+
+				<button class="nav-item" type="button" data-view="actions-view">
+					<i data-lucide="sword" class="nav-icon"></i>
+					<span>Actions</span>
+				</button>
+
+				<button class="nav-item" type="button" data-view="configuration-view">
+					<i data-lucide="settings" class="nav-icon"></i>
+					<span>Configuration</span>
+				</button>
+
+				<button class="nav-item" type="button" data-view="debug-view">
+					<i data-lucide="bug" class="nav-icon"></i>
+					<span>Debug</span>
+				</button>
+
+				<button class="nav-item" type="button" data-view="raw-view">
+					<i data-lucide="file-text" class="nav-icon"></i>
+					<span>Raw Data</span>
+				</button>
+
+				<button id="panic-stop" type="button" class="nav-item danger">
+					<i data-lucide="alert-circle" class="nav-icon"></i>
+					<span>Stop All Macros</span>
+				</button>
+			</nav>
+
+			<div class="sidebar-connection">
+				<div class="connection-label">CV Helper Port</div>
+				<form id="connection-form" class="port-row">
+					<input id="port" name="port" inputmode="numeric" value="11777" autocomplete="off">
+					<button type="submit">Connect</button>
+				</form>
+				<button id="auto-discover" type="button" class="secondary">Auto-discover</button>
+				<div class="connection-status">
+					<span id="connection-status" class="status-dot bad">Disconnected</span>
+					<div id="connection-url" class="connection-url">Ready: 127.0.0.1:11777</div>
+				</div>
+			</div>
+		</aside>
+
+		<div class="main-area">
+			<header class="top-bar">
+				<div class="top-bar-left">
+					<span class="top-bar-label">LOCAL CLIENT</span>
+					<span id="top-bar-title" class="top-bar-title">Dashboard</span>
+					<span id="runtime-status" class="status-pill neutral">Waiting for /status</span>
+				</div>
+
+				<div class="top-bar-right">
+					<button id="refresh-now" type="button" title="Refresh all data">
+						<i data-lucide="refresh-cw"></i>Refresh
+					</button>
+					<button data-capture="/capture" type="button">
+						<i data-lucide="camera"></i>Frame
+					</button>
+					<button data-capture="/capture/screen" type="button">
+						<i data-lucide="monitor"></i>Screen
+					</button>
+					<button data-capture="/capture/minimap" type="button">
+						<i data-lucide="map"></i>Minimap
+					</button>
+					<button id="click-login" type="button">
+						<i data-lucide="log-in"></i>Click login
+					</button>
+					<label class="toggle">
+						<input id="auto-refresh" type="checkbox" checked>
+						<span class="toggle-track"></span>
+						<span>Auto refresh</span>
+					</label>
+				</div>
+			</header>
+
+			<div class="status-bar">
+				<div class="status-bar-left">
+					<span id="big-status-row"><i data-lucide="shield-check"></i>Client Ready</span>
+					<span id="top-bar-player"><i data-lucide="user"></i>Logged in as —</span>
+					<span id="top-bar-world"><i data-lucide="globe"></i>World —</span>
+					<span id="top-bar-game-state" class="game-state-badge">Game State: Unknown</span>
+				</div>
+				<div class="status-bar-right">
+					<span id="top-bar-uptime"><i data-lucide="clock"></i>Uptime —</span>
+					<span id="top-bar-last-update"><i data-lucide="rotate-ccw"></i>Last update —</span>
+				</div>
+			</div>
+
+			<main class="workspace">
+				<div id="capture-status" class="capture-banner">Captures save under your RuneLite screenshots folder.</div>
+
+				<section id="dashboard-view" class="view active" data-view-panel>
+					<div class="page-header">
+						<h2>Dashboard</h2>
+						<p class="page-subtitle">Live overview of your RuneLite client and CV Helper runtime.</p>
+					</div>
+
+					<div id="big-status" class="big-status warn">
+						<div class="big-status-icon">⏳</div>
+						<div class="big-status-text">
+							<h3>Waiting for CV Helper</h3>
+							<p>Connect to a port or click Auto-discover to begin.</p>
+						</div>
+					</div>
+
+					<div class="dashboard-grid">
+						<div class="card span-1">
+							<div class="card-header">
+								<h3><i data-lucide="network"></i>Connection</h3>
+							</div>
+							<div id="connection-grid" class="stat-grid"></div>
+						</div>
+
+						<div class="card span-1">
+							<div class="card-header">
+								<h3><i data-lucide="heart"></i>Vitals</h3>
+							</div>
+							<div id="vitals-grid" class="stat-grid"></div>
+						</div>
+
+						<div class="card span-1">
+							<div class="card-header">
+								<h3><i data-lucide="coins"></i>Wealth</h3>
+							</div>
+							<div id="wealth-grid" class="stat-grid"></div>
+						</div>
+
+						<div class="card span-1">
+							<div class="card-header">
+								<h3><i data-lucide="mouse-pointer"></i>Interface</h3>
+							</div>
+							<div id="interface-grid" class="stat-grid"></div>
+						</div>
+
+						<div class="card span-2">
+							<div class="card-header">
+								<h3><i data-lucide="crosshair"></i>Target Counts</h3>
+							</div>
+							<div id="count-grid" class="count-grid"></div>
+						</div>
+
+						<div class="card span-1">
+							<div class="card-header">
+								<h3><i data-lucide="alert-triangle"></i>Warnings</h3>
+							</div>
+							<ul id="warnings" class="warning-list">
+								<li>Loading...</li>
+							</ul>
+						</div>
+
+						<div class="card span-2">
+							<div class="card-header">
+								<h3><i data-lucide="camera"></i>Latest Captures</h3>
+							</div>
+							<div id="capture-grid" class="capture-grid"></div>
+						</div>
+
+						<div class="card span-1">
+							<div class="card-header">
+								<h3><i data-lucide="clock"></i>Recent Activity</h3>
+							</div>
+							<ul id="recent-activity" class="activity-list">
+								<li class="empty">No activity recorded yet.</li>
+							</ul>
+						</div>
+					</div>
+				</section>
+
+				<section id="farmers-view" class="view" data-view-panel>
+					<div class="page-header">
+						<h2>Farmers</h2>
+						<p class="page-subtitle">Mob, mining, and woodcutting automation with dry/live controls.</p>
+					</div>
+
+					<div class="tabs" role="tablist" aria-label="Farmer modules">
+						<button class="tab active" type="button" data-farmer-tab="mob">
+							<i data-lucide="skull"></i>Mob Farmer
+						</button>
+						<button class="tab" type="button" data-farmer-tab="mining">
+							<i data-lucide="pickaxe"></i>Mining Farmer
+						</button>
+						<button class="tab" type="button" data-farmer-tab="woodcutting">
+							<i data-lucide="tree-pine"></i>Woodcutting Farmer
+						</button>
+					</div>
+
+					<section class="farmer-panel active" data-farmer-panel="mob">
+						<div class="dashboard-grid">
+							<div class="card span-3 farmer-command-card">
+								<div class="card-header split">
+									<div>
+										<h3><i data-lucide="skull"></i>Mob Farmer</h3>
+										<p class="card-subtitle">Automated combat and loot management.</p>
+									</div>
+									<div class="state-stack">
+										<span id="mob-farmer-state" class="status-pill neutral">Idle</span>
+										<span id="mob-farmer-decision" class="decision-text">No decision yet.</span>
+										<span id="mob-farmer-live-date" class="decision-text">Live Data: —</span>
+										<span id="mob-farmer-uptime" class="decision-text">Uptime: —</span>
+									</div>
+								</div>
+
+								<div class="control-bar">
+									<label class="field">
+										<span>Target Mob/NPC</span>
+										<input id="mob-farmer-target" value="cow" autocomplete="off">
+									</label>
+									<label class="field compact">
+										<span>Mode</span>
+										<select id="mob-farmer-mode">
+											<option value="false" selected>Dry</option>
+											<option value="true">Live</option>
+										</select>
+									</label>
+									<label class="field compact">
+										<span>Loop Delay</span>
+										<input id="mob-farmer-loop-delay" value="1200" disabled>
+									</label>
+									<label class="field compact">
+										<span>Max Distance</span>
+										<input id="mob-farmer-max-distance" value="20" disabled>
+									</label>
+									<div class="button-group">
+										<button id="mob-farmer-step" type="button">Step</button>
+										<button id="mob-farmer-start" type="button" class="primary">Start</button>
+										<button id="mob-farmer-stop" type="button" class="danger">Stop</button>
+										<button id="mob-farmer-focus-click" type="button" class="secondary">Focus Click</button>
+									</div>
+								</div>
+							</div>
+
+							<details class="card span-3 config-card" open>
+								<summary class="card-header split">
+									<h3><i data-lucide="settings"></i>Configuration</h3>
+									<span id="mob-farmer-config-status" class="config-state neutral">No draft loaded</span>
+								</summary>
+								<div class="button-row">
+									<button id="mob-farmer-load-config" type="button" class="secondary">Load current</button>
+									<button id="mob-farmer-save-config" type="button">Apply draft</button>
+									<button id="mob-farmer-reset-draft" type="button" class="secondary">Reset</button>
+									<button id="mob-farmer-export-config" type="button" class="secondary">Export JSON</button>
+									<button id="mob-farmer-import-config" type="button" class="secondary">Import JSON</button>
+								</div>
+								<div class="profile-row">
+									<label class="field">
+										<span>Profile</span>
+										<select id="mob-farmer-profile-select"></select>
+									</label>
+									<label class="field">
+										<span>Name</span>
+										<input id="mob-farmer-profile-name" placeholder="Lumbridge cows">
+									</label>
+									<button id="mob-farmer-profile-save" type="button">Save</button>
+									<button id="mob-farmer-profile-load" type="button" class="secondary">Load</button>
+									<button id="mob-farmer-profile-duplicate" type="button" class="secondary">Duplicate</button>
+									<button id="mob-farmer-profile-delete" type="button" class="danger">Delete</button>
+								</div>
+								<div id="mob-farmer-config-errors" class="config-errors"></div>
+								<div id="mob-farmer-config-form" class="schema-grid"></div>
+								<textarea id="mob-farmer-config-json" class="code hidden-config-json" spellcheck="false" placeholder="Exported mob farmer config JSON appears here. Paste JSON here, then Import JSON."></textarea>
+							</details>
+
+							<div id="mob-farmer-status-grid" class="stat-grid"></div>
+
+							<div id="mob-farmer-details"></div>
+						</div>
+					</section>
+
+					<section class="farmer-panel" data-farmer-panel="mining">
+						<div class="dashboard-grid">
+							<div class="card span-3 farmer-command-card">
+								<div class="card-header split">
+									<div>
+										<h3><i data-lucide="pickaxe"></i>Mining Farmer</h3>
+										<p class="card-subtitle">Reachable rock selection with dry/live controls.</p>
+									</div>
+									<div class="state-stack">
+										<span id="mining-farmer-state" class="status-pill neutral">Idle</span>
+										<span id="mining-farmer-decision" class="decision-text">No decision yet.</span>
+									</div>
+								</div>
+								<div class="control-bar skill-control-bar">
+									<label class="field">
+										<span>Target Rocks</span>
+										<input id="mining-farmer-target" value="iron rocks|iron ore rocks|rocks" autocomplete="off">
+									</label>
+									<label class="field compact">
+										<span>Preset</span>
+										<select id="mining-farmer-preset"></select>
+									</label>
+									<label class="field compact">
+										<span>Mode</span>
+										<select id="mining-farmer-mode">
+											<option value="false" selected>Dry</option>
+											<option value="true">Live</option>
+										</select>
+									</label>
+									<div class="button-group">
+										<button id="mining-farmer-step" type="button">Step</button>
+										<button id="mining-farmer-start" type="button" class="primary">Start</button>
+										<button id="mining-farmer-stop" type="button" class="danger">Stop</button>
+									</div>
+								</div>
+							</div>
+
+							<details class="card span-3 config-card" open>
+								<summary class="card-header split">
+									<h3><i data-lucide="settings"></i>Configuration</h3>
+									<span id="mining-farmer-config-status" class="config-state neutral">No draft loaded</span>
+								</summary>
+								<div class="button-row">
+									<button id="mining-farmer-load-config" type="button" class="secondary">Load current</button>
+									<button id="mining-farmer-save-config" type="button">Apply draft</button>
+									<button id="mining-farmer-reset-draft" type="button" class="secondary">Reset</button>
+									<button id="mining-farmer-export-config" type="button" class="secondary">Export JSON</button>
+									<button id="mining-farmer-import-config" type="button" class="secondary">Import JSON</button>
+								</div>
+								<div id="mining-farmer-config-errors" class="config-errors"></div>
+								<div id="mining-farmer-config-form" class="schema-grid"></div>
+								<textarea id="mining-farmer-config-json" class="code hidden-config-json" spellcheck="false" placeholder="Mining farmer JSON import/export appears here."></textarea>
+							</details>
+
+							<div id="mining-farmer-status-grid" class="stat-grid"></div>
+
+							<div id="mining-farmer-details"></div>
+						</div>
+					</section>
+
+					<section class="farmer-panel" data-farmer-panel="woodcutting">
+						<div class="dashboard-grid">
+							<div class="card span-3 farmer-command-card">
+								<div class="card-header split">
+									<div>
+										<h3><i data-lucide="tree-pine"></i>Woodcutting Farmer</h3>
+										<p class="card-subtitle">Reachable tree selection with dry/live controls.</p>
+									</div>
+									<div class="state-stack">
+										<span id="woodcutting-farmer-state" class="status-pill neutral">Idle</span>
+										<span id="woodcutting-farmer-decision" class="decision-text">No decision yet.</span>
+									</div>
+								</div>
+								<div class="control-bar skill-control-bar">
+									<label class="field">
+										<span>Target Trees</span>
+										<input id="woodcutting-farmer-target" value="exact:Tree|exact:Dead tree|exact:Evergreen" autocomplete="off">
+									</label>
+									<label class="field compact">
+										<span>Preset</span>
+										<select id="woodcutting-farmer-preset"></select>
+									</label>
+									<label class="field compact">
+										<span>Mode</span>
+										<select id="woodcutting-farmer-mode">
+											<option value="false" selected>Dry</option>
+											<option value="true">Live</option>
+										</select>
+									</label>
+									<div class="button-group">
+										<button id="woodcutting-farmer-step" type="button">Step</button>
+										<button id="woodcutting-farmer-start" type="button" class="primary">Start</button>
+										<button id="woodcutting-farmer-stop" type="button" class="danger">Stop</button>
+									</div>
+								</div>
+							</div>
+
+							<details class="card span-3 config-card" open>
+								<summary class="card-header split">
+									<h3><i data-lucide="settings"></i>Configuration</h3>
+									<span id="woodcutting-farmer-config-status" class="config-state neutral">No draft loaded</span>
+								</summary>
+								<div class="button-row">
+									<button id="woodcutting-farmer-load-config" type="button" class="secondary">Load current</button>
+									<button id="woodcutting-farmer-save-config" type="button">Apply draft</button>
+									<button id="woodcutting-farmer-reset-draft" type="button" class="secondary">Reset</button>
+									<button id="woodcutting-farmer-export-config" type="button" class="secondary">Export JSON</button>
+									<button id="woodcutting-farmer-import-config" type="button" class="secondary">Import JSON</button>
+								</div>
+								<div id="woodcutting-farmer-config-errors" class="config-errors"></div>
+								<div id="woodcutting-farmer-config-form" class="schema-grid"></div>
+								<textarea id="woodcutting-farmer-config-json" class="code hidden-config-json" spellcheck="false" placeholder="Woodcutting farmer JSON import/export appears here."></textarea>
+							</details>
+
+							<div id="woodcutting-farmer-status-grid" class="stat-grid"></div>
+
+							<div id="woodcutting-farmer-details"></div>
+						</div>
+					</section>
+				</section>
+
+				<section id="inventory-view" class="view" data-view-panel>
+					<div class="page-header">
+						<h2>Inventory</h2>
+						<p class="page-subtitle">Shared inventory valuation, protection, and drop-policy control surface for farmers.</p>
+					</div>
+					<div class="card">
+						<div id="inventory-summary" class="inventory-summary"></div>
+						<div class="inventory-grid">
+							<div class="inventory-section">
+								<h4>Inventory Items</h4>
+								<div id="inventory-items-root"></div>
+							</div>
+							<div class="inventory-section">
+								<h4>Drop Policy</h4>
+								<div id="drop-policy-root"></div>
+							</div>
+						</div>
+						<div class="inventory-section">
+							<h4>Equipment Items</h4>
+							<div id="equipment-items-root"></div>
+						</div>
+					</div>
+				</section>
+
+				<section id="actions-view" class="view" data-view-panel>
+					<div class="page-header">
+						<h2>Actions</h2>
+						<p class="page-subtitle">Action hotkeys and live widget surfaces.</p>
+					</div>
+					<div class="dashboard-grid">
+						<div class="card span-3">
+							<div class="card-header split">
+								<h3><i data-lucide="sword"></i>Action Hotkeys</h3>
+								<span id="actions-config-status" class="config-state neutral">No draft loaded</span>
+							</div>
+							<div class="button-row">
+								<button id="actions-load-config" type="button" class="secondary">Load current</button>
+								<button id="actions-save-config" type="button">Apply draft</button>
+								<button id="actions-reset-draft" type="button" class="secondary">Reset</button>
+							</div>
+							<div id="actions-config-errors" class="config-errors"></div>
+							<div id="actions-slot-list" class="action-slot-list"></div>
+						</div>
+
+						<div class="card span-3">
+							<div class="card-header">
+								<h3><i data-lucide="crosshair"></i>Targets</h3>
+							</div>
+							<div id="surfaces" class="surface-list"></div>
+						</div>
+						<div class="card span-1">
+							<div class="card-header">
+								<h3>Surface Legend</h3>
+							</div>
+							<div class="card-body">
+								<div class="surface-legend">
+									<div class="legend-item"><span class="legend-dot ok"></span>Selectable</div>
+									<div class="legend-item"><span class="legend-dot warn"></span>Hidden / off-panel</div>
+									<div class="legend-item"><span class="legend-dot info"></span>Cooldown / state</div>
+									<div class="legend-item"><span class="legend-dot bad"></span>Action unavailable</div>
+								</div>
+								<p class="empty compact">Hover rows to inspect targets. Press refresh after changing RuneLite tabs.</p>
+							</div>
+						</div>
+					</div>
+				</section>
+
+				<section id="configuration-view" class="view" data-view-panel>
+					<div class="page-header">
+						<h2>Configuration</h2>
+						<p class="page-subtitle">Configuration editors live on each farmer page so draft state stays close to runtime state.</p>
+					</div>
+					<div class="dashboard-grid">
+						<div class="card span-1">
+							<div class="card-header">
+								<h3><i data-lucide="skull"></i>Mob Farmer Config</h3>
+							</div>
+							<div class="card-body">
+								<p class="empty compact">Open Mob Farmer and use Load current, Apply draft, Reset, Import JSON, and Export JSON.</p>
+								<button type="button" data-jump-config="mob">Open Mob Farmer Config</button>
+							</div>
+						</div>
+						<div class="card span-1">
+							<div class="card-header">
+								<h3><i data-lucide="pickaxe"></i>Mining Config</h3>
+							</div>
+							<div class="card-body">
+								<p class="empty compact">Open Mining Farmer and edit target, preset, live mode, and draft settings.</p>
+								<button type="button" data-jump-config="mining">Open Mining Config</button>
+							</div>
+						</div>
+						<div class="card span-1">
+							<div class="card-header">
+								<h3><i data-lucide="tree-pine"></i>Woodcutting Config</h3>
+							</div>
+							<div class="card-body">
+								<p class="empty compact">Open Woodcutting Farmer and edit target, preset, live mode, and draft settings.</p>
+								<button type="button" data-jump-config="woodcutting">Open Woodcutting Config</button>
+							</div>
+						</div>
+					</div>
+				</section>
+
+				<section id="debug-view" class="view" data-view-panel>
+					<div class="page-header">
+						<h2>Debug</h2>
+						<p class="page-subtitle">Port discovery, action log, and nearby entities.</p>
+					</div>
+					<div class="dashboard-grid">
+						<div class="card span-1">
+							<div class="card-header">
+								<h3>Port Discovery</h3>
+							</div>
+							<p id="discovery-summary" class="card-subtitle padded-subtitle">The verifier starts at 11777 and falls back if that port is stale.</p>
+							<div id="discovery-grid" class="discovery-grid"></div>
+							<div id="discovery-attempts" class="discovery-attempts"></div>
+						</div>
+
+						<div class="card span-1">
+							<div class="card-header split">
+								<h3>Action Log</h3>
+								<button id="mob-farmer-clear-log" type="button" class="secondary">Clear log</button>
+							</div>
+							<div id="mob-farmer-log" class="log-list"></div>
+						</div>
+
+						<div class="card span-2">
+							<div class="card-header">
+								<h3>Nearby Entities</h3>
+							</div>
+							<div id="entities" class="surface-list"></div>
+						</div>
+					</div>
+				</section>
+
+				<section id="raw-view" class="view" data-view-panel>
+					<div class="page-header">
+						<h2>Raw Data</h2>
+						<p class="page-subtitle">Exact payloads from the CV Helper endpoints.</p>
+					</div>
+					<div class="card">
+						<div class="card-header split">
+							<h3><i data-lucide="skull"></i>Mob Farmer Raw JSON</h3>
+							<label class="toggle">
+								<input id="mob-farmer-raw-toggle" type="checkbox" checked>
+								<span class="toggle-track"></span>
+								<span>Show raw</span>
+							</label>
+						</div>
+						<pre id="mob-farmer-raw" class="code-block"></pre>
+					</div>
+					<div id="raw-data-root" class="raw-data-root"></div>
+				</section>
+			</main>
+
+			<footer class="app-footer">
+				<div class="footer-left">
+					<span><i data-lucide="user-circle"></i>Profile: <strong id="footer-profile">Default</strong></span>
+					<span><i data-lucide="toggle-left"></i>Mode: <strong id="footer-mode">Dry</strong></span>
+					<span><i data-lucide="info"></i>CV Helper v1.0.0</span>
+				</div>
+				<div class="footer-right">
+					<span><i data-lucide="hard-drive"></i>Memory: <strong id="footer-memory">—</strong></span>
+					<span><i data-lucide="cpu"></i>CPU: <strong id="footer-cpu">—</strong></span>
+				</div>
+			</footer>
+		</div>
+	</div>
+
+	<script src="./app.js"></script>
+	<script>
+		function cvHelperRefreshIcons() {
+			if (window.lucide && lucide.createIcons) {
+				lucide.createIcons();
+			}
+		}
+		cvHelperRefreshIcons();
+		document.addEventListener("DOMContentLoaded", cvHelperRefreshIcons);
+	</script>
+</body>
+</html>
