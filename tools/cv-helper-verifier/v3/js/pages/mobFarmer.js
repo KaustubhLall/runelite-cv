@@ -175,12 +175,13 @@ function targetCandidateTable(candidates, selected) {
 }
 function lootCandidateTable(candidates) {
 	const rows = candidates.slice(0, 50).map((c) => {
-		const take = c.highPriority || c.selectable;
+		const take = c.selectable;
 		const decision = c.highPriority ? `<span class="cell-prio">priority</span>` : c.selectable ? `<span class="cell-take">take</span>` : `<span class="cell-skip">skip</span>`;
 		const itemIconHtml = itemIcon(c.itemId, c.name, "sm");
-		return { cls: take ? "row-good" : "row-bad", cells: [`${itemIconHtml} ${escapeHtml(c.name || "item")} <small>${idChip(c.itemId)} ×${escapeHtml(c.quantity ?? 1)}</small>`, gpValue(num(c.gePriceEach), "Loot GE each"), gpValue(num(c.totalStackGeValue) ?? num(c.gePrice), "Loot GE stack total"), gpValue(num(c.haPriceEach), "Loot HA each"), gpValue(num(c.totalStackHaValue) ?? num(c.haPrice), "Loot HA stack total"), decision, `<span class="muted">${escapeHtml(arr(c.reasons).join(", ") || "—")}</span>`] };
+		const cadence = `<span class="muted" title="${escapeHtml(c.cadenceDecision || "unknown")}">${escapeHtml(selectedValue(c.pathDistance ?? c.distance, "—"))}t · ${escapeHtml(selectedValue(c.estimatedMissedAttacks, 0))} miss</span>`;
+		return { cls: take ? "row-good" : "row-bad", cells: [`${itemIconHtml} ${escapeHtml(c.name || "item")} <small>${idChip(c.itemId)} ×${escapeHtml(c.quantity ?? 1)}</small>`, gpValue(num(c.gePriceEach), "Loot GE each"), gpValue(num(c.totalStackGeValue) ?? num(c.gePrice), "Loot GE stack total"), gpValue(num(c.haPriceEach), "Loot HA each"), gpValue(num(c.totalStackHaValue) ?? num(c.haPrice), "Loot HA stack total"), cadence, decision, `<span class="muted">${escapeHtml(arr(c.reasons).join(", ") || "—")}</span>`] };
 	});
-	return table({ columns: [{ label: "Item" }, { label: "GE each" }, { label: "GE stack" }, { label: "HA each" }, { label: "HA stack" }, { label: "Decision" }, { label: "Reason" }], rows, empty: "No loot candidates nearby." });
+	return table({ columns: [{ label: "Item" }, { label: "GE each" }, { label: "GE stack" }, { label: "HA each" }, { label: "HA stack" }, { label: "Cadence" }, { label: "Decision" }, { label: "Reason" }], rows, empty: "No loot candidates nearby." });
 }
 function menuEntryTable(entries) {
 	const rows = entries.slice(0, 30).map((e) => typeof e === "string" ? { cells: [escapeHtml(e), "—", "—", "—"] } : { cells: [escapeHtml(e.option || "—"), escapeHtml(e.npcName || e.target || "—"), `<span class="muted">${escapeHtml(e.menuAction || "—")}</span>`, e.at ? formatRelativeTime(new Date(e.at)) : "—"] });
@@ -245,8 +246,9 @@ export function mountMobFarmer() {
 			${panel({ title: "Loot & Inventory", iconName: "coins", body: `<div id="mfc-lootinv"></div>` })}
 			${panel({ title: "High Alch", iconName: "wand-2", body: `<div id="mfc-highalch"></div>` })}
 		</div>
-		<div class="grid cols-3" style="margin-bottom:var(--gap)">
+		<div class="grid cols-4" style="margin-bottom:var(--gap)">
 			${panel({ title: "Inventory Overview", iconName: "backpack", body: `<div id="mfc-inventory"></div>` })}
+			${panel({ title: "Combat Cadence", iconName: "timer", body: `<div id="mfc-cadence"></div>` })}
 			${panel({ title: "Recent Events", iconName: "scroll-text", body: `<div id="mfc-events"></div>` })}
 			${panel({ title: "System Health", iconName: "heart-pulse", body: `<div id="mfc-system"></div>` })}
 		</div>
@@ -294,6 +296,7 @@ export function renderMobFarmer(mobFarmer, player, events, tileGrid) {
 	changed |= setCell("mfc-lootinv", scalarRows({ afterLootCombat: status.afterLootCombatMode, ...obj(status.lootDecision) }));
 	changed |= setCell("mfc-highalch", highAlchTable(highAlch));
 	changed |= setCell("mfc-inventory", inventoryOverview(inventory));
+	changed |= setCell("mfc-cadence", scalarRows(status.combatCadence));
 	changed |= setCell("mfc-events", eventsPanel(events));
 	changed |= setCell("mfc-system", systemHealth(status, player));
 	const selCount = candidates.filter((c) => c.selectable).length;

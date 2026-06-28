@@ -130,6 +130,7 @@ public interface CvHelperModConfig extends Config
 	String MOB_FARMER_AGGRO_RESPONSE = "mobFarmerAggroResponse";
 	String MOB_FARMER_REQUIRE_LINE_OF_SIGHT = "mobFarmerRequireLineOfSight";
 	String MOB_FARMER_MAX_DISTANCE = "mobFarmerMaxDistance";
+	String MOB_FARMER_ATTACK_INTERVAL_TICKS = "mobFarmerAttackIntervalTicks";
 	String MOB_FARMER_AUTO_EAT_ENABLED = "mobFarmerAutoEatEnabled";
 	String MOB_FARMER_EAT_HITPOINT_PERCENT = "mobFarmerEatHitpointPercent";
 	String MOB_FARMER_FOOD_ITEMS = "mobFarmerFoodItems";
@@ -159,6 +160,8 @@ public interface CvHelperModConfig extends Config
 	String MOB_FARMER_LOOT_URGENT_DESPAWN_TICKS = "mobFarmerLootUrgentDespawnTicks";
 	String MOB_FARMER_LOOT_CLEANUP_PILE_COUNT = "mobFarmerLootCleanupPileCount";
 	String MOB_FARMER_LOOT_RADIUS = "mobFarmerLootRadius";
+	String MOB_FARMER_HIGH_PRIORITY_LOOT_RADIUS = "mobFarmerHighPriorityLootRadius";
+	String MOB_FARMER_NORMAL_LOOT_MAX_MISSED_ATTACKS = "mobFarmerNormalLootMaxMissedAttacks";
 	String MOB_FARMER_LOOT_ITEMS = "mobFarmerLootItems";
 	String MOB_FARMER_LOOT_BLACKLIST = "mobFarmerLootBlacklist";
 	String MOB_FARMER_LOOT_OWNERSHIP_MODE = "mobFarmerLootOwnershipMode";
@@ -683,6 +686,17 @@ public interface CvHelperModConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = MOB_FARMER_ATTACK_INTERVAL_TICKS,
+		name = "Attack interval ticks",
+		description = "Conservative fallback weapon attack interval used to schedule re-attacks after loot, food, and intermediate actions. Most standard weapons are 4 ticks.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerAttackIntervalTicks()
+	{
+		return 4;
+	}
+
+	@ConfigItem(
 		keyName = MOB_FARMER_AUTO_EAT_ENABLED,
 		name = "Auto-eat enabled",
 		description = "Before combat or loot actions, eat a matching inventory item when HP drops below the configured threshold.",
@@ -998,7 +1012,29 @@ public interface CvHelperModConfig extends Config
 	)
 	default int mobFarmerLootRadius()
 	{
-		return 8;
+		return 6;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_HIGH_PRIORITY_LOOT_RADIUS,
+		name = "Priority loot radius",
+		description = "Maximum local path distance for explicit/high-value priority loot. May be larger than normal loot radius because the combat interruption is intentional.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerHighPriorityLootRadius()
+	{
+		return 12;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_NORMAL_LOOT_MAX_MISSED_ATTACKS,
+		name = "Normal loot missed attacks",
+		description = "Maximum estimated attack opportunities normal loot may cost while a combat target is active. Priority loot is exempt. Use 0 to preserve every expected attack window.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerNormalLootMaxMissedAttacks()
+	{
+		return 0;
 	}
 
 	@ConfigItem(

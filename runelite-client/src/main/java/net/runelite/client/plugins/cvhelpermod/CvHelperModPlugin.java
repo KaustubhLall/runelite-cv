@@ -152,7 +152,6 @@ public class CvHelperModPlugin extends Plugin
 	protected static final int MOB_FARMER_PROGRESS_WINDOW_TICKS = 8;
 	protected static final int MOB_FARMER_LOOT_SPAWN_GRACE_TICKS = 3;
 	protected static final int MOB_FARMER_COMBAT_STABILIZE_TICKS = 4;
-	protected static final int MOB_FARMER_ATTACK_REISSUE_MIN_TICKS = 6;
 	protected static final int MOB_FARMER_LOOT_RESOLUTION_MAX_TICKS = 6;
 	protected static final int MOB_FARMER_UNRESOLVED_LOOT_SKIP_TICKS = 30;
 	protected static final int MOB_FARMER_PATHING_SLACK_TILES = 8;
@@ -436,6 +435,8 @@ public class CvHelperModPlugin extends Plugin
 	protected volatile int pendingMobFarmerReattackLootTick = -1;
 	protected volatile int pendingMobFarmerReattackLootWaitTicks = 0;
 	protected volatile Map<String, Object> pendingMobFarmerReattackLootTarget = new LinkedHashMap<>();
+	protected volatile String pendingMobFarmerReattackAction = "none";
+	protected volatile String pendingMobFarmerReattackActionLabel = "";
 	protected volatile boolean mobFarmerFocusClickNeeded;
 	protected final AtomicBoolean miningFarmerRunning = new AtomicBoolean(false);
 	protected final AtomicBoolean woodcuttingFarmerRunning = new AtomicBoolean(false);
@@ -3858,6 +3859,16 @@ public class CvHelperModPlugin extends Plugin
 		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_MAX_DISTANCE, Math.max(0, maxDistance));
 	}
 
+	int getMobFarmerAttackIntervalTicks()
+	{
+		return Math.max(1, Math.min(12, config.mobFarmerAttackIntervalTicks()));
+	}
+
+	void setMobFarmerAttackIntervalTicks(int ticks)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_ATTACK_INTERVAL_TICKS, Math.max(1, Math.min(12, ticks)));
+	}
+
 	boolean getMobFarmerAutoEatEnabled()
 	{
 		return config.mobFarmerAutoEatEnabled();
@@ -4096,6 +4107,26 @@ public class CvHelperModPlugin extends Plugin
 	void setMobFarmerLootRadius(int radius)
 	{
 		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_LOOT_RADIUS, Math.max(0, radius));
+	}
+
+	int getMobFarmerHighPriorityLootRadius()
+	{
+		return Math.max(0, config.mobFarmerHighPriorityLootRadius());
+	}
+
+	void setMobFarmerHighPriorityLootRadius(int radius)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_HIGH_PRIORITY_LOOT_RADIUS, Math.max(0, radius));
+	}
+
+	int getMobFarmerNormalLootMaxMissedAttacks()
+	{
+		return Math.max(0, config.mobFarmerNormalLootMaxMissedAttacks());
+	}
+
+	void setMobFarmerNormalLootMaxMissedAttacks(int attacks)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_NORMAL_LOOT_MAX_MISSED_ATTACKS, Math.max(0, attacks));
 	}
 
 	String getMobFarmerLootItems()
@@ -4353,6 +4384,7 @@ public class CvHelperModPlugin extends Plugin
 		status.put("aggroResponse", getMobFarmerAggroResponse().name());
 		status.put("requireLineOfSight", getMobFarmerRequireLineOfSight());
 		status.put("maxDistance", getMobFarmerMaxDistance());
+		status.put("combatCadence", mobFarmerCombatCadenceStatus());
 		status.put("autorun", mobFarmerAutorunStatus());
 		status.put("startupFocus", mobFarmerFocusClickStatus());
 		status.put("autoEat", mobFarmerAutoEatConfigStatus());
@@ -4366,6 +4398,7 @@ public class CvHelperModPlugin extends Plugin
 		status.put("scheduler", mobFarmerSchedulerStatus());
 		status.put("deathLootTiming", lastMobFarmerDeathLootStatus);
 		status.put("reattachAfterPickup", lastMobFarmerReattackStatus);
+		status.put("postActionReattack", lastMobFarmerReattackStatus);
 		status.put("doorTransition", lastMobFarmerDoorTransitionStatus);
 		status.put("stabilization", lastMobFarmerStabilizationStatus);
 		status.put("progress", lastMobFarmerProgressStatus);
@@ -4468,6 +4501,7 @@ public class CvHelperModPlugin extends Plugin
 		settings.put("aggroResponse", getMobFarmerAggroResponse().name());
 		settings.put("requireLineOfSight", getMobFarmerRequireLineOfSight());
 		settings.put("maxDistance", getMobFarmerMaxDistance());
+		settings.put("attackIntervalTicks", getMobFarmerAttackIntervalTicks());
 		settings.put("autoEatEnabled", getMobFarmerAutoEatEnabled());
 		settings.put("eatHitpointPercent", getMobFarmerEatHitpointPercent());
 		settings.put("foodItems", getMobFarmerFoodItems());
@@ -4496,6 +4530,8 @@ public class CvHelperModPlugin extends Plugin
 		settings.put("lootUrgentDespawnTicks", getMobFarmerLootUrgentDespawnTicks());
 		settings.put("lootCleanupPileCount", getMobFarmerLootCleanupPileCount());
 		settings.put("lootRadius", getMobFarmerLootRadius());
+		settings.put("highPriorityLootRadius", getMobFarmerHighPriorityLootRadius());
+		settings.put("normalLootMaxMissedAttacks", getMobFarmerNormalLootMaxMissedAttacks());
 		settings.put("lootItems", getMobFarmerLootItems());
 		settings.put("lootBlacklist", getMobFarmerLootBlacklist());
 		settings.put("lootOwnershipMode", getMobFarmerLootOwnershipMode().name());
@@ -4530,6 +4566,7 @@ public class CvHelperModPlugin extends Plugin
 		schema.add(settingSchema("aggroResponse", "Undesired attacker", "enum", "What to do when an aggressive non-target mob is already attacking the player.", enumOptions(CvHelperMobAggroResponse.values())));
 		schema.add(settingSchema("requireLineOfSight", "Require LOS", "boolean", "Skip mobs without RuneLite line of sight from the local player.", null));
 		schema.add(settingSchema("maxDistance", "Max distance", "number", "Maximum path/target distance for auto-targeting. Use 0 to disable.", null));
+		schema.add(settingSchema("attackIntervalTicks", "Attack interval ticks", "number", "Fallback weapon cadence used for global attack scheduling and post-action re-attacks. Most standard weapons are 4 ticks.", null));
 		schema.add(settingSchema("autoEatEnabled", "Auto-eat", "boolean", "Eat configured food before combat/loot when HP is below threshold.", null));
 		schema.add(settingSchema("eatHitpointPercent", "Eat below HP %", "number", "Auto-eat when current hitpoints are at or below this percent.", null));
 		schema.add(settingSchema("foodItems", "Food items", "textarea", "Food item names or id:<item id>, separated by |, comma, semicolon, or newlines.", null));
@@ -4557,7 +4594,9 @@ public class CvHelperModPlugin extends Plugin
 		schema.add(settingSchema("highPriorityLootValueGe", "Priority loot GE", "number", "Loot at or above this value can override Attack before loot.", null));
 		schema.add(settingSchema("lootUrgentDespawnTicks", "Urgent despawn ticks", "number", "Loot at or below this despawn window can override Attack before loot. Use 0 to disable.", null));
 		schema.add(settingSchema("lootCleanupPileCount", "Cleanup pile count", "number", "Visible selectable loot pile count that can trigger cleanup mode. Use 0 to disable.", null));
-		schema.add(settingSchema("lootRadius", "Loot radius", "number", "Maximum tile distance for loot pickup. Use 0 to disable.", null));
+		schema.add(settingSchema("lootRadius", "Normal loot radius", "number", "Maximum local path distance for ordinary loot pickup. Use 0 to disable the radius guard.", null));
+		schema.add(settingSchema("highPriorityLootRadius", "Priority loot radius", "number", "Maximum local path distance for allowlisted/high-value priority loot.", null));
+		schema.add(settingSchema("normalLootMaxMissedAttacks", "Normal loot missed attacks", "number", "Maximum estimated attack opportunities ordinary loot may cost during combat. Priority loot is exempt.", null));
 		schema.add(settingSchema("lootItems", "Always loot", "textarea", "Items to loot even below value threshold.", null));
 		schema.add(settingSchema("lootBlacklist", "Never loot", "textarea", "Items to never pick up.", null));
 		schema.add(settingSchema("lootOwnershipMode", "Loot ownership", "enum", "Which ground-item ownership categories can be picked up.", enumOptions(CvHelperLootOwnershipMode.values())));
@@ -4649,6 +4688,7 @@ public class CvHelperModPlugin extends Plugin
 		applyEnumSetting(settings, "aggroResponse", CvHelperMobAggroResponse.class, updates, this::setMobFarmerAggroResponse, errors);
 		applyBooleanSetting(settings, "requireLineOfSight", updates, this::setMobFarmerRequireLineOfSight, errors);
 		applyIntSetting(settings, "maxDistance", updates, this::setMobFarmerMaxDistance, errors);
+		applyIntSetting(settings, "attackIntervalTicks", updates, this::setMobFarmerAttackIntervalTicks, errors);
 		applyBooleanSetting(settings, "autoEatEnabled", updates, this::setMobFarmerAutoEatEnabled, errors);
 		applyIntSetting(settings, "eatHitpointPercent", updates, this::setMobFarmerEatHitpointPercent, errors);
 		applyStringSetting(settings, "foodItems", updates, this::setMobFarmerFoodItems);
@@ -4677,6 +4717,8 @@ public class CvHelperModPlugin extends Plugin
 		applyIntSetting(settings, "lootUrgentDespawnTicks", updates, this::setMobFarmerLootUrgentDespawnTicks, errors);
 		applyIntSetting(settings, "lootCleanupPileCount", updates, this::setMobFarmerLootCleanupPileCount, errors);
 		applyIntSetting(settings, "lootRadius", updates, this::setMobFarmerLootRadius, errors);
+		applyIntSetting(settings, "highPriorityLootRadius", updates, this::setMobFarmerHighPriorityLootRadius, errors);
+		applyIntSetting(settings, "normalLootMaxMissedAttacks", updates, this::setMobFarmerNormalLootMaxMissedAttacks, errors);
 		applyStringSetting(settings, "lootItems", updates, this::setMobFarmerLootItems);
 		applyStringSetting(settings, "lootBlacklist", updates, this::setMobFarmerLootBlacklist);
 		applyEnumSetting(settings, "lootOwnershipMode", CvHelperLootOwnershipMode.class, updates, this::setMobFarmerLootOwnershipMode, errors);
@@ -5031,6 +5073,9 @@ public class CvHelperModPlugin extends Plugin
 		out.put("urgentDespawnTicks", getMobFarmerLootUrgentDespawnTicks());
 		out.put("cleanupPileCount", getMobFarmerLootCleanupPileCount());
 		out.put("radius", getMobFarmerLootRadius());
+		out.put("normalRadius", getMobFarmerLootRadius());
+		out.put("highPriorityRadius", getMobFarmerHighPriorityLootRadius());
+		out.put("normalLootMaxMissedAttacks", getMobFarmerNormalLootMaxMissedAttacks());
 		out.put("items", getMobFarmerLootItems());
 		out.put("blacklist", getMobFarmerLootBlacklist());
 		out.put("ownershipMode", getMobFarmerLootOwnershipMode().name());
@@ -5074,6 +5119,34 @@ public class CvHelperModPlugin extends Plugin
 		out.put("recoveryLoopDelayMs", getMobFarmerRecoveryLoopDelayMs());
 		out.put("actionTicks", new LinkedHashMap<>(lastMobFarmerActionTickByKey));
 		out.put("kindMinimumTicks", mobFarmerKindMinimumTickStatus());
+		out.put("combatCadence", mobFarmerCombatCadenceStatus());
+		return out;
+	}
+
+	private Map<String, Object> mobFarmerCombatCadenceStatus()
+	{
+		Map<String, Object> out = new LinkedHashMap<>();
+		int tick = safeValue(client::getTickCount, 0);
+		int interval = getMobFarmerAttackIntervalTicks();
+		Integer lastAttackTick = lastMobFarmerActionTickForKind(MobFarmerActionKind.COMBAT);
+		int nextAttackTick = lastAttackTick == null ? tick : lastAttackTick + interval;
+		Actor interacting = safeValue(() -> client.getLocalPlayer() == null ? null : client.getLocalPlayer().getInteracting(), null);
+		out.put("currentTick", tick);
+		out.put("lastAttackTick", lastAttackTick);
+		out.put("estimatedNextAttackTick", nextAttackTick);
+		out.put("attackIntervalTicks", interval);
+		out.put("attackIntervalSource", "configured-fallback");
+		out.put("weaponAttackSpeedKnown", false);
+		out.put("attackDue", lastAttackTick == null || tick >= nextAttackTick);
+		out.put("ticksUntilAttack", lastAttackTick == null ? 0 : Math.max(0, nextAttackTick - tick));
+		out.put("currentTarget", interacting == null ? "" : interacting.getName());
+		out.put("currentTargetDistance", interacting == null || client.getLocalPlayer() == null ? null : client.getLocalPlayer().getWorldLocation().distanceTo(interacting.getWorldLocation()));
+		out.put("pendingPostActionReattack", mobFarmerReattackAfterPickupPending);
+		out.put("pendingAction", pendingMobFarmerReattackAction);
+		out.put("pendingActionLabel", pendingMobFarmerReattackActionLabel);
+		out.put("lootTargetDistance", intValue(pendingMobFarmerReattackLootTarget.get("pathDistance"), intValue(pendingMobFarmerReattackLootTarget.get("distance"), -1)));
+		out.put("lastIntermediateAction", lastMobFarmerIntermediateDecision);
+		out.put("lastReattack", lastMobFarmerReattackStatus);
 		return out;
 	}
 
@@ -5083,7 +5156,7 @@ public class CvHelperModPlugin extends Plugin
 		out.put(MobFarmerActionKind.SURVIVAL.name(), 1);
 		out.put(MobFarmerActionKind.INVENTORY.name(), 1);
 		out.put(MobFarmerActionKind.LOOT_PICKUP.name(), 1);
-		out.put(MobFarmerActionKind.COMBAT.name(), 1);
+		out.put(MobFarmerActionKind.COMBAT.name(), getMobFarmerAttackIntervalTicks());
 		out.put(MobFarmerActionKind.MOVEMENT.name(), 1);
 		out.put(MobFarmerActionKind.UI.name(), 0);
 		out.put(MobFarmerActionKind.LOGIN_RECOVERY.name(), "wall-clock-cooldown:" + MOB_FARMER_LOGIN_CLICK_COOLDOWN_MS + "ms");
@@ -5208,7 +5281,7 @@ public class CvHelperModPlugin extends Plugin
 	{
 		Integer lastAttackTick = lastMobFarmerActionTickForKind(MobFarmerActionKind.COMBAT);
 		int tick = safeValue(client::getTickCount, 0);
-		return lastAttackTick != null && tick - lastAttackTick >= 0 && tick - lastAttackTick < MOB_FARMER_ATTACK_REISSUE_MIN_TICKS;
+		return lastAttackTick != null && tick - lastAttackTick >= 0 && tick - lastAttackTick < getMobFarmerAttackIntervalTicks();
 	}
 
 	private boolean holdMobFarmerAttackResolution(Player localPlayer)
@@ -5227,7 +5300,7 @@ public class CvHelperModPlugin extends Plugin
 		Map<String, Object> details = new LinkedHashMap<>();
 		details.put("lastAttackTick", lastAttackTick);
 		details.put("ticksSinceLastAttack", lastAttackTick == null ? null : tick - lastAttackTick);
-		details.put("minReissueTicks", MOB_FARMER_ATTACK_REISSUE_MIN_TICKS);
+		details.put("minReissueTicks", getMobFarmerAttackIntervalTicks());
 		details.put("activeCombatTargetKey", activeMobFarmerCombatKey);
 		details.put("activeCombatTarget", activeMobFarmerCombatTarget);
 		setMobFarmerDecision("waiting-for-attack-resolution", details);
@@ -5305,26 +5378,35 @@ public class CvHelperModPlugin extends Plugin
 
 	private void queueMobFarmerReattackAfterPickup(String lootLabel, Map<String, Object> lootTarget)
 	{
+		queueMobFarmerReattackAfterAction("loot", lootLabel, lootTarget);
+	}
+
+	private void queueMobFarmerReattackAfterAction(String action, String label, Map<String, Object> actionTarget)
+	{
 		mobFarmerReattackAfterPickupPending = true;
-		pendingMobFarmerReattackLootKey = mobFarmerTargetKey(lootTarget);
+		pendingMobFarmerReattackAction = action == null ? "action" : action;
+		pendingMobFarmerReattackActionLabel = label == null ? "" : label;
+		pendingMobFarmerReattackLootKey = mobFarmerTargetKey(actionTarget);
 		pendingMobFarmerReattackLootTick = safeValue(client::getTickCount, 0);
-		pendingMobFarmerReattackLootTarget = lootTarget == null ? new LinkedHashMap<>() : new LinkedHashMap<>(lootTarget);
-		int distance = intValue(lootTarget == null ? null : lootTarget.get("distance"), 0);
-		pendingMobFarmerReattackLootWaitTicks = Math.max(2, Math.min(MOB_FARMER_LOOT_RESOLUTION_MAX_TICKS, distance + 2));
+		pendingMobFarmerReattackLootTarget = actionTarget == null ? new LinkedHashMap<>() : new LinkedHashMap<>(actionTarget);
+		int distance = intValue(actionTarget == null ? null : actionTarget.get("pathDistance"), intValue(actionTarget == null ? null : actionTarget.get("distance"), 0));
+		pendingMobFarmerReattackLootWaitTicks = Math.max(1, Math.min(MOB_FARMER_LOOT_RESOLUTION_MAX_TICKS, distance + 1));
 		Map<String, Object> status = new LinkedHashMap<>();
 		status.put("pending", true);
 		status.put("queuedAt", Instant.now().toString());
 		status.put("queuedAtTick", pendingMobFarmerReattackLootTick);
-		status.put("reason", "loot-pickup-invoked-waiting-for-resolution");
-		status.put("lootTarget", lootLabel);
+		status.put("reason", "post-action-reattack");
+		status.put("action", pendingMobFarmerReattackAction);
+		status.put("actionLabel", pendingMobFarmerReattackActionLabel);
+		status.put("lootTarget", "loot".equals(pendingMobFarmerReattackAction) ? label : "");
 		status.put("lootTargetKey", pendingMobFarmerReattackLootKey);
-		status.put("lootSnapshot", lootTarget);
+		status.put("actionSnapshot", actionTarget);
 		status.put("lootResolutionWaitTicks", pendingMobFarmerReattackLootWaitTicks);
 		status.put("lastPickupTick", lastMobFarmerActionTickForKind(MobFarmerActionKind.LOOT_PICKUP));
 		status.put("lastAttackTick", lastMobFarmerActionTickForKind(MobFarmerActionKind.COMBAT));
-		status.put("estimatedAttackCooldownTicks", 1);
+		status.put("estimatedAttackCooldownTicks", getMobFarmerAttackIntervalTicks());
 		lastMobFarmerReattackStatus = status;
-		recordMobFarmerStabilization("waiting-for-loot-resolution", status);
+		recordMobFarmerStabilization("post-action-reattack-queued", status);
 	}
 
 	private void clearMobFarmerReattackAfterPickup(String reason)
@@ -5334,6 +5416,8 @@ public class CvHelperModPlugin extends Plugin
 		pendingMobFarmerReattackLootTick = -1;
 		pendingMobFarmerReattackLootWaitTicks = 0;
 		pendingMobFarmerReattackLootTarget = new LinkedHashMap<>();
+		pendingMobFarmerReattackAction = "none";
+		pendingMobFarmerReattackActionLabel = "";
 		Map<String, Object> status = new LinkedHashMap<>(lastMobFarmerReattackStatus);
 		status.put("pending", false);
 		status.put("clearedAt", Instant.now().toString());
@@ -5411,9 +5495,18 @@ public class CvHelperModPlugin extends Plugin
 		status.put("pending", true);
 		status.put("attemptedAt", Instant.now().toString());
 		status.put("attemptedAtTick", tick);
+		Integer lastAttackTick = lastMobFarmerActionTickForKind(MobFarmerActionKind.COMBAT);
+		int attackIntervalTicks = getMobFarmerAttackIntervalTicks();
+		int nextAttackTick = lastAttackTick == null ? tick : lastAttackTick + attackIntervalTicks;
+		boolean attackDue = lastAttackTick == null || tick >= nextAttackTick;
 		status.put("lastPickupTick", lastMobFarmerActionTickForKind(MobFarmerActionKind.LOOT_PICKUP));
-		status.put("lastAttackTick", lastMobFarmerActionTickForKind(MobFarmerActionKind.COMBAT));
-		status.put("estimatedAttackCooldownTicks", 1);
+		status.put("lastAttackTick", lastAttackTick);
+		status.put("estimatedAttackCooldownTicks", attackIntervalTicks);
+		status.put("estimatedNextAttackTick", nextAttackTick);
+		status.put("attackDue", attackDue);
+		status.put("ticksUntilAttack", Math.max(0, nextAttackTick - tick));
+		status.put("action", pendingMobFarmerReattackAction);
+		status.put("actionLabel", pendingMobFarmerReattackActionLabel);
 		status.put("lootTargetKey", pendingMobFarmerReattackLootKey);
 		status.put("lootQueuedAtTick", pendingMobFarmerReattackLootTick);
 		status.put("lootResolutionWaitTicks", pendingMobFarmerReattackLootWaitTicks);
@@ -5424,43 +5517,38 @@ public class CvHelperModPlugin extends Plugin
 			clearMobFarmerReattackAfterPickup(String.valueOf(status.get("result")));
 			return false;
 		}
-		if (pendingMobFarmerReattackLootTarget != null && !pendingMobFarmerReattackLootTarget.isEmpty())
+		if ("loot".equals(pendingMobFarmerReattackAction) && pendingMobFarmerReattackLootTarget != null && !pendingMobFarmerReattackLootTarget.isEmpty())
 		{
 			Map<String, Object> freshLoot = freshGroundItemTarget(pendingMobFarmerReattackLootTarget);
 			int ticksSinceLootCommand = pendingMobFarmerReattackLootTick < 0 ? 0 : tick - pendingMobFarmerReattackLootTick;
 			status.put("ticksSinceLootCommand", ticksSinceLootCommand);
 			status.put("pendingLootStillVisible", freshLoot != null);
-			if (freshLoot != null && ticksSinceLootCommand <= pendingMobFarmerReattackLootWaitTicks)
-			{
-				status.put("result", "waiting-for-loot-resolution");
-				status.put("freshLoot", freshLoot);
-				lastMobFarmerReattackStatus = status;
-				setMobFarmerDecision("waiting-for-loot-resolution", status);
-				recordMobFarmerStabilization("holding-reattack-until-loot-resolves", status);
-				mobFarmerStatus.set("waiting-loot-resolution:" + targetLabelForMessage(freshLoot));
-				updatePanelStatus("Mob farmer waiting for loot pickup to resolve: " + targetLabelForMessage(freshLoot));
-				return true;
-			}
 			if (freshLoot != null)
 			{
-				status.put("result", "loot-still-visible-after-wait");
 				status.put("freshLoot", freshLoot);
-				lastMobFarmerReattackStatus = status;
-				skipMobFarmerLootTemporarily(freshLoot, "loot-still-visible-after-wait");
-				clearMobFarmerReattackAfterPickup("loot-still-visible-after-wait");
-				recordMobFarmerStabilization("loot-resolution-timeout", status);
-				return false;
+				status.put("lootMovementPending", true);
+				status.put("cadenceMode", "stutter-step-reattack-before-resuming-loot");
 			}
-			status.put("lootResolved", true);
+			else
+			{
+				status.put("lootResolved", true);
+			}
+		}
+		if (!attackDue)
+		{
+			status.put("result", "preserving-combat-cadence");
+			status.put("reattackAttempted", false);
+			status.put("reattackSkipReason", "attack-cooldown");
+			lastMobFarmerReattackStatus = status;
+			setMobFarmerDecision("preserving-combat-cadence", status);
+			recordMobFarmerStabilization("holding-post-action-until-attack-window", status);
+			mobFarmerStatus.set("waiting-attack-cadence:" + pendingMobFarmerReattackAction);
+			return true;
 		}
 		Actor interacting = localPlayer.getInteracting();
 		if (interacting != null && !isEffectivelyDead(interacting))
 		{
-			status.put("result", "already-in-combat");
 			status.put("currentTarget", actorSummary(interacting));
-			lastMobFarmerReattackStatus = status;
-			clearMobFarmerReattackAfterPickup("already-in-combat");
-			return false;
 		}
 		Map<String, Object> incomingAttacker = findNpcAttackingLocalPlayer(localPlayer);
 		if (incomingAttacker != null && getMobFarmerAfterLootCombatMode() != CvHelperAfterLootCombatMode.RESUME_TARGETING)
@@ -5518,10 +5606,13 @@ public class CvHelperModPlugin extends Plugin
 		status.put("result", "attacking");
 		status.put("target", target);
 		status.put("attackReady", true);
+		status.put("reattackAttempted", true);
+		status.put("reattackSkipReason", "");
 		status.put("preemptedNormalFlow", true);
 		lastMobFarmerReattackStatus = status;
+		String reattackAction = pendingMobFarmerReattackAction;
 		clearMobFarmerReattackAfterPickup("attack-issued");
-		setMobFarmerDecision("reattack-after-pickup", target);
+		setMobFarmerDecision("post-action-reattack:" + reattackAction, target);
 		invokeMobFarmerAttack(target, clickPoint, true, generation);
 		return true;
 	}
@@ -6894,6 +6985,17 @@ public class CvHelperModPlugin extends Plugin
 			}
 			return false;
 		}
+		selection.target.put("doorTransitionContext", "loot");
+		if (tryHandleMobFarmerDoorTransition(localPlayer, selection.target, live))
+		{
+			Map<String, Object> details = new LinkedHashMap<>();
+			details.put("phase", phase);
+			details.put("lootTarget", selection.target);
+			details.put("doorTransition", selection.target.get("doorTransition"));
+			details.put("result", "handling-loot-transition");
+			setMobFarmerLootDecision("loot-door-transition:" + phase, details);
+			return true;
+		}
 		recordMobFarmerIntent("LOOT_ITEM", selection.target);
 		return clickMobFarmerAutomationTarget("loot", selection.target, live, generation);
 	}
@@ -6923,7 +7025,9 @@ public class CvHelperModPlugin extends Plugin
 		for (MobFarmerLootCandidate candidate : selectable)
 		{
 			applyMobFarmerLootPriority(candidate, selection.selectableCount);
+			applyMobFarmerLootTravelPolicy(candidate);
 		}
+		selection.selectableCount = (int) candidates.stream().filter(candidate -> candidate.selectable).count();
 		for (MobFarmerLootCandidate candidate : candidates)
 		{
 			selection.reports.add(lootCandidateReport(candidate));
@@ -7040,10 +7144,37 @@ public class CvHelperModPlugin extends Plugin
 		{
 			candidate.reject("ownership:" + item.get("ownership"));
 		}
-		int radius = getMobFarmerLootRadius();
-		if (radius > 0 && distance > radius)
+		Player localPlayer = client.getLocalPlayer();
+		Map<String, Object> world = mapValue(item.get("worldLocation"));
+		if (localPlayer != null && localPlayer.getWorldLocation() != null && !world.isEmpty())
 		{
-			candidate.reject("too-far:" + distance + ">" + radius);
+			WorldPoint lootPoint = worldPointValue(world, localPlayer.getWorldLocation().getPlane());
+			if (lootPoint == null)
+			{
+				candidate.reject("missing-world-location");
+				return candidate;
+			}
+			int priorityRadius = getMobFarmerHighPriorityLootRadius();
+			int searchRadius = Math.max(getMobFarmerLootRadius(), priorityRadius);
+			if (priorityRadius <= 0 || searchRadius <= 0)
+			{
+				searchRadius = Math.max(1, Math.max(searchRadius, getMobFarmerMaxDistance()));
+			}
+			PathingResult lootPathing = pathfinding.pathDistanceToWorldArea(localPlayer, new WorldArea(lootPoint, 1, 1), searchRadius);
+			item.put("pathDistance", lootPathing.reachable ? lootPathing.pathDistance : null);
+			item.put("pathReachable", lootPathing.reachable);
+			item.put("pathFailureReason", lootPathing.failureReason);
+			item.put("doorTransition", lootPathing.doorTransition);
+			item.put("blockedByDoor", lootPathing.blockedByDoor);
+			item.put("manualActionRequired", lootPathing.manualActionRequired);
+			item.put("manualActionReason", lootPathing.manualActionReason);
+			item.put("blockingDoor", lootPathing.blockingDoor);
+			if (!lootPathing.reachable)
+			{
+				candidate.reject(lootPathing.manualActionRequired
+					? "manual-transition:" + lootPathing.manualActionReason
+					: "unreachable:" + lootPathing.failureReason);
+			}
 		}
 		if (getMobFarmerLootInteractionMode() == CvHelperMobInteractionMode.MENU_ACTION)
 		{
@@ -7065,6 +7196,40 @@ public class CvHelperModPlugin extends Plugin
 		item.put("mobFarmerReasons", new ArrayList<>(candidate.reasons));
 		item.put("mobFarmerScore", candidate.score);
 		return candidate;
+	}
+
+	private void applyMobFarmerLootTravelPolicy(MobFarmerLootCandidate candidate)
+	{
+		int distance = intValue(candidate.item.get("pathDistance"), intValue(candidate.item.get("distance"), Integer.MAX_VALUE));
+		int allowedRadius = candidate.highPriority ? getMobFarmerHighPriorityLootRadius() : getMobFarmerLootRadius();
+		candidate.item.put("allowedLootRadius", allowedRadius);
+		candidate.item.put("lootRadiusClass", candidate.highPriority ? "high-priority" : "normal");
+		if (allowedRadius > 0 && distance > allowedRadius)
+		{
+			candidate.reject("too-far-" + (candidate.highPriority ? "priority" : "normal") + ":" + distance + ">" + allowedRadius);
+			candidate.item.put("cadenceDecision", "skipped-radius");
+			return;
+		}
+		int travelTicks = Math.max(0, distance - 1);
+		int estimatedMissedAttacks = travelTicks / getMobFarmerAttackIntervalTicks();
+		candidate.item.put("estimatedTravelTicks", travelTicks);
+		candidate.item.put("estimatedMissedAttacks", estimatedMissedAttacks);
+		Player localPlayer = client.getLocalPlayer();
+		Actor interacting = localPlayer == null ? null : localPlayer.getInteracting();
+		boolean combatActive = (interacting != null && !isEffectivelyDead(interacting))
+			|| mobFarmerCombatLeaseActive(safeValue(client::getTickCount, 0));
+		if (!candidate.highPriority && combatActive && estimatedMissedAttacks > getMobFarmerNormalLootMaxMissedAttacks())
+		{
+			candidate.reject("cadence-cost:" + estimatedMissedAttacks + ">" + getMobFarmerNormalLootMaxMissedAttacks());
+			candidate.item.put("cadenceDecision", "skipped-to-preserve-attack-cadence");
+		}
+		else
+		{
+			candidate.item.put("cadenceDecision", candidate.highPriority && estimatedMissedAttacks > 0
+				? "interrupting-for-high-priority-loot" : "within-cadence-budget");
+		}
+		candidate.item.put("mobFarmerSelectable", candidate.selectable);
+		candidate.item.put("mobFarmerReasons", new ArrayList<>(candidate.reasons));
 	}
 
 	private void applyMobFarmerLootPriority(MobFarmerLootCandidate candidate, int selectableCount)
@@ -7268,6 +7433,9 @@ public class CvHelperModPlugin extends Plugin
 		report.put("itemId", candidate.item.get("itemId"));
 		report.put("quantity", candidate.item.get("quantity"));
 		report.put("distance", candidate.item.get("distance"));
+		report.put("pathDistance", candidate.item.get("pathDistance"));
+		report.put("pathReachable", candidate.item.get("pathReachable"));
+		report.put("pathFailureReason", candidate.item.get("pathFailureReason"));
 		report.put("gePriceEach", candidate.item.get("gePriceEach"));
 		report.put("gePrice", candidate.item.get("gePrice"));
 		report.put("totalStackGeValue", candidate.item.get("totalStackGeValue"));
@@ -7283,6 +7451,16 @@ public class CvHelperModPlugin extends Plugin
 		report.put("reasons", new ArrayList<>(candidate.reasons));
 		report.put("highPriority", candidate.highPriority);
 		report.put("priorityReasons", new ArrayList<>(candidate.priorityReasons));
+		report.put("allowedLootRadius", candidate.item.get("allowedLootRadius"));
+		report.put("lootRadiusClass", candidate.item.get("lootRadiusClass"));
+		report.put("estimatedTravelTicks", candidate.item.get("estimatedTravelTicks"));
+		report.put("estimatedMissedAttacks", candidate.item.get("estimatedMissedAttacks"));
+		report.put("cadenceDecision", candidate.item.get("cadenceDecision"));
+		report.put("doorTransition", candidate.item.get("doorTransition"));
+		report.put("blockedByDoor", candidate.item.get("blockedByDoor"));
+		report.put("manualActionRequired", candidate.item.get("manualActionRequired"));
+		report.put("manualActionReason", candidate.item.get("manualActionReason"));
+		report.put("blockingDoor", candidate.item.get("blockingDoor"));
 		report.put("groundItemsClassification", candidate.item.get("groundItemsClassification"));
 		report.put("groundItemsHighlighted", candidate.item.get("groundItemsHighlighted"));
 		report.put("groundItemsHidden", candidate.item.get("groundItemsHidden"));
@@ -7324,8 +7502,9 @@ public class CvHelperModPlugin extends Plugin
 		}
 
 		MobFarmerActionKind actionKind = mobFarmerClickActionKind(action);
-		String schedulerTarget = mobFarmerTargetKey(target);
-		if (!mobFarmerActionAllowed(actionKind, schedulerTarget, 1, action + "-click"))
+		String schedulerTarget = actionKind == MobFarmerActionKind.COMBAT ? "cadence" : mobFarmerTargetKey(target);
+		int minimumTicks = actionKind == MobFarmerActionKind.COMBAT ? getMobFarmerAttackIntervalTicks() : 1;
+		if (!mobFarmerActionAllowed(actionKind, schedulerTarget, minimumTicks, action + "-click"))
 		{
 			mobFarmerStatus.set("skipped:" + action + ":scheduler-wait");
 			updatePanelStatus("Mob farmer " + action + " skipped: waiting for next tick window");
@@ -7531,6 +7710,8 @@ public class CvHelperModPlugin extends Plugin
 			recordMobFarmerScheduledAction(schedulerKind, schedulerTarget, actionName + ":" + menu.option);
 			attempt.put("result", "invoked");
 			attempt.put("actualAction", menu.option);
+			attempt.put("reattackQueued", true);
+			queueMobFarmerReattackAfterAction(actionName, menu.option + " " + label, target);
 			recordMobFarmerActionAttempt(actionName, attempt);
 			if ("intermediate".equals(actionName))
 			{
@@ -7705,8 +7886,8 @@ public class CvHelperModPlugin extends Plugin
 			recordMobFarmerActionAttempt("attack", attempt);
 			return true;
 		}
-		String schedulerTarget = mobFarmerTargetKey(target);
-		if (!mobFarmerActionAllowed(MobFarmerActionKind.COMBAT, schedulerTarget, 1, "attack-menu-action"))
+		String schedulerTarget = "cadence";
+		if (!mobFarmerActionAllowed(MobFarmerActionKind.COMBAT, schedulerTarget, getMobFarmerAttackIntervalTicks(), "attack-menu-action"))
 		{
 			attempt.put("result", "scheduler-wait");
 			attempt.put("schedulerKind", MobFarmerActionKind.COMBAT.name());

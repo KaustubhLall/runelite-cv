@@ -15,16 +15,17 @@ const TARGETING_KEYS = ["target", "maxDistance", "requireLineOfSight", "engagedM
 const POLICY_KEYS = [
 	"lootEnabled", "lootDuringCombat", "attackBeforeLoot", "lootMinValueGe", "lootMinSingleGe", "lootMinStackGe",
 	"lootMinStackQuantity", "lootAlwaysStackGe", "lootNeverStackBelowGe", "highPriorityLootValueGe", "lootUrgentDespawnTicks",
-	"lootCleanupPileCount", "lootRadius", "lootItems", "lootBlacklist", "lootOwnershipMode", "groundItemsMode",
+	"lootCleanupPileCount", "lootRadius", "highPriorityLootRadius", "normalLootMaxMissedAttacks", "lootItems", "lootBlacklist", "lootOwnershipMode", "groundItemsMode",
 	"respectGroundItemsHidden", "intermediateActionsEnabled", "intermediateItems", "intermediateActionMappings",
 	"neverDropItems", "highAlchEnabled", "highAlchMinHa", "highAlchMinDelta", "highAlchMaxLoss", "highAlchItems", "highAlchBlacklist",
 ];
 const SECTIONS = [
 	{ title: "Targeting", keys: TARGETING_KEYS },
+	{ title: "Combat Cadence", keys: ["attackIntervalTicks"] },
 	{ title: "Survival & Run", keys: ["autoEatEnabled", "eatHitpointPercent", "foodItems", "stopIfNoFood", "survivalPreemptsActions", "autorunEnabled", "autorunMinEnergy", "recoveryLoopDelayMs", "focusClickAfterLogin", "panicStopHotkey"] },
 	{ title: "Login Recovery", keys: ["loginRecoveryEnabled", "loginRecoveryF2pOnly", "loginClickToPlayEnabled", "loginDisconnectRecoveryEnabled", "autoResumeAfterLogin", "preferredLoginWorld"] },
 	{ title: "Pathing", keys: ["doorAutoOpenEnabled", "doorAutoCloseEnabled", "doorAllowlist", "doorDenylist"] },
-	{ title: "Looting", keys: ["lootEnabled", "lootDuringCombat", "attackBeforeLoot", "lootMinValueGe", "lootMinSingleGe", "lootMinStackGe", "lootMinStackQuantity", "lootAlwaysStackGe", "lootNeverStackBelowGe", "highPriorityLootValueGe", "lootUrgentDespawnTicks", "lootCleanupPileCount", "lootRadius", "lootItems", "lootBlacklist", "lootOwnershipMode", "groundItemsMode", "respectGroundItemsHidden"] },
+	{ title: "Looting", keys: ["lootEnabled", "lootDuringCombat", "attackBeforeLoot", "lootMinValueGe", "lootMinSingleGe", "lootMinStackGe", "lootMinStackQuantity", "lootAlwaysStackGe", "lootNeverStackBelowGe", "highPriorityLootValueGe", "lootUrgentDespawnTicks", "lootCleanupPileCount", "lootRadius", "highPriorityLootRadius", "normalLootMaxMissedAttacks", "lootItems", "lootBlacklist", "lootOwnershipMode", "groundItemsMode", "respectGroundItemsHidden"] },
 	{ title: "Intermediate Actions", keys: ["intermediateActionsEnabled", "intermediateItems", "intermediateActionMappings", "neverDropItems"] },
 	{ title: "High Alchemy", keys: ["highAlchEnabled", "highAlchMinHa", "highAlchMinDelta", "highAlchMaxLoss", "highAlchItems", "highAlchBlacklist"] },
 ];
@@ -144,15 +145,16 @@ export function renderMobDebug(mobStatus) {
 	const s = mobStatus && typeof mobStatus === "object" ? mobStatus : {};
 	const block = (title, ico, data) => panel({ title, iconName: ico, body: rows(data) });
 	const html = `
-		<div class="grid cols-3" style="margin-bottom:var(--gap)">
+		<div class="grid cols-4" style="margin-bottom:var(--gap)">
 			${block("Scheduler", "timer", s.scheduler)}
+			${block("Combat Cadence", "repeat", s.combatCadence)}
 			${block("Progress", "activity", s.progress)}
 			${block("Last Action Attempt", "swords", s.lastActionAttempt)}
 		</div>
 		<div class="grid cols-3" style="margin-bottom:var(--gap)">
 			${block("Decision", "brain", s.decision)}
 			${block("Death-loot Timing", "skull", s.deathLootTiming)}
-			${block("Reattach After Pickup", "repeat", s.reattachAfterPickup)}
+			${block("Post-action Reattack", "repeat", s.postActionReattack || s.reattachAfterPickup)}
 		</div>
 		${panel({ title: "Raw mob-farmer payload", iconName: "scroll-text", flush: true, body: `<details><summary class="raw-summary">full JSON</summary><pre class="raw-json">${escapeHtml(JSON.stringify(s, null, 2))}</pre></details>` })}`;
 	const sig = html.length + ":" + JSON.stringify(s.scheduler || {}).length;
