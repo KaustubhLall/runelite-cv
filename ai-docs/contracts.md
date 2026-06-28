@@ -194,3 +194,8 @@ The next feature step is a combined target endpoint, stable semantic target name
 - Default tier boundaries are exact: trivial `<1,000`, common `1,000..<100,000`, valuable `100,000..<1,000,000`, wealthy `1,000,000..<100,000,000`, elite `100,000,000..<1,000,000,000`, and legendary `>=1,000,000,000`.
 - The Configuration page owns frontend-only enable, threshold, color, and reset controls persisted under versioned browser local storage. Thresholds must be non-negative and strictly ascending.
 - Rendered values carry an exact-GP tooltip identifying semantics such as GE each, GE stack total, or inventory HA. Missing values remain neutral/unknown.
+
+### Skill-farmer target lifecycle
+
+- Mining treats an XP increase as successful target completion, records `lastCompletedTarget`, `completionReason=xp-drop`, and `lastInvalidationTick`, temporarily rejects the completed tile, and immediately rescans. Recent object-ID changes at a tile also produce a stale-tile rejection so third-party depletion cannot trap selection.
+- Woodcutting defaults its droppable list to `logs`. A previously selected tree that disappears or loses its required action is invalidated before the no-target early return, ensuring `lastCompletedTarget`, `completionReason`, and `lastInvalidationTick` remain available even when no replacement tree exists. Both skill status endpoints seed completion fields before the first scan; text fields are explicit empty strings rather than omitted JSON properties.

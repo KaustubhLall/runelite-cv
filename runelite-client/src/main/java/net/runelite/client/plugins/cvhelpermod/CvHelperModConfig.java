@@ -1480,7 +1480,7 @@ public interface CvHelperModConfig extends Config
 	)
 	default String dropPolicyItems()
 	{
-		return "";
+		return "logs";
 	}
 
 	@ConfigItem(

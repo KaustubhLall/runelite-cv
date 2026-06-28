@@ -184,3 +184,11 @@ Files changed:
 - Correct default boundaries are trivial below 1k, common 1k, valuable 100k, wealthy 1m, elite 100m, and legendary 1b.
 - The frontend Configuration page exposes enable/disable, strictly ascending thresholds, six colors, live preview, Apply, and Reset defaults. Preferences use versioned local storage and do not change backend valuation or automation.
 - OSR-47 intentionally excludes item/object asset expansion and backend behavior changes.
+
+## OSR-49 skill-farmer lifecycle validation (2026-06-27)
+
+- Live iron-mining trace repeatedly showed XP-drop completion, invalidation ticks, short-lived `rejectedStaleTiles`, and immediate rotation among three adjacent rocks without selecting the just-depleted tile.
+- Woodcutting now defaults its drop allowlist to `logs`, replacing the stale diagnostic mining-item list.
+- Woodcutting invalidation is evaluated before the no-target return, so a missing/action-unavailable prior tree still records the shared completion diagnostics when no replacement exists.
+- Empty Mining/Woodcutting completion fields serialize as explicit empty strings, keeping the status/debug contract stable before the first lifecycle event.
+- Real tree disappearance/action-loss remains a combined manual live test; endpoint/config and browser diagnostics are available for it.

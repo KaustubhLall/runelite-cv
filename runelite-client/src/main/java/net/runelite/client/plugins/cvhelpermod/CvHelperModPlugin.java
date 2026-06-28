@@ -7932,6 +7932,19 @@ public class CvHelperModPlugin extends Plugin
 		status.put("configSource", "runtime-config");
 		status.put("scanRadiusTiles", getSkillFarmerScanRadius(skill));
 		status.put("maxCandidates", getSkillFarmerMaxCandidates(skill));
+		if (mining)
+		{
+			status.put("lastCompletedTarget", lastCompletedMiningTarget == null ? "" : targetLabelForMessage(lastCompletedMiningTarget));
+			status.put("completionReason", miningCompletionReason == null ? "" : miningCompletionReason);
+			status.put("lastInvalidationTick", lastMiningInvalidationTick);
+			status.putIfAbsent("rejectedStaleTiles", new ArrayList<>());
+		}
+		else
+		{
+			status.put("lastCompletedTarget", lastCompletedWoodcuttingTarget == null ? "" : targetLabelForMessage(lastCompletedWoodcuttingTarget));
+			status.put("completionReason", woodcuttingCompletionReason == null ? "" : woodcuttingCompletionReason);
+			status.put("lastInvalidationTick", lastWoodcuttingInvalidationTick);
+		}
 		status.put("inventory", inventoryPolicyStatus());
 		return status;
 	}
@@ -8580,27 +8593,29 @@ public class CvHelperModPlugin extends Plugin
 		selection.put("dropPolicy", dropStatus.toMap());
 		Map<String, Object> selected = mapValue(selection.get("selected"));
 		boolean isWoodcutting = "woodcutting".equals(skill);
-		if (selected == null)
-		{
-			selection.put("currentAction", "no-target");
-			setSkillFarmerStatus(skill, selection);
-			return;
-		}
 		boolean isMining = "mining".equals(skill);
 		Map<String, Object> previousWoodcuttingTarget = lastSelectedWoodcuttingTarget;
-		boolean selectedMatchesLast = isWoodcutting && previousWoodcuttingTarget != null
-			&& selectedMatchesLastTarget(selected, previousWoodcuttingTarget);
-		// rockDepleted was computed up front (before markMiningTargetCompleted nulled
-		// lastSelectedMiningTarget), so it still reflects whether THIS tick is the one
-		// where the previous rock turned out to be gone -- recomputing here would
-		// always read false since the field has already been cleared by now.
 		String woodcuttingInvalidReason = isWoodcutting && previousWoodcuttingTarget != null
 			? woodcuttingTargetValidityReason(skill, target, action, previousWoodcuttingTarget)
 			: null;
 		if (woodcuttingInvalidReason != null)
 		{
 			markWoodcuttingTargetCompleted(woodcuttingInvalidReason);
+			selection.put("treeInvalidated", true);
+			selection.put("decision", "tree-" + woodcuttingInvalidReason + "-switching");
 		}
+		if (selected.isEmpty())
+		{
+			selection.put("currentAction", "no-target");
+			setSkillFarmerStatus(skill, selection);
+			return;
+		}
+		boolean selectedMatchesLast = isWoodcutting && previousWoodcuttingTarget != null
+			&& selectedMatchesLastTarget(selected, previousWoodcuttingTarget);
+		// rockDepleted was computed up front (before markMiningTargetCompleted nulled
+		// lastSelectedMiningTarget), so it still reflects whether THIS tick is the one
+		// where the previous rock turned out to be gone -- recomputing here would
+		// always read false since the field has already been cleared by now.
 		boolean shouldStickToLast = isWoodcutting && config.woodcuttingStickToTarget()
 			&& activelyChopping && lastSelectedWoodcuttingTarget != null;
 		if (shouldStickToLast && !rockDepleted)
@@ -8619,7 +8634,6 @@ public class CvHelperModPlugin extends Plugin
 		}
 		if (woodcuttingInvalidReason != null)
 		{
-			selection.put("treeInvalidated", true);
 			selection.put("decision", "tree-" + woodcuttingInvalidReason + "-switching");
 		}
 		setSkillFarmerStatus(skill, selection);
@@ -8851,14 +8865,14 @@ public class CvHelperModPlugin extends Plugin
 		// Mining's source is the XP-drop handler; Woodcutting's is the per-tick validity check.
 		if (mining)
 		{
-			out.put("lastCompletedTarget", lastCompletedMiningTarget == null ? null : targetLabelForMessage(lastCompletedMiningTarget));
-			out.put("completionReason", miningCompletionReason);
+			out.put("lastCompletedTarget", lastCompletedMiningTarget == null ? "" : targetLabelForMessage(lastCompletedMiningTarget));
+			out.put("completionReason", miningCompletionReason == null ? "" : miningCompletionReason);
 			out.put("lastInvalidationTick", lastMiningInvalidationTick);
 		}
 		else
 		{
-			out.put("lastCompletedTarget", lastCompletedWoodcuttingTarget == null ? null : targetLabelForMessage(lastCompletedWoodcuttingTarget));
-			out.put("completionReason", woodcuttingCompletionReason);
+			out.put("lastCompletedTarget", lastCompletedWoodcuttingTarget == null ? "" : targetLabelForMessage(lastCompletedWoodcuttingTarget));
+			out.put("completionReason", woodcuttingCompletionReason == null ? "" : woodcuttingCompletionReason);
 			out.put("lastInvalidationTick", lastWoodcuttingInvalidationTick);
 		}
 		out.put("currentTick", client.getTickCount());
