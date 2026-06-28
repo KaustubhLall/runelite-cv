@@ -222,3 +222,32 @@ details[open] > .tbl-summary::before { transform: rotate(90deg); }
 
 /* food items with HP placeholder */
 .food-hp { color: var(--gold-dim); font-size: 11px; margin-left: 2px; }
+
+/* ---- Configured drop policy chips --------------------------------------- */
+.policy-lists { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--frame-soft); }
+.policy-h {
+	font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+	color: var(--gold-dim); margin: 10px 0 6px;
+	display: inline-flex; align-items: center; gap: 5px;
+}
+.policy-h:first-child { margin-top: 0; }
+.policy-h svg { width: 12px; height: 12px; }
+.policy-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.policy-chip {
+	display: inline-flex; align-items: center; gap: 5px;
+	padding: 3px 8px; border-radius: 11px; font-size: 11px; font-weight: 500;
+	border: 1px solid var(--frame); background: var(--bg-panel-2);
+	max-width: 100%;
+}
+.policy-chip.allow { border-color: #3d6e3a; color: var(--good-bright); background: rgba(116,198,111,.08); }
+.policy-chip.protect { border-color: #7a3c30; color: var(--bad-bright); background: rgba(224,101,74,.08); }
+.policy-chip svg { width: 11px; height: 11px; flex-shrink: 0; }
+.policy-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.policy-empty { color: var(--ink-faint); font-size: 11px; font-style: italic; margin: 0 0 8px; }
+.policy-more { font-size: 10px; color: var(--ink-faint); font-style: italic; padding: 3px 0; }
+
+/* ---- Recent Activity full-height scroll area ---------------------------- */
+.activity-panel { display: flex; flex-direction: column; min-height: 0; }
+.activity-panel .panel-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.activity-panel .activity-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--pad); }
+.activity-panel .events { max-height: none; }

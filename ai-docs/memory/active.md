@@ -162,3 +162,10 @@ Files changed:
 - Files touched this slice: `PathfindingService.java`, `CvHelperModPlugin.java`, `CvHelperModConfig.java`, `tools/cv-helper-verifier/v3/js/pathGrid.js`, `mobFarmer.js`, `skillFarmer.js`, `minimapView.js`, `mobConfig.js`, `mob-farmer.css`, plus the focused contracts/spec/memory updates.
 - Explicitly deferred (per OSR-14 Part E's one-hop scope cap): multi-door routing and `Enter`/`Pass`/`Climb-over` action types. OSR-48, OSR-42, OSR-47, OSR-45, OSR-49, inventory/drop behavior, and global navigation were not part of this checkpoint.
 - Context: OSR-48 (cutover/merge of PR #2, modular `cvhelpermod` becomes source of truth) and OSR-49 (Mining/Woodcutting live-validation follow-up) were created to move non-blocking residual work out of PR #2. This OSR-14 Part E slice is explicitly NOT part of that cutover scope -- it's tracked as its own focused patch per the OSR-48 description ("Door/gate-aware pathing diagnostics... → OSR-14").
+
+## OSR-42 farmer overview polish (2026-06-27)
+
+- Mining and Woodcutting drop-policy status now includes the exact configured allowlist and protected-list strings. No drop decision or automation behavior changed.
+- WebHelper v3 parses those strings into compact allow/protect chips with exact-token tooltips and honest empty states.
+- Recent Activity is a full-height flex child whose own body scrolls, eliminating the unused space beneath the log.
+- Scope is limited to `InventoryDropService`, `skillFarmer.js`, `mob-farmer.css`, and matching contract/spec/memory notes. GP-tier coloring, object/preset icon expansion, and asset-library work remain separate.

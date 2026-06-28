@@ -13,6 +13,7 @@ const arr = (v) => (Array.isArray(v) ? v : []);
 const obj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
 const num = (v) => (typeof v === "number" ? v : undefined);
 const yesno = (v) => (v === true ? `<span class="cell-yes">yes</span>` : v === false ? `<span class="cell-skip">no</span>` : "—");
+const str = (v) => (typeof v === "string" ? v : "");
 
 function setCell(id, html) {
 	const el = document.getElementById(id);
@@ -84,6 +85,31 @@ function candidateTable(candidates, sel) {
 	], rows, empty: "No candidates in scan radius." });
 }
 
+function parsePolicyList(v) {
+	const value = str(v).trim();
+	if (!value) return [];
+	return value.split(/[|,;\r\n]+/).map((token) => token.trim()).filter(Boolean);
+}
+
+function policyChip(token, type) {
+	const allowed = type === "allow";
+	const label = allowed ? "Allowed to drop" : "Protected / never drop";
+	return `<span class="policy-chip ${allowed ? "allow" : "protect"}" title="${escapeHtml(label)}: ${escapeHtml(token)}">${icon(allowed ? "check" : "shield")}<span class="policy-label">${escapeHtml(token)}</span></span>`;
+}
+
+function policyChips(dp) {
+	const allow = parsePolicyList(dp.configuredAllowlist);
+	const protect = parsePolicyList(dp.configuredProtected);
+	const allowSection = allow.length
+		? `<div class="policy-h">${icon("check")} Allowed to drop (${allow.length})</div><div class="policy-chips">${allow.map((token) => policyChip(token, "allow")).join("")}</div>`
+		: `<div class="policy-h">${icon("check")} Allowed to drop</div><p class="policy-empty">Any non-protected item below the maximum value is droppable.</p>`;
+	const visibleProtected = protect.slice(0, 16);
+	const protectSection = protect.length
+		? `<div class="policy-h">${icon("shield")} Protected / never drop (${protect.length})</div><div class="policy-chips">${visibleProtected.map((token) => policyChip(token, "protect")).join("")}${protect.length > visibleProtected.length ? `<span class="policy-more">+${protect.length - visibleProtected.length} more</span>` : ""}</div>`
+		: `<div class="policy-h">${icon("shield")} Protected / never drop</div><p class="policy-empty">No configured list; built-in safeguards still apply.</p>`;
+	return `<div class="policy-lists">${allowSection}${protectSection}</div>`;
+}
+
 function dropPolicy(dp, inv) {
 	const cands = arr(dp.candidates);
 	const status = dp.enabled ? badge("Active", "good") : badge("Idle", "");
@@ -102,7 +128,7 @@ function dropPolicy(dp, inv) {
 			return `<div class="drop-cand"><span class="dc-name">${itemIconHtml} ${escapeHtml(d.name || "item")} <small>${idChip(itemId)}</small></span><span class="dc-meta">×${escapeHtml(d.quantity ?? 1)} · ${formatGp(num(d.gePriceEach) ?? num(d.gePrice))}</span></div>`;
 		}).join("")}</div>`
 		: `<p class="empty compact">No drop candidates.</p>`;
-	return `<div class="dp-head"><span class="gilt-label">Policy Status</span>${status}</div>${rows}${dropList}`;
+	return `<div class="dp-head"><span class="gilt-label">Policy Status</span>${status}</div>${rows}${policyChips(dp)}${dropList}`;
 }
 
 function summaryCards(sm, candidates) {
@@ -170,7 +196,7 @@ function mount(skill) {
 		<div class="skill-row2">
 			${panel({ title: "Pathing / Reachability", iconName: "compass", extra: zoomControls(), body: `<div id="${id("pathing")}"></div>` })}
 			${panel({ title: "Candidate Summary", iconName: "list", body: `<div id="${id("summary")}"></div>` })}
-			${panel({ title: "Recent Activity", iconName: "scroll-text", body: `<div id="${id("events")}"></div>` })}
+			${panel({ title: "Recent Activity", iconName: "scroll-text", className: "activity-panel", body: `<div id="${id("events")}" class="activity-body"></div>` })}
 			${panel({ title: "Run & Status", iconName: "heart-pulse", body: `<div id="${id("run")}"></div>` })}
 		</div>`;
 	refreshIcons();

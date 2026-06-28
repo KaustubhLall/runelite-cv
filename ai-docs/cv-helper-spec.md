@@ -240,6 +240,8 @@ Mining status chooses the nearest reachable visible tile object with a matching 
 
 Woodcutting mirrors the mining config/status shape with target tree lists, configurable scan radius/candidate limit, and presets for normal trees, oak, willow, maple, and custom targets. It requires a `Chop down` action, scans relevant tile-object layers instead of only plain game objects, chooses by path distance rather than straight-line distance, and exposes the same pathing/inventory/visibility/bounds diagnostics plus object type in candidate rows. Live mode invokes the guarded object menu action for the matched action index; dropping logs and tree-respawn integration are report-only/follow-up in this pass. The RuneLite sidebar exposes `Skilling target boxes`, backed by the `showSkillFarmerTargets` config option, to draw latest mining/woodcutting candidate bounds after scans.
 
+WebHelper v3 renders each skill farmer's configured drop allowlist and protected/never-drop list directly in the overview. It parses the raw policy strings with the same pipe/comma/semicolon/newline delimiters as config input, shows explicit empty states, and uses labeled allow/protect chips with exact-token tooltips. This presentation is diagnostic only and does not alter drop-policy decisions.
+
 ### `GET /targets/panels`
 
 Returns side-panel tab and navigation controls, including combat options, stats, quests, inventory, equipment, prayer, magic, clan, settings, and other visible fixed/resizable layout tab buttons where available. These targets should use last-known caching so they remain available after a panel closes unless the client is resized or the layout changes.

@@ -69,6 +69,8 @@ public class InventoryDropService
 		public List<DropCandidate> protectedSkipped;
 		public String lastFailureReason;
 		public String lastActionAttempt;
+		public String configuredAllowlist;
+		public String configuredProtected;
 
 		public DropPolicyStatus()
 		{
@@ -82,6 +84,8 @@ public class InventoryDropService
 			this.protectedSkipped = new ArrayList<>();
 			this.lastFailureReason = null;
 			this.lastActionAttempt = null;
+			this.configuredAllowlist = null;
+			this.configuredProtected = null;
 		}
 
 		public Map<String, Object> toMap()
@@ -97,6 +101,8 @@ public class InventoryDropService
 			map.put("protectedSkipped", protectedSkipped.stream().map(DropCandidate::toMap).collect(Collectors.toList()));
 			map.put("lastFailureReason", lastFailureReason);
 			map.put("lastActionAttempt", lastActionAttempt);
+			map.put("configuredAllowlist", configuredAllowlist);
+			map.put("configuredProtected", configuredProtected);
 			return map;
 		}
 	}
@@ -148,6 +154,8 @@ public class InventoryDropService
 		status.mode = mode;
 		status.thresholdSlots = thresholdSlots;
 		status.opportunity = opportunity;
+		status.configuredAllowlist = dropAllowlist;
+		status.configuredProtected = protectedItems;
 
 		if (!policyEnabled)
 		{
