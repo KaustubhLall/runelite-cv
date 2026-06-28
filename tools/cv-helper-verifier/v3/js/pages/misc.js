@@ -2,7 +2,8 @@
  * pages/misc.js — Raw Data, Debug, Inventory pages.
  * ========================================================================== */
 import { panel, kvList, table, badge, gpValue } from "../components.js";
-import { escapeHtml, selectedValue } from "../format.js";
+import { itemIcon } from "../icons.js";
+import { escapeHtml, formatGp, selectedValue } from "../format.js";
 
 const obj = (v) => (v && typeof v === "object" ? v : {});
 const num = (v) => (typeof v === "number" ? v : undefined);
@@ -48,18 +49,20 @@ export function renderDebug(discovery) {
 /* ---- Inventory ---------------------------------------------------------- */
 function itemsTable(items) {
 	const list = Array.isArray(items) ? items : [];
-	const rows = list.slice(0, 40).map((it) => ({
-		cls: it.protected ? "row-sel" : "",
-		cells: [
-			`${escapeHtml(it.name || "item")} <small>×${escapeHtml(it.quantity ?? 1)}</small>`,
-			gpValue(num(it.gePriceEach), "Item GE each"),
-			gpValue(num(it.gePrice), "Item GE stack total"),
-			gpValue(num(it.haPriceEach), "Item HA each"),
-			gpValue(num(it.haPrice), "Item HA stack total"),
-			it.protected ? `<span class="cell-prio">protected</span>` : "—",
-		],
-	}));
-	return table({ columns: [{ label: "Item" }, { label: "GE each" }, { label: "GE stack" }, { label: "HA each" }, { label: "HA stack" }, { label: "Flag" }], rows, empty: "No items." });
+	const rows = list.slice(0, 40).map((it) => {
+		const itemId = it.id ?? it.itemId;
+		const itemIconHtml = itemIcon(itemId, it.name, "sm");
+		return {
+			cls: it.protected ? "row-sel" : "",
+			cells: [
+				`${itemIconHtml} ${escapeHtml(it.name || "item")} <small>×${escapeHtml(it.quantity ?? 1)}</small>`,
+				gpValue(num(it.gePriceEach) ?? num(it.gePrice)),
+				gpValue(num(it.haPriceEach) ?? num(it.haPrice)),
+				it.protected ? `<span class="cell-prio">protected</span>` : "—",
+			],
+		};
+	});
+	return table({ columns: [{ label: "Item" }, { label: "GE" }, { label: "HA" }, { label: "Flag" }], rows, empty: "No items." });
 }
 
 export function renderInventory(status) {
@@ -70,10 +73,10 @@ export function renderInventory(status) {
 	const equip = obj(wealth.equipment);
 	el.innerHTML = `
 		<div class="grid cols-4" style="margin-bottom:var(--gap)">
-			${panel({ title: "Carried (GE)", iconName: "coins", body: `<div class="big-stat">${gpValue(num(wealth.totalCarriedValueGe), "Carried GE total")}</div>` })}
-			${panel({ title: "Carried (HA)", iconName: "wand-2", body: `<div class="big-stat">${gpValue(num(wealth.totalCarriedValueHa), "Carried HA total")}</div>` })}
-			${panel({ title: "Equipment (GE)", iconName: "shield", body: `<div class="big-stat">${gpValue(num(equip.gePrice) ?? num(wealth.equipmentGe), "Equipment GE total")}</div>` })}
-			${panel({ title: "Risked (GE)", iconName: "alert-triangle", body: `<div class="big-stat">${gpValue(num(wealth.riskedValueGeApprox), "Risked GE total")}</div>` })}
+			${panel({ title: "Carried (GE)", iconName: "coins", body: `<div class="big-stat">${gpValue(num(wealth.totalCarriedValueGe))}</div>` })}
+			${panel({ title: "Carried (HA)", iconName: "wand-2", body: `<div class="big-stat">${gpValue(num(wealth.totalCarriedValueHa))}</div>` })}
+			${panel({ title: "Equipment (GE)", iconName: "shield", body: `<div class="big-stat">${gpValue(num(equip.gePrice) ?? num(wealth.equipmentGe))}</div>` })}
+			${panel({ title: "Risked (GE)", iconName: "alert-triangle", body: `<div class="big-stat">${gpValue(num(wealth.riskedValueGeApprox))}</div>` })}
 		</div>
 		<div class="grid cols-2">
 			${panel({ title: "Inventory", iconName: "backpack", extra: `${selectedValue(inv.occupiedSlots, "")} slots`, flush: true, body: itemsTable(inv.items) })}

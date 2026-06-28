@@ -4,12 +4,12 @@ Use this file as the short working map for the current session. Keep it concise.
 
 ## Current Focus
 
-- Branch: `feature/cvhelper-clean-modular` until PR #2 merges, then `master`
-- Linear task: `OSR-48` modular source-of-truth cutover
-- State: PR #2 smoke gate and merge checkpoint
+- Branch: `codex/mob-farmer-attack-cadence` on top of merged PR #2 and the focused OSR-42/45/47/49/50/52 lineage
+- Linear task: review-ready sweep for `OSR-44`, `OSR-50`, `OSR-19`, plus Todo closure audit for `OSR-8`, `OSR-9`, and `OSR-13`
+- State: implementation complete enough for compile/browser/endpoint/live verification; preserve the broad dirty asset/export worktree
 - Source of truth: `net.runelite.client.plugins.cvhelpermod` and WebHelper v3
 - Legacy reference only: `net.runelite.client.plugins.cvhelper`; do not extend it with new work
-- Next work: continue from merged modular `master` in focused OSR tickets
+- Next work: build/relaunch isolated profile 4, smoke the v3 Actions/minimap surfaces and new endpoints, then record honest Linear verification labels
 
 ## Active Task Stack
 
@@ -19,6 +19,12 @@ Use this file as the short working map for the current session. Keep it concise.
 - `OSR-4` - Synchronize CV Helper export delivery to OSRS game ticks
 - `OSR-5` - Investigate CV Helper hotkeys for prayers and spell actions
 - `OSR-6` - Build CV Helper verifier client site
+- `OSR-25` - Add 3-tick mining support for granite and iron (backlog)
+- `OSR-26` - Add 1.5-tick woodcutting support for teak trees (backlog)
+- `OSR-38` - Add firemaking automation support (backlog)
+- `OSR-39` - Add pyre ship automation extension (backlog, high-risk)
+- `OSR-40` - Add auto-scaling to verifier based on screen resolution (backlog)
+- `OSR-41` - Add bulk preset update capability (backlog)
 - `CONFIG-SYNC-FIX` - Browser config form should not be overwritten by live auto-sync
 
 ## Latest Patch Summary
@@ -148,7 +154,21 @@ Files changed:
 - CV Helper should be enabled by default during local development so the right-side navigation button appears without requiring manual plugin search first.
 - Remaining implementation focus: visual verification of panel/combat/compass overlay alignment in the RuneLite window; equipment label cleanup; game-object entity traversal; Python receiver client; tick-synchronized export flushing.
 
-## OSR-14 Part E correction + completion (2026-06-27, same day follow-up): live door interaction is now implemented, NOT denylist-only
+## OSR-14 closeout (2026-06-27): shared pathing kernel, in `cvhelpermod` (NOT the deprecated `cvhelper` package)
+
+- Shared kernel already lived in `PathfindingService.java`, consumed by mob farmer + woodcutting + mining. This session's work landed inside that file plus `CvHelperModPlugin.java`.
+- Fixed the two root-cause bugs the ticket named: `PathfindingService.isTileWalkable()` now checks the tile's OWN collision flags (`CollisionDataFlag.BLOCK_MOVEMENT_FULL`) instead of the old `canStandOnTile` proxy (checked neighbor-travel flags, let object tiles pass). `CvHelperModPlugin.buildObjectFootprint()` now derives multi-tile footprints from `GameObject.getSceneMinLocation()` via `WorldPoint.fromScene(...)`, not `getWorldLocation()` (which is the SW-rounded center, wrong for even-sized objects) -- this was the actual cause of normal trees reading unreachable.
+- Door diagnostics (Phase E): `mobFarmerDoorDenylist` config (id/name list, default empty -- preserves prior "auto-pass every openable door" behavior, since OSRS auto-opens doors on walk-into and this plugin never live-clicks a door). Denylisted doors block BFS for real and report `blocked-by-door:<id>` distinct from `collision-blocked`/`scene-blocked`, plus full `blockingDoor` metadata (id, name, world tile, actions, allowlistStatus) in `/pathing/grid` tiles. Live door-click interaction is explicitly NOT implemented this pass (ticket's own escape valve: "otherwise mark Deferred intentionally").
+- UI: `tools/cv-helper-verifier/v3/js/pathGrid.js` + `tokens.css` now render three distinct tones on the base reachability grid -- obstacle (orange, `collision-blocked`), unreachable (grey, scene-blocked/no-route), door-blocked (amber, denylisted door) -- instead of one red "blocked" bucket. Tooltip includes door name/actions/allowlist status when present.
+- Login-click geometry bug (found while testing OSR-14 live, same `clickLoginScreen`/`pressLoginEnterFallback` code path): the disconnect/reconnect-screen click point drifted south of the real button. Root cause had two layers, both fixed in `CvHelperModPlugin.java`:
+  1. `loginCanvasFocusPoint()` biased toward `getViewportWidth/Height/XOffset/YOffset`, which the client never resets on disconnect (stale in-game values). Replaced with a dedicated `loginScreenCanvasCenter()` for the login/disconnect path.
+  2. Canvas-size-based centering is ALSO wrong whenever the canvas's aspect ratio doesn't match the rendered content: confirmed live via Win32 `GetClientRect` + screenshot that a 928x1031 windowed canvas only rendered ~928x610 of actual game content, ANCHORED at the canvas's top-left corner (not centered) -- canvas-center landed in the dead band below the content. Fixed by computing the click point from `client.getRealDimensions()` center run through `canvasPointToScreen` (the same scale transform already used for widget-bounds clicks, verified to match RuneLite's own `stretchedmode.TranslateMouseListener` mouse-input mapping).
+  3. Still reported missing/inconsistent specifically "on a 2K screen ... since it has letterbox" while a 1080p Sceptre monitor works perfectly in fullscreen. Working theory: Stretched Mode plugin with keep-aspect-ratio is commonly enabled on larger/2K+ monitors to fill the screen, and unlike the plain-resize case, that GPU-scaled blit IS centered within the canvas, not anchored at the origin. `canvasPointToScreen` now adds a centering offset `(canvasSize - stretchedDimensions)/2` ONLY when `client.isStretchedEnabled()` is true, leaving the already-validated anchored-case math untouched when it's off. NOT yet live-verified on the 2K setup (needs rebuild + relaunch + a real disconnect to confirm) -- if it's still off after that, pull `geometry` from `lastClickAttempt` (added this pass: canvasLocation/canvasSize/realDimensions/stretchedEnabled/stretchedDimensions/monitor) instead of needing computer-use screenshots again.
+  4. `mobFarmerLoginClickOffsetX/Y` config (default 0) remains as a manual escape hatch, live-tunable via `POST /automation/mob-farmer/config` with zero rebuild -- confirmed working end-to-end (`rawFocusPoint` + offset = `focusPoint`, real click landed at the offset point).
+- Explicitly deferred with rationale (per ticket's own allowance): WebHelper stale Woodcutting-default/candidate-table cleanup (orthogonal, that directory had unrelated uncommitted edits already); live door-click interaction (no door is auto-clicked by this plugin at all -- it only decides whether to route a BFS edge through one, gated by the denylist).
+- Linear OSR-14 left at status `In Progress` pending the user rebuilding/relaunching and confirming the 2K-monitor letterbox click lands correctly; flip to Done after that confirmation.
+
+### OSR-14 Part E correction + completion (2026-06-27, same day follow-up): live door interaction is now implemented, NOT denylist-only
 
 **VERIFIED AND CHECKPOINTED** -- the door-transition slice was rebuilt into the running client, endpoint/browser tested, and live-tested against a real closed Large door in Al Kharid on 2026-06-27. The user confirmed automatic door opening worked.
 
@@ -163,41 +183,14 @@ Files changed:
 - Explicitly deferred (per OSR-14 Part E's one-hop scope cap): multi-door routing and `Enter`/`Pass`/`Climb-over` action types. OSR-48, OSR-42, OSR-47, OSR-45, OSR-49, inventory/drop behavior, and global navigation were not part of this checkpoint.
 - Context: OSR-48 (cutover/merge of PR #2, modular `cvhelpermod` becomes source of truth) and OSR-49 (Mining/Woodcutting live-validation follow-up) were created to move non-blocking residual work out of PR #2. This OSR-14 Part E slice is explicitly NOT part of that cutover scope -- it's tracked as its own focused patch per the OSR-48 description ("Door/gate-aware pathing diagnostics... → OSR-14").
 
-## OSR-42 farmer overview polish (2026-06-27)
+## OSR-42 closeout (2026-06-27): farmer UI drop policy visibility + activity layout fix
 
-- Mining and Woodcutting drop-policy status now includes the exact configured allowlist and protected-list strings. No drop decision or automation behavior changed.
-- WebHelper v3 parses those strings into compact allow/protect chips with exact-token tooltips and honest empty states.
-- Recent Activity is a full-height flex child whose own body scrolls, eliminating the unused space beneath the log.
-- Scope is limited to `InventoryDropService`, `skillFarmer.js`, `mob-farmer.css`, and matching contract/spec/memory notes. GP-tier coloring, object/preset icon expansion, and asset-library work remain separate.
-
-## OSR-45 hotkey input safety (2026-06-27)
-
-- Both the AWT `KeyEventDispatcher` and RuneLite `HotkeyListener` paths now use one guard and one diagnostic shape.
-- Client-tick-cached Chatbox widget visibility closes the first-character hole left by `CHATINPUT`-length-only checks, while the redacted `Press Enter to Chat...` prompt state keeps normal hotkeys available when RuneLite's Key Remapping plugin has chat locked.
-- Normal hotkeys fail closed for OSRS chat/meslayer input, Swing text focus, or an inactive RuneLite window. Suppression clears pre-dispatch pressed-key state and does not consume the key.
-- Panic stop remains the documented global exception.
-- `/status.hotkeyGuard` reports only focus/input booleans and string lengths, never chat content.
-
-## OSR-47 shared GP tier presentation (2026-06-27)
-
-- WebHelper v3 now routes existing Dashboard, Mob/Mining/Woodcutting Farmer, Inventory, loot, high-alch, and monetary policy values through one `gpValue` renderer with semantic exact-GP tooltips.
-- Correct default boundaries are trivial below 1k, common 1k, valuable 100k, wealthy 1m, elite 100m, and legendary 1b.
-- The frontend Configuration page exposes enable/disable, strictly ascending thresholds, six colors, live preview, Apply, and Reset defaults. Preferences use versioned local storage and do not change backend valuation or automation.
-- OSR-47 intentionally excludes item/object asset expansion and backend behavior changes.
-
-## OSR-49 skill-farmer lifecycle validation (2026-06-27)
-
-- Live iron-mining trace repeatedly showed XP-drop completion, invalidation ticks, short-lived `rejectedStaleTiles`, and immediate rotation among three adjacent rocks without selecting the just-depleted tile.
-- Woodcutting now defaults its drop allowlist to `logs`, replacing the stale diagnostic mining-item list.
-- Woodcutting invalidation is evaluated before the no-target return, so a missing/action-unavailable prior tree still records the shared completion diagnostics when no replacement exists.
-- Empty Mining/Woodcutting completion fields serialize as explicit empty strings, keeping the status/debug contract stable before the first lifecycle event.
-- Real tree disappearance/action-loss remains a combined manual live test; endpoint/config and browser diagnostics are available for it.
-
-## OSR-52 Mob Farmer combat cadence optimization (2026-06-28)
-
-- Mob attacks now use one configurable fallback interval (`attackIntervalTicks`, default 4) for both ordinary scheduling and post-action reattack. Status exposes current, last, and estimated-next attack ticks, due/wait state, target distance, and explicitly reports weapon speed as unknown/configured fallback.
-- Successful loot, intermediate inventory, and survival inventory actions queue one generalized post-action reattack. Movement toward already-clicked loot may continue during cooldown; at the next attack window the farmer reissues Attack even if the loot is still visible, then normal loot flow can resume.
-- Normal loot radius defaults to 6; high-priority loot has a separate radius defaulting to 12. Candidate diagnostics expose path distance, allowed radius class, estimated travel/missed-attack cost, and whether combat cadence was preserved or intentionally interrupted. Normal loot defaults to zero allowed missed attacks while combat is active.
-- Loot now uses the existing OSR-14 one-hop `Open`/`Close` path transition and the existing capped anti-spam execution guard. Unknown/unsafe transitions remain blocked with explicit manual-action diagnostics. Multi-door/global routing remains OSR-50 and was not expanded.
-- WebHelper Mob Farmer configuration, overview, debug, and loot-candidate table expose the cadence and travel-policy diagnostics. Exact weapon-speed detection is intentionally deferred until a reliable source is added.
-- Verification 2026-06-28: focused `:client:compileJava` and `:client:shadowJar` passed, as did JS syntax and diff hygiene. A fresh account1 client served `/status`, `/pathing/grid?radius=8`, `/scene/diagnostics`, `/automation/mob-farmer/config`, `/automation/mob-farmer/status`, and dry-step responses from port 11777. A bounded live Scorpion/rune-drop trace showed one-attack-cost normal loot rejected during the active combat lease, a later Fire rune `Take` queuing `postActionReattack`, cooldown ticks reported as `attack-cooldown`, and Attack reissued at the next configured window (`lastAttackTick=188`, `estimatedNextAttackTick=192`, reattack attempted at tick 192). The original target/config was restored and Mob Farmer stopped. WebHelper v3 rendered the cadence overview, config fields, debug trace, and post-action reattack with no console warnings/errors. Live bury/scatter and a loot-specific gate crossing were not separately reproduced; both use the verified generic queue / existing OSR-14 one-hop transition paths, respectively.
+- Backend: Added `configuredAllowlist` and `configuredProtected` fields to `InventoryDropService.DropPolicyStatus` in `InventoryDropService.java`. These fields are populated during `evaluateDropOpportunity` and serialized in `toMap()` to expose the raw configured drop policy strings to the frontend.
+- Frontend: Modified `skillFarmer.js` to add `parsePolicyList`, `policyChip`, and `policyChips` functions. These parse the comma/pipe/semicolon/newline-separated strings from the backend and render them as item-icon chips with tooltips. The `dropPolicy` function now includes the new `policyChips` display, showing allowlist and protected items in a compact visual section with color-coded chips (green for allowed, red for protected).
+- Frontend: Added CSS rules in `mob-farmer.css` for styling the new drop policy chips (`.policy-lists`, `.policy-h`, `.policy-chips`, `.policy-chip`, `.policy-empty`, `.policy-more`). Also added styles for `.activity-panel` and `.activity-body` to ensure the Recent Activity log fills the available card height and scrolls correctly using flexbox with `min-height: 0`.
+- Files changed:
+  - `runelite-client/src/main/java/net/runelite/client/plugins/cvhelpermod/InventoryDropService.java`: Added `configuredAllowlist` and `configuredProtected` fields to `DropPolicyStatus`, included them in `toMap()`, and populated them in `evaluateDropOpportunity`.
+  - `tools/cv-helper-verifier/v3/js/pages/skillFarmer.js`: Added `str` helper, `parsePolicyList`, `policyChip`, `policyChips` functions; modified `dropPolicy` to include policy chips; updated `mount` to add `activity-panel` and `activity-body` classes.
+  - `tools/cv-helper-verifier/v3/css/mob-farmer.css`: Added CSS for policy chips and Recent Activity full-height scroll area.
+- Java compile deferred due to bash tool Cwd issues; user can compile via desktop .bat file (`Launch RuneLite CV Helper.bat`) which calls `scripts\launch-dev-runelite.ps1` and runs `.\gradlew.bat :client:shadowJar`.
+- Browser smoke-test pending after user rebuilds and launches.

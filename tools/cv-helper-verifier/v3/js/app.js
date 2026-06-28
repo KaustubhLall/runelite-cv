@@ -19,7 +19,6 @@ import { renderSkillConfigTab, applySkillConfig, resetSkillConfig, loadSkillConf
 import { renderMinimapView } from "./pages/minimapView.js";
 import { renderActionsView } from "./pages/actionsView.js";
 import { renderGlobalConfigTab, applyGlobalConfig, resetGlobalConfig, loadGlobalConfigIntoDraft, importGlobalConfig, exportGlobalConfig } from "./pages/globalConfig.js";
-import { mountGpSettings } from "./gpSettings.js";
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -388,8 +387,15 @@ async function renderActiveView(status, player, auto, attempted) {
 			break;
 		}
 		case "actions": {
-			const cfg = await requestOptional("/automation/mob-farmer/config", {}, attempted);
-			renderActionsView(cfg);
+			const [cfg, ...payloads] = await Promise.all([
+				requestOptional("/automation/mob-farmer/config", {}, attempted),
+				...SURFACES.map((surface) => requestOptional(`/targets/${surface}`, {}, attempted)),
+				requestOptional("/entities", {}, attempted),
+			]);
+			const targetPayloads = {};
+			SURFACES.forEach((surface, index) => { targetPayloads[surface] = payloads[index]; });
+			targetPayloads.entities = payloads[payloads.length - 1];
+			renderActionsView(cfg, targetPayloads);
 			break;
 		}
 		case "configuration":
@@ -668,8 +674,6 @@ function init() {
 	$$("[data-emblem]").forEach((el) => { el.innerHTML = icon(el.dataset.emblem); });
 
 	wire();
-	mountGpSettings();
-	window.addEventListener("cvhelper:gp-settings-changed", () => refreshAll());
 	["mob", "mining", "woodcutting"].forEach(populatePresets);
 	showView("mob-farmer");   // open on the centrepiece per spec
 	showTab("overview");

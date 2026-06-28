@@ -66,15 +66,37 @@ svg.ico { width: 1em; height: 1em; vertical-align: -0.14em; }
 .tone-gold   { color: var(--gold-bright); }
 .tone-muted  { color: var(--ink-faint); }
 
-/* Shared GP tiers; colors can be overridden by the frontend settings panel. */
+/* GP coloured values (carried from v1/v2 semantics) */
 .gp-value { font-family: var(--font-mono); font-weight: 600; }
-.gp-tier-trivial { color: var(--gp-trivial); }
-.gp-tier-common { color: var(--gp-common); }
-.gp-tier-valuable { color: var(--gp-valuable); }
-.gp-tier-wealthy { color: var(--gp-wealthy); }
-.gp-tier-elite { color: var(--gp-elite); }
-.gp-tier-legendary { color: var(--gp-legendary); text-shadow: 0 0 8px color-mix(in srgb, var(--gp-legendary) 35%, transparent); }
-.gp-tier-neutral, .gp-tier-unknown { color: var(--ink-soft); }
+.gp-muted     { color: var(--gp-muted); }
+.gp-white     { color: var(--gp-white); }
+.gp-yellow    { color: var(--gp-yellow); }
+.gp-green     { color: var(--gp-green); }
+.gp-purple    { color: var(--gp-purple); }
+.gp-legendary { color: var(--gp-legendary); }
+.gp-gold      { color: var(--gp-gold); } /* legacy alias for legendary */
+
+/* GP badge component with icon and label */
+.gp-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	font-family: var(--font-mono);
+	font-weight: 600;
+	white-space: nowrap;
+}
+.gp-ico {
+	font-size: 0.85em;
+	opacity: 0.9;
+}
+.gp-label {
+	font-size: 0.85em;
+	opacity: 0.8;
+	margin-right: 2px;
+}
+.gp-text {
+	font-variant-numeric: tabular-nums;
+}
 
 /* Section-title small-caps gilt label used across panels */
 .gilt-label {

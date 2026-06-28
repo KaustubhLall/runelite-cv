@@ -131,6 +131,10 @@ public interface CvHelperModConfig extends Config
 	String MOB_FARMER_REQUIRE_LINE_OF_SIGHT = "mobFarmerRequireLineOfSight";
 	String MOB_FARMER_MAX_DISTANCE = "mobFarmerMaxDistance";
 	String MOB_FARMER_ATTACK_INTERVAL_TICKS = "mobFarmerAttackIntervalTicks";
+	String MOB_FARMER_CONFIRM_ATTACK_BEFORE_INTERRUPT = "mobFarmerConfirmAttackBeforeInterrupt";
+	String MOB_FARMER_ATTACK_CONFIRM_TIMEOUT_TICKS = "mobFarmerAttackConfirmTimeoutTicks";
+	String MOB_FARMER_COMBAT_STALL_TICKS = "mobFarmerCombatStallTicks";
+	String MOB_FARMER_ATTACK_STYLE_SLOT = "mobFarmerAttackStyleSlot";
 	String MOB_FARMER_AUTO_EAT_ENABLED = "mobFarmerAutoEatEnabled";
 	String MOB_FARMER_EAT_HITPOINT_PERCENT = "mobFarmerEatHitpointPercent";
 	String MOB_FARMER_FOOD_ITEMS = "mobFarmerFoodItems";
@@ -140,6 +144,8 @@ public interface CvHelperModConfig extends Config
 	String MOB_FARMER_LOGIN_RECOVERY_F2P_ONLY = "mobFarmerLoginRecoveryF2pOnly";
 	String MOB_FARMER_LOGIN_CLICK_TO_PLAY_ENABLED = "mobFarmerLoginClickToPlayEnabled";
 	String MOB_FARMER_LOGIN_DISCONNECT_RECOVERY_ENABLED = "mobFarmerLoginDisconnectRecoveryEnabled";
+	String MOB_FARMER_LOGIN_CLICK_OFFSET_X = "mobFarmerLoginClickOffsetX";
+	String MOB_FARMER_LOGIN_CLICK_OFFSET_Y = "mobFarmerLoginClickOffsetY";
 	String MOB_FARMER_DOOR_AUTO_OPEN_ENABLED = "mobFarmerDoorAutoOpenEnabled";
 	String MOB_FARMER_DOOR_AUTO_CLOSE_ENABLED = "mobFarmerDoorAutoCloseEnabled";
 	String MOB_FARMER_DOOR_ALLOWLIST = "mobFarmerDoorAllowlist";
@@ -175,6 +181,8 @@ public interface CvHelperModConfig extends Config
 	String MOB_FARMER_INTERMEDIATE_ACTIONS_ENABLED = "mobFarmerIntermediateActionsEnabled";
 	String MOB_FARMER_INTERMEDIATE_ITEMS = "mobFarmerIntermediateItems";
 	String MOB_FARMER_INTERMEDIATE_ACTION_MAPPINGS = "mobFarmerIntermediateActionMappings";
+	String MOB_FARMER_MIN_BURY_BATCH = "mobFarmerMinBuryBatch";
+	String MOB_FARMER_COMBAT_INTERRUPT_ITEMS = "mobFarmerCombatInterruptItems";
 	String MOB_FARMER_HIGH_ALCH_ENABLED = "mobFarmerHighAlchEnabled";
 	String MOB_FARMER_HIGH_ALCH_MIN_HA = "mobFarmerHighAlchMinHa";
 	String MOB_FARMER_HIGH_ALCH_MIN_DELTA = "mobFarmerHighAlchMinDelta";
@@ -199,7 +207,7 @@ public interface CvHelperModConfig extends Config
 
 	@ConfigSection(
 		name = "Action hotkeys",
-		description = "Configurable action-click hotkeys for prayer, spell, UI, and entity targets.",
+		description = "Native config exposes the stable global controls and slots 1-4. Use the CV Helper sidebar or WebHelper Actions page for the full 22-slot editor; those surfaces persist slots 5-22 through the same ConfigManager keys.",
 		position = 100
 	)
 	String actionSection = ACTION_SECTION;
@@ -697,6 +705,50 @@ public interface CvHelperModConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = MOB_FARMER_CONFIRM_ATTACK_BEFORE_INTERRUPT,
+		name = "Confirm attack before interrupt",
+		description = "Wait for a combat XP drop (proof the swing landed) before burying/scattering or looting mid-combat. Melee XP lands on the swing tick, so the bury+move on that tick no longer cancels the attack.",
+		section = mobFarmerSection
+	)
+	default boolean mobFarmerConfirmAttackBeforeInterrupt()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_ATTACK_CONFIRM_TIMEOUT_TICKS,
+		name = "Attack confirm timeout ticks",
+		description = "If no combat XP drop is seen for this many ticks while in combat (e.g. 0-damage splashes grant no XP), allow the interrupting action anyway so the bot never stalls. 0 = auto (2x attack interval).",
+		section = mobFarmerSection
+	)
+	default int mobFarmerAttackConfirmTimeoutTicks()
+	{
+		return 0;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_COMBAT_STALL_TICKS,
+		name = "Combat stall recovery ticks",
+		description = "While engaged and in range, if no combat XP is gained for this many ticks the farmer treats combat as stuck and re-issues the attack (menu, then a direct click). 0 = auto (3x measured attack interval, min 8).",
+		section = mobFarmerSection
+	)
+	default int mobFarmerCombatStallTicks()
+	{
+		return 0;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_ATTACK_STYLE_SLOT,
+		name = "Attack style slot",
+		description = "Combat attack-style slot to keep selected (1-4, top to bottom in the Combat Options tab) to control which stat is trained. 0 = leave whatever is set. Which stat each slot trains depends on your weapon. Requires the combat tab to be opened once.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerAttackStyleSlot()
+	{
+		return 0;
+	}
+
+	@ConfigItem(
 		keyName = MOB_FARMER_AUTO_EAT_ENABLED,
 		name = "Auto-eat enabled",
 		description = "Before combat or loot actions, eat a matching inventory item when HP drops below the configured threshold.",
@@ -793,6 +845,28 @@ public interface CvHelperModConfig extends Config
 	default boolean mobFarmerLoginDisconnectRecoveryEnabled()
 	{
 		return true;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOGIN_CLICK_OFFSET_X,
+		name = "Login click offset X (px)",
+		description = "Pixel nudge applied to every login/disconnect-screen click (Play Now, the disconnect dialog's Ok, the canvas-centre Enter-fallback) on top of the computed point. Positive = right. Tune this without recompiling if the computed point is consistently off due to stretching/letterboxing.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerLoginClickOffsetX()
+	{
+		return 0;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_LOGIN_CLICK_OFFSET_Y,
+		name = "Login click offset Y (px)",
+		description = "Pixel nudge applied to every login/disconnect-screen click on top of the computed point. Positive = down.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerLoginClickOffsetY()
+	{
+		return 0;
 	}
 
 	@ConfigItem(
@@ -1145,6 +1219,28 @@ public interface CvHelperModConfig extends Config
 	default String mobFarmerIntermediateActionMappings()
 	{
 		return "bones -> Bury; big bones -> Bury; ashes -> Scatter|Bury";
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_MIN_BURY_BATCH,
+		name = "Min bury batch",
+		description = "Only start burying/scattering once this many matching items have accumulated, then clear the whole batch in one downtime session (fewer, faster interruptions). Always overridden when the inventory is full. 1 = bury every downtime.",
+		section = mobFarmerSection
+	)
+	default int mobFarmerMinBuryBatch()
+	{
+		return 4;
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_COMBAT_INTERRUPT_ITEMS,
+		name = "Extreme-value interrupt loot",
+		description = "The ONLY loot allowed to interrupt an in-progress attack (everything else waits for downtime). Names or id:<item id>, separated by |, comma, semicolon, or newlines. Leave empty so attacks are never interrupted for loot.",
+		section = mobFarmerSection
+	)
+	default String mobFarmerCombatInterruptItems()
+	{
+		return "";
 	}
 
 	@ConfigItem(
@@ -1516,7 +1612,7 @@ public interface CvHelperModConfig extends Config
 	)
 	default String dropPolicyItems()
 	{
-		return "logs";
+		return "";
 	}
 
 	@ConfigItem(

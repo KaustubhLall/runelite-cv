@@ -24,7 +24,7 @@
  */
 package net.runelite.cache.item;
 
-class Model extends Renderable
+public class Model extends Renderable
 {
 	boolean[] faceClipped = new boolean[6500];
 	int[] modelViewportYs = new int[6500];

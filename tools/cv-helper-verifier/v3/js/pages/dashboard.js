@@ -5,7 +5,7 @@
  * ========================================================================== */
 import { panel, kvList, badge, gpValue } from "../components.js";
 import { icon } from "../icons.js";
-import { escapeHtml, formatRelativeTime, selectedValue } from "../format.js";
+import { escapeHtml, formatGp, formatRelativeTime, selectedValue } from "../format.js";
 
 const root = () => document.querySelector("#dashboard-page");
 const obj = (v) => (v && typeof v === "object" ? v : {});
@@ -115,10 +115,10 @@ export function renderDashboard(status, mobFarmer, events, counts) {
 				{ iconName: "weight", k: "Weight", v: `${selectedValue(player.weight, "—")} kg` },
 			]) })}
 			${panel({ title: "Wealth", iconName: "coins", body: kvList([
-				{ iconName: "coins", k: "Carried (GE)", v: gpValue(num(wealth.totalCarriedValueGe), "Carried GE total") },
-				{ iconName: "wand-2", k: "Carried (HA)", v: gpValue(num(wealth.totalCarriedValueHa), "Carried HA total") },
-				{ iconName: "shield", k: "Equipment (GE)", v: gpValue(num(obj(wealth.equipment).gePrice), "Equipment GE total") },
-				{ iconName: "alert-triangle", k: "Risked (GE)", v: gpValue(num(wealth.riskedValueGeApprox), "Risked GE total") },
+				{ iconName: "coins", k: "Carried (GE)", v: gpValue(num(wealth.totalCarriedValueGe)), tone: "" },
+				{ iconName: "wand-2", k: "Carried (HA)", v: gpValue(num(wealth.totalCarriedValueHa)), tone: "" },
+				{ iconName: "shield", k: "Equipment (GE)", v: gpValue(num(obj(wealth.equipment).gePrice)), tone: "" },
+				{ iconName: "alert-triangle", k: "Risked (GE)", v: gpValue(num(wealth.riskedValueGeApprox)), tone: "" },
 			]) })}
 			${panel({ title: "Interface", iconName: "layout", body: kvList([
 				{ iconName: "panel-top", k: "Open panel", v: escapeHtml(selectedValue(iface.openPanel || iface.tab, "—")) },

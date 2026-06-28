@@ -5,8 +5,8 @@
  * Status — plus the shared 2D path grid. Mount-once + per-cell patching.
  * ========================================================================== */
 import { panel, metric, kvList, table, idChip, badge, gpValue } from "../components.js";
-import { icon, refreshIcons, itemIcon } from "../icons.js";
-import { escapeHtml, formatRelativeTime, selectedValue, humanizeAction, decisionTone, compass, compassLong } from "../format.js";
+import { icon, refreshIcons, itemIcon, objectIcon } from "../icons.js";
+import { escapeHtml, formatGp, formatRelativeTime, selectedValue, humanizeAction, decisionTone, compass, compassLong } from "../format.js";
 import { buildPathGrid, gridSignature, getGridRadius } from "../pathGrid.js";
 
 const arr = (v) => (Array.isArray(v) ? v : []);
@@ -32,14 +32,14 @@ const tile = (w) => (w ? `${w.x}, ${w.y}` : "—");
 function metricStrip(skill, s, sel, inv, player) {
 	const action = humanizeAction(s.currentAction || s.decision);
 	return `
-		${metric({ iconName: skill === "mining" ? "pickaxe" : "trees", label: "Selected", value: escapeHtml(sel.name || "—"), sub: sel.id ? `obj ${idChip(sel.id)}` : "none" })}
+		${metric({ iconHtml: (skill === "mining" || skill === "woodcutting") ? objectIcon(sel.id, sel.name, "sm") : icon(skill === "woodcutting" ? "trees" : "pickaxe", ""), label: "Selected", value: escapeHtml(sel.name || "—"), sub: sel.id ? `obj ${idChip(sel.id)}` : "none" })}
 		${metric({ iconName: "swords", label: "Action", value: action.label, tone: action.tone, sub: escapeHtml(String(s.currentAction || "")) })}
 		${metric({ iconName: "route", label: "Path Distance", value: sel.pathDistance !== undefined ? `${sel.pathDistance} tiles` : "—", tone: sel.reachable === false ? "bad" : "good" })}
 		${metric({ iconName: "check-circle", label: "Reachable", value: sel.reachable === true ? "Yes" : sel.reachable === false ? "No" : "—", tone: sel.reachable ? "good" : sel.reachable === false ? "bad" : "" })}
 		${metric({ iconName: "radar", label: "Scan Radius", value: `${selectedValue(s.scanRadiusTiles, "—")} tiles` })}
 		${metric({ iconName: "backpack", label: "Free Slots", value: `${selectedValue(inv.freeSlots, "—")} / ${selectedValue(inv.slotCount, 28)}`, tone: inv.full ? "warn" : "good" })}
-		${metric({ iconName: "coins", label: "Inventory GE", value: gpValue(num(inv.gePrice), "Inventory GE total") })}
-		${metric({ iconName: "wand-2", label: "Inventory HA", value: gpValue(num(inv.haPrice), "Inventory HA total") })}`;
+		${metric({ iconHtml: gpValue(num(inv.gePrice)), label: "Inventory GE", value: "", tone: "" })}
+		${metric({ iconHtml: gpValue(num(inv.haPrice)), label: "Inventory HA", value: "", tone: "" })}`;
 }
 
 function selectedDetails(sel) {
@@ -65,7 +65,7 @@ function candidateTable(candidates, sel) {
 			cls: isSel ? "row-sel" : c.reachable === false ? "row-bad" : c.selectable ? "row-good" : "",
 			cells: [
 				`${i + 1}`,
-				escapeHtml(c.name || c.label || "object"),
+				`${objectIcon(c.id, c.name || c.label, "sm")} ${escapeHtml(c.name || c.label || "object")}`,
 				idChip(c.id) || "—",
 				escapeHtml(tile(c.worldLocation)),
 				escapeHtml(selectedValue(c.distance, "—")),
@@ -86,27 +86,34 @@ function candidateTable(candidates, sel) {
 }
 
 function parsePolicyList(v) {
-	const value = str(v).trim();
-	if (!value) return [];
-	return value.split(/[|,;\r\n]+/).map((token) => token.trim()).filter(Boolean);
+	const s = str(v).trim();
+	if (!s) return [];
+	return s.split(/[|,;\r\n]+/).map((t) => t.trim()).filter(Boolean);
 }
 
-function policyChip(token, type) {
-	const allowed = type === "allow";
-	const label = allowed ? "Allowed to drop" : "Protected / never drop";
-	return `<span class="policy-chip ${allowed ? "allow" : "protect"}" title="${escapeHtml(label)}: ${escapeHtml(token)}">${icon(allowed ? "check" : "shield")}<span class="policy-label">${escapeHtml(token)}</span></span>`;
+function policyChip(item, type) {
+	const cls = type === "allow" ? "allow" : "protect";
+	const ico = type === "allow" ? "check" : "shield";
+	const label = type === "allow" ? "Allowed to drop" : "Protected / never drop";
+	const name = item.name || item;
+	const itemId = item.id || -1;
+	const hasIcon = itemId > 0;
+	
+	// Use item icon if we have a valid ID, otherwise use generic icon
+	const iconHtml = hasIcon ? itemIcon(itemId, name, "policy-item-icon") : icon(ico);
+	const noIconClass = hasIcon ? "" : "has-no-icon";
+	return `<span class="policy-chip ${cls} ${noIconClass}" title="${escapeHtml(label)}: ${escapeHtml(name)}">${iconHtml} <span class="policy-label">${escapeHtml(name)}</span></span>`;
 }
 
 function policyChips(dp) {
-	const allow = parsePolicyList(dp.configuredAllowlist);
-	const protect = parsePolicyList(dp.configuredProtected);
+	const allow = dp.configuredAllowlistItems || parsePolicyList(dp.configuredAllowlist).map((name) => ({ name, id: -1 }));
+	const protect = dp.configuredProtectedItems || parsePolicyList(dp.configuredProtected).map((name) => ({ name, id: -1 }));
 	const allowSection = allow.length
-		? `<div class="policy-h">${icon("check")} Allowed to drop (${allow.length})</div><div class="policy-chips">${allow.map((token) => policyChip(token, "allow")).join("")}</div>`
-		: `<div class="policy-h">${icon("check")} Allowed to drop</div><p class="policy-empty">Any non-protected item below the maximum value is droppable.</p>`;
-	const visibleProtected = protect.slice(0, 16);
+		? `<div class="policy-h"><i data-lucide="check"></i> Allowed to drop (${allow.length})</div><div class="policy-chips allow">${allow.map((item) => policyChip(item, "allow")).join("")}</div>`
+		: `<div class="policy-h"><i data-lucide="check"></i> Allowed to drop</div><p class="policy-empty">Any non-protected item below max value is droppable.</p>`;
 	const protectSection = protect.length
-		? `<div class="policy-h">${icon("shield")} Protected / never drop (${protect.length})</div><div class="policy-chips">${visibleProtected.map((token) => policyChip(token, "protect")).join("")}${protect.length > visibleProtected.length ? `<span class="policy-more">+${protect.length - visibleProtected.length} more</span>` : ""}</div>`
-		: `<div class="policy-h">${icon("shield")} Protected / never drop</div><p class="policy-empty">No configured list; built-in safeguards still apply.</p>`;
+		? `<div class="policy-h"><i data-lucide="shield"></i> Protected / never drop (${protect.length})</div><div class="policy-chips protect">${protect.slice(0, 16).map((item) => policyChip(item, "protect")).join("")}${protect.length > 16 ? `<span class="policy-more">+${protect.length - 16} more</span>` : ""}</div>`
+		: `<div class="policy-h"><i data-lucide="shield"></i> Protected / never drop</div><p class="policy-empty">No protected list configured; only built-in safeguards apply.</p>`;
 	return `<div class="policy-lists">${allowSection}${protectSection}</div>`;
 }
 
@@ -125,7 +132,7 @@ function dropPolicy(dp, inv) {
 		? `<div class="drop-cands"><div class="drop-cands-h">Drop Candidates (${cands.length})</div>${cands.slice(0, 5).map((d) => {
 			const itemId = d.id ?? d.itemId;
 			const itemIconHtml = itemIcon(itemId, d.name, "sm");
-			return `<div class="drop-cand"><span class="dc-name">${itemIconHtml} ${escapeHtml(d.name || "item")} <small>${idChip(itemId)}</small></span><span class="dc-meta">×${escapeHtml(d.quantity ?? 1)} · ${gpValue(num(d.gePriceEach) ?? num(d.gePrice), "Drop candidate GE each")}</span></div>`;
+			return `<div class="drop-cand"><span class="dc-name">${itemIconHtml} ${escapeHtml(d.name || "item")} <small>${idChip(itemId)}</small></span><span class="dc-meta">×${escapeHtml(d.quantity ?? 1)} · ${gpValue(num(d.gePriceEach) ?? num(d.gePrice))}</span></div>`;
 		}).join("")}</div>`
 		: `<p class="empty compact">No drop candidates.</p>`;
 	return `<div class="dp-head"><span class="gilt-label">Policy Status</span>${status}</div>${rows}${policyChips(dp)}${dropList}`;

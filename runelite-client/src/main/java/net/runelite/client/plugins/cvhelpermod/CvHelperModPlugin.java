@@ -17,6 +17,7 @@ import com.google.gson.Gson;
 import com.google.inject.Provides;
 import java.awt.AWTException;
 import java.awt.Color;
+import java.awt.Canvas;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
@@ -31,6 +32,7 @@ import java.awt.Shape;
 import java.awt.Window;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
@@ -73,6 +75,7 @@ import net.runelite.api.EnumID;
 import net.runelite.api.GameObject;
 import net.runelite.api.GameState;
 import net.runelite.api.InventoryID;
+import net.runelite.api.EquipmentInventorySlot;
 import net.runelite.api.Item;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.ItemContainer;
@@ -115,6 +118,7 @@ import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.config.Keybind;
 import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.ItemStats;
 import net.runelite.client.input.KeyManager;
 import net.runelite.client.RuneLite;
 import net.runelite.client.ui.ClientToolbar;
@@ -369,6 +373,7 @@ public class CvHelperModPlugin extends Plugin
 	protected volatile Map<String, Object> lastHotkeyGuardDecision = new LinkedHashMap<>();
 	protected final AtomicBoolean actionInProgress = new AtomicBoolean(false);
 	protected final Map<Integer, Integer> actionSequenceIndexes = new HashMap<>();
+	protected final Map<Integer, Map<String, Object>> lastActionSlotRuns = new HashMap<>();
 	protected final AtomicBoolean mobFarmerRunning = new AtomicBoolean(false);
 	protected final AtomicInteger mobFarmerGeneration = new AtomicInteger();
 	protected final AtomicReference<String> mobFarmerStatus = new AtomicReference<>("idle");
@@ -381,6 +386,7 @@ public class CvHelperModPlugin extends Plugin
 	protected volatile Map<String, Object> lastMobFarmerActionAttempt = new LinkedHashMap<>();
 	protected volatile List<Map<String, Object>> lastMobFarmerMenuEntries = new ArrayList<>();
 	protected volatile Map<String, Object> lastMobFarmerInventoryStatus = new LinkedHashMap<>();
+	protected volatile Map<String, Object> lastMobFarmerDropPolicyStatus = new LinkedHashMap<>();
 	protected volatile Map<String, Object> lastMobFarmerLoginRecovery = new LinkedHashMap<>();
 	protected volatile Map<String, Object> lastLoginClickAttempt = new LinkedHashMap<>();
 	// World-switch/login diagnostics: what we last tried, whether it failed and why,
@@ -456,6 +462,34 @@ public class CvHelperModPlugin extends Plugin
 	protected volatile long lastMiningTargetClickTime = 0L;
 	// XP-drop based mining completion + short-lived depleted-tile blacklist
 	protected volatile int lastMiningXp = -1;
+	// Combat XP-drop confirmation: melee XP is granted on the exact tick the swing lands
+	// (hit delay 0), so a combat XP gain proves this cooldown cycle's attack already
+	// resolved. We use that to schedule Bury/Scatter/loot interrupts so they no longer
+	// cancel a pending swing. See mobFarmerAttackConfirmedForInterrupt().
+	protected static final Set<Skill> MOB_FARMER_COMBAT_XP_SKILLS = EnumSet.of(
+		Skill.ATTACK, Skill.STRENGTH, Skill.DEFENCE, Skill.HITPOINTS, Skill.RANGED, Skill.MAGIC);
+	protected volatile long lastMobFarmerCombatXp = -1L;
+	protected volatile int lastMobFarmerCombatXpDropTick = -1;
+	protected volatile long lastMobFarmerCombatXpDropGain = 0L;
+	protected volatile Map<String, Object> lastMobFarmerAttackConfirmStatus = new LinkedHashMap<>();
+	// Measured attack speed: the gap (in ticks) between consecutive distinct combat XP drops
+	// IS the real attack speed, transparently capturing weapon speed, ranged rapid, autocast,
+	// and manual spellbook cadence. We take the mode of a rolling window so downtime gaps and
+	// projectile-distance jitter wash out, and fall back to a static estimate until we have
+	// enough samples. Multiple XP events on the same tick (e.g. Strength + Hitpoints) collapse
+	// to one drop, so only tick changes produce a gap.
+	protected static final int MOB_FARMER_XP_GAP_WINDOW = 12;
+	protected final java.util.Deque<Integer> mobFarmerXpGaps = new java.util.ArrayDeque<>();
+	protected volatile int lastMobFarmerMeasuredInterval = -1;
+	// Batched burying: once enough buryable items accumulate (or the inventory is full) we
+	// start a bury session and clear the whole batch before re-engaging, rather than burying
+	// one item per kill. Reset when no buryable items remain.
+	protected volatile boolean mobFarmerBuryBatchActive = false;
+	// Stuck-combat watchdog: engaged + in range but no XP for a long stretch (game/idle-timer
+	// hiccup) -> escalate from a menu re-attack to a direct canvas click to break the freeze.
+	protected volatile int mobFarmerLastUnstickTick = -1;
+	protected volatile int mobFarmerUnstickAttempts = 0;
+	protected volatile Map<String, Object> lastMobFarmerStuckRecoveryStatus = new LinkedHashMap<>();
 	protected volatile Map<String, Object> lastCompletedMiningTarget = null;
 	protected volatile String miningCompletionReason = null;
 	protected volatile int lastMiningInvalidationTick = -1;
@@ -554,6 +588,10 @@ public class CvHelperModPlugin extends Plugin
 		 * guarantee.
 		 */
 		protected Map<String, Object> doorTransition;
+		protected List<Map<String, Object>> transitionRoute = new ArrayList<>();
+		protected int transitionCount;
+		protected int routeDepth;
+		protected Integer failedTransitionIndex;
 		/** True when the ONLY reason this is unreachable is a door/gate CV Helper can't act on. */
 		protected boolean blockedByDoor;
 		/** True when {@link #blockedByDoor} and the door is denylisted/unknown/auto-flag-disabled. */
@@ -599,6 +637,10 @@ public class CvHelperModPlugin extends Plugin
 		protected final int blockedByScene;
 		/** See {@link PathingResult#doorTransition}. */
 		protected Map<String, Object> doorTransition;
+		protected List<Map<String, Object>> transitionRoute = new ArrayList<>();
+		protected int transitionCount;
+		protected int routeDepth;
+		protected Integer failedTransitionIndex;
 		/** See {@link PathingResult#blockedByDoor}. */
 		protected boolean blockedByDoor;
 		/** See {@link PathingResult#manualActionRequired}. */
@@ -662,6 +704,10 @@ public class CvHelperModPlugin extends Plugin
 			map.put("blockedByCollision", blockedByCollision);
 			map.put("blockedByScene", blockedByScene);
 			map.put("doorTransition", doorTransition);
+			map.put("transitionRoute", transitionRoute);
+			map.put("transitionCount", transitionCount);
+			map.put("routeDepth", routeDepth);
+			map.put("failedTransitionIndex", failedTransitionIndex);
 			map.put("blockedByDoor", blockedByDoor);
 			map.put("manualActionRequired", manualActionRequired);
 			map.put("manualActionReason", manualActionReason);
@@ -1210,10 +1256,20 @@ public class CvHelperModPlugin extends Plugin
 	@Subscribe
 	public void onStatChanged(StatChanged event)
 	{
-		if (event.getSkill() != Skill.MINING)
+		Skill skill = event.getSkill();
+		if (skill == Skill.MINING)
 		{
+			handleMiningStatChanged(event);
 			return;
 		}
+		if (MOB_FARMER_COMBAT_XP_SKILLS.contains(skill))
+		{
+			handleMobFarmerCombatStatChanged();
+		}
+	}
+
+	private void handleMiningStatChanged(StatChanged event)
+	{
 		int xp = event.getXp();
 		int previous = lastMiningXp;
 		lastMiningXp = xp;
@@ -1226,6 +1282,119 @@ public class CvHelperModPlugin extends Plugin
 			return;
 		}
 		markMiningTargetCompleted("xp-drop");
+	}
+
+	/**
+	 * Record the tick of every combat XP gain so the mob farmer can confirm a swing
+	 * actually landed before issuing an interrupting action (Bury/Scatter/loot). The XP
+	 * total is kept current even while idle so the first gain after combat starts is
+	 * detected immediately, but the drop tick is only stamped while the farmer is running.
+	 */
+	private void handleMobFarmerCombatStatChanged()
+	{
+		long total = mobFarmerCombatXpTotal();
+		long previous = lastMobFarmerCombatXp;
+		lastMobFarmerCombatXp = total;
+		if (previous < 0 || total <= previous)
+		{
+			return;
+		}
+		if (!mobFarmerRunning.get())
+		{
+			return;
+		}
+		int tick = safeValue(client::getTickCount, 0);
+		int prevDropTick = lastMobFarmerCombatXpDropTick;
+		if (prevDropTick >= 0 && tick > prevDropTick)
+		{
+			int gap = tick - prevDropTick;
+			if (gap >= 1 && gap <= 12)
+			{
+				recordMobFarmerXpGap(gap);
+			}
+		}
+		lastMobFarmerCombatXpDropTick = tick;
+		lastMobFarmerCombatXpDropGain = total - previous;
+	}
+
+	private void recordMobFarmerXpGap(int gap)
+	{
+		synchronized (mobFarmerXpGaps)
+		{
+			mobFarmerXpGaps.addLast(gap);
+			while (mobFarmerXpGaps.size() > MOB_FARMER_XP_GAP_WINDOW)
+			{
+				mobFarmerXpGaps.removeFirst();
+			}
+		}
+	}
+
+	/** Mode of the recent XP-drop gaps (true attack speed), or -1 with too few samples. */
+	private int mobFarmerMeasuredAttackInterval()
+	{
+		Map<Integer, Integer> counts = new LinkedHashMap<>();
+		synchronized (mobFarmerXpGaps)
+		{
+			for (int gap : mobFarmerXpGaps)
+			{
+				counts.merge(gap, 1, Integer::sum);
+			}
+		}
+		int bestGap = -1;
+		int bestCount = 0;
+		for (Map.Entry<Integer, Integer> entry : counts.entrySet())
+		{
+			int gap = entry.getKey();
+			int count = entry.getValue();
+			// Prefer the most frequent gap; on ties prefer the smaller (true cadence).
+			if (count > bestCount || (count == bestCount && bestGap > 0 && gap < bestGap))
+			{
+				bestCount = count;
+				bestGap = gap;
+			}
+		}
+		int measured = bestCount >= 2 ? bestGap : -1;
+		lastMobFarmerMeasuredInterval = measured;
+		return measured;
+	}
+
+	/** Static cold-start estimate from the equipped weapon's attack speed, else configured. */
+	private int mobFarmerStaticAttackInterval()
+	{
+		ItemContainer equipment = safeValue(() -> client.getItemContainer(InventoryID.EQUIPMENT), null);
+		if (equipment != null)
+		{
+			Item weapon = equipment.getItem(EquipmentInventorySlot.WEAPON.getSlotIdx());
+			if (weapon != null && weapon.getId() >= 0)
+			{
+				ItemStats stats = safeValue(() -> itemManager.getItemStats(weapon.getId()), null);
+				if (stats != null && stats.getEquipment() != null && stats.getEquipment().getAspeed() > 0)
+				{
+					return Math.max(1, Math.min(12, stats.getEquipment().getAspeed()));
+				}
+			}
+		}
+		return getMobFarmerAttackIntervalTicks();
+	}
+
+	/**
+	 * Effective attack interval used for all cadence decisions: measured when we have enough
+	 * XP-drop samples, otherwise the static weapon/configured estimate.
+	 */
+	private int mobFarmerEffectiveAttackInterval()
+	{
+		int measured = mobFarmerMeasuredAttackInterval();
+		return measured > 0 ? measured : mobFarmerStaticAttackInterval();
+	}
+
+	private long mobFarmerCombatXpTotal()
+	{
+		long total = 0L;
+		for (Skill skill : MOB_FARMER_COMBAT_XP_SKILLS)
+		{
+			total += Math.max(0, safeValue(() -> client.getSkillExperience(skill), 0));
+		}
+		return total;
 	}
 
 	private String tileKey(Map<String, Object> world)
@@ -2526,16 +2695,27 @@ public class CvHelperModPlugin extends Plugin
 
 	void performConfiguredAction(int slot)
 	{
+		Map<String, Object> run = new LinkedHashMap<>();
+		run.put("slot", slot);
+		run.put("requestedAt", Instant.now().toString());
 		if (!getActionEnabled(slot))
 		{
+			run.put("result", "skipped-disabled");
+			lastActionSlotRuns.put(slot, run);
 			updatePanelStatus("Action " + slot + " is disabled");
 			return;
 		}
 		if (!actionInProgress.compareAndSet(false, true))
 		{
+			run.put("result", "skipped-action-running");
+			lastActionSlotRuns.put(slot, run);
 			updatePanelStatus("Action already running; ignored action " + slot);
 			return;
 		}
+		run.put("result", "queued");
+		run.put("surface", getActionSurface(slot).name());
+		run.put("target", getActionTarget(slot));
+		lastActionSlotRuns.put(slot, run);
 		performConfiguredAction(slot, getActionSurface(slot), getActionTarget(slot), getActionClickAfterMode(slot), getActionInvocationMode(slot), getActionReturnPanel(slot), getActionReturnMouseCenter(slot));
 	}
 
@@ -2989,11 +3169,13 @@ public class CvHelperModPlugin extends Plugin
 		String label = targetLabelForMessage(target);
 		if (surface == CvHelperActionSurface.SPELL && targetedSpell)
 		{
+			primeMobFarmerCanvasMouse();
 			client.menuAction(0, widgetId, MenuAction.WIDGET_TARGET, 0, itemId, "Cast", label);
 			return true;
 		}
 
 		String option = surface == CvHelperActionSurface.PRAYER ? "Activate" : "Cast";
+		primeMobFarmerCanvasMouse();
 		client.menuAction(-1, widgetId, MenuAction.CC_OP, 1, itemId, option, label);
 		return true;
 	}
@@ -3594,6 +3776,26 @@ public class CvHelperModPlugin extends Plugin
 		return null;
 	}
 
+	/**
+	 * Two distinct letterbox regimes were found live, and this must account for both:
+	 * <p>
+	 * 1. Plain resizable mode (Stretched Mode plugin off), canvas aspect ratio not
+	 * matching the game's native resolution: the rendered content is anchored at the
+	 * canvas's top-left corner with NO centering -- confirmed on a 928x1031 windowed
+	 * canvas that only rendered ~928x610 of actual content, leaving a dead band at the
+	 * bottom. {@code stretchedDimensions == realDimensions} here (no separate stretched
+	 * size to speak of), so the scale-only math below already lands correctly with zero
+	 * origin offset -- this is the case the rest of this method was already correct for.
+	 * <p>
+	 * 2. Stretched Mode plugin on with "keep aspect ratio" (common on larger/2K+
+	 * monitors specifically turned on to fill the screen): the GPU-scaled blit IS
+	 * centered within the canvas, not anchored at the origin. Here
+	 * {@code getStretchedDimensions()} reports the smaller aspect-corrected size, and
+	 * the leftover canvas space is split evenly on both sides -- so a centering offset
+	 * is required on top of the scale, or every computed point drifts toward the
+	 * top-left by half the letterbox bar size (worse on larger/higher-aspect-mismatch
+	 * monitors, matching the "sometimes on a 2K screen" report).
+	 */
 	private Point canvasPointToScreen(Map<String, Object> canvasPoint)
 	{
 		if (canvasPoint == null)
@@ -3609,12 +3811,24 @@ public class CvHelperModPlugin extends Plugin
 
 		Point canvasLocation = client.getCanvas().getLocationOnScreen();
 		Dimension realDimensions = client.getRealDimensions();
-		Dimension displayedDimensions = client.isStretchedEnabled() ? client.getStretchedDimensions() : realDimensions;
+		boolean stretched = client.isStretchedEnabled();
+		Dimension displayedDimensions = stretched ? client.getStretchedDimensions() : realDimensions;
 		double scaleX = realDimensions == null || realDimensions.width <= 0 || displayedDimensions == null ? 1.0 : displayedDimensions.getWidth() / realDimensions.getWidth();
 		double scaleY = realDimensions == null || realDimensions.height <= 0 || displayedDimensions == null ? 1.0 : displayedDimensions.getHeight() / realDimensions.getHeight();
+		int centeringOffsetX = 0;
+		int centeringOffsetY = 0;
+		if (stretched && displayedDimensions != null)
+		{
+			Dimension canvasSize = client.getCanvas().getSize();
+			if (canvasSize != null)
+			{
+				centeringOffsetX = Math.max(0, (canvasSize.width - displayedDimensions.width) / 2);
+				centeringOffsetY = 0; // top-anchored: leftover canvas space is a black band at the BOTTOM only, never the top
+			}
+		}
 		return new Point(
-			canvasLocation.x + (int) Math.round(x.doubleValue() * scaleX),
-			canvasLocation.y + (int) Math.round(y.doubleValue() * scaleY)
+			canvasLocation.x + centeringOffsetX + (int) Math.round(x.doubleValue() * scaleX),
+			canvasLocation.y + centeringOffsetY + (int) Math.round(y.doubleValue() * scaleY)
 		);
 	}
 
@@ -3869,6 +4083,56 @@ public class CvHelperModPlugin extends Plugin
 		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_ATTACK_INTERVAL_TICKS, Math.max(1, Math.min(12, ticks)));
 	}
 
+	boolean getMobFarmerConfirmAttackBeforeInterrupt()
+	{
+		return config.mobFarmerConfirmAttackBeforeInterrupt();
+	}
+
+	void setMobFarmerConfirmAttackBeforeInterrupt(boolean enabled)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_CONFIRM_ATTACK_BEFORE_INTERRUPT, enabled);
+	}
+
+	int getMobFarmerAttackConfirmTimeoutTicks()
+	{
+		int configured = config.mobFarmerAttackConfirmTimeoutTicks();
+		if (configured <= 0)
+		{
+			return getMobFarmerAttackIntervalTicks() * 2;
+		}
+		return Math.min(60, configured);
+	}
+
+	void setMobFarmerAttackConfirmTimeoutTicks(int ticks)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_ATTACK_CONFIRM_TIMEOUT_TICKS, Math.max(0, Math.min(60, ticks)));
+	}
+
+	int getMobFarmerCombatStallTicks()
+	{
+		int configured = config.mobFarmerCombatStallTicks();
+		if (configured <= 0)
+		{
+			return Math.max(8, mobFarmerEffectiveAttackInterval() * 3);
+		}
+		return Math.min(120, configured);
+	}
+
+	void setMobFarmerCombatStallTicks(int ticks)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_COMBAT_STALL_TICKS, Math.max(0, Math.min(120, ticks)));
+	}
+
+	int getMobFarmerAttackStyleSlot()
+	{
+		return Math.max(0, Math.min(4, config.mobFarmerAttackStyleSlot()));
+	}
+
+	void setMobFarmerAttackStyleSlot(int slot)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_ATTACK_STYLE_SLOT, Math.max(0, Math.min(4, slot)));
+	}
+
 	boolean getMobFarmerAutoEatEnabled()
 	{
 		return config.mobFarmerAutoEatEnabled();
@@ -3957,6 +4221,88 @@ public class CvHelperModPlugin extends Plugin
 	void setMobFarmerLoginDisconnectRecoveryEnabled(boolean enabled)
 	{
 		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_LOGIN_DISCONNECT_RECOVERY_ENABLED, enabled);
+	}
+
+	int getMobFarmerLoginClickOffsetX()
+	{
+		return config.mobFarmerLoginClickOffsetX();
+	}
+
+	void setMobFarmerLoginClickOffsetX(int value)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_LOGIN_CLICK_OFFSET_X, value);
+	}
+
+	int getMobFarmerLoginClickOffsetY()
+	{
+		return config.mobFarmerLoginClickOffsetY();
+	}
+
+	void setMobFarmerLoginClickOffsetY(int value)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_LOGIN_CLICK_OFFSET_Y, value);
+	}
+
+	String getMobFarmerDoorDenylist()
+	{
+		return config.mobFarmerDoorDenylist();
+	}
+
+	String getMobFarmerDoorAllowlist()
+	{
+		return config.mobFarmerDoorAllowlist();
+	}
+
+	void setMobFarmerDoorAllowlist(String value)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_DOOR_ALLOWLIST, value);
+	}
+
+	void setMobFarmerDoorDenylist(String value)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_DOOR_DENYLIST, value);
+	}
+
+	boolean getMobFarmerDoorAutoOpenEnabled()
+	{
+		return config.mobFarmerDoorAutoOpenEnabled();
+	}
+
+	void setMobFarmerDoorAutoOpenEnabled(boolean enabled)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_DOOR_AUTO_OPEN_ENABLED, enabled);
+	}
+
+	boolean getMobFarmerDoorAutoCloseEnabled()
+	{
+		return config.mobFarmerDoorAutoCloseEnabled();
+	}
+
+	void setMobFarmerDoorAutoCloseEnabled(boolean enabled)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_DOOR_AUTO_CLOSE_ENABLED, enabled);
+	}
+
+	/**
+	 * Applies the user-tunable {@code mobFarmerLoginClickOffsetX/Y} pixel nudge to a computed
+	 * login/disconnect-screen click point. Exists so the click can be corrected for
+	 * stretching/letterboxing drift without recompiling -- the exact viewport math can't be
+	 * proven right for every client window size/scaling combination, so a manual escape
+	 * hatch is cheaper than chasing every edge case in code.
+	 */
+	private Point applyLoginClickOffset(Point point)
+	{
+		if (point == null)
+		{
+			return null;
+		}
+		int dx = getMobFarmerLoginClickOffsetX();
+		int dy = getMobFarmerLoginClickOffsetY();
+		if (dx == 0 && dy == 0)
+		{
+			return point;
+		}
+		return new Point(point.x + dx, point.y + dy);
 	}
 
 	boolean getMobFarmerAutoResumeAfterLogin()
@@ -4233,6 +4579,26 @@ public class CvHelperModPlugin extends Plugin
 		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_INTERMEDIATE_ACTION_MAPPINGS, mappings == null ? "" : mappings.trim());
 	}
 
+	int getMobFarmerMinBuryBatch()
+	{
+		return Math.max(1, Math.min(28, config.mobFarmerMinBuryBatch()));
+	}
+
+	void setMobFarmerMinBuryBatch(int count)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_MIN_BURY_BATCH, Math.max(1, Math.min(28, count)));
+	}
+
+	String getMobFarmerCombatInterruptItems()
+	{
+		return config.mobFarmerCombatInterruptItems() == null ? "" : config.mobFarmerCombatInterruptItems();
+	}
+
+	void setMobFarmerCombatInterruptItems(String items)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_COMBAT_INTERRUPT_ITEMS, items == null ? "" : items.trim());
+	}
+
 	String getMobFarmerNeverDropItems()
 	{
 		return config.mobFarmerNeverDropItems() == null ? "" : config.mobFarmerNeverDropItems();
@@ -4323,46 +4689,6 @@ public class CvHelperModPlugin extends Plugin
 		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_HIGH_ALCH_BLACKLIST, items == null ? "" : items.trim());
 	}
 
-	String getMobFarmerDoorDenylist()
-	{
-		return config.mobFarmerDoorDenylist();
-	}
-
-	String getMobFarmerDoorAllowlist()
-	{
-		return config.mobFarmerDoorAllowlist();
-	}
-
-	void setMobFarmerDoorAllowlist(String value)
-	{
-		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_DOOR_ALLOWLIST, value);
-	}
-
-	void setMobFarmerDoorDenylist(String value)
-	{
-		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_DOOR_DENYLIST, value);
-	}
-
-	boolean getMobFarmerDoorAutoOpenEnabled()
-	{
-		return config.mobFarmerDoorAutoOpenEnabled();
-	}
-
-	void setMobFarmerDoorAutoOpenEnabled(boolean enabled)
-	{
-		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_DOOR_AUTO_OPEN_ENABLED, enabled);
-	}
-
-	boolean getMobFarmerDoorAutoCloseEnabled()
-	{
-		return config.mobFarmerDoorAutoCloseEnabled();
-	}
-
-	void setMobFarmerDoorAutoCloseEnabled(boolean enabled)
-	{
-		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_DOOR_AUTO_CLOSE_ENABLED, enabled);
-	}
-
 	private String normalizedMobFarmerTarget(String target)
 	{
 		String cleaned = target == null ? "" : target.trim();
@@ -4405,6 +4731,7 @@ public class CvHelperModPlugin extends Plugin
 		status.put("recentIntents", lastMobFarmerIntents);
 		status.put("recentMenuEntries", lastMobFarmerMenuEntries);
 		status.put("inventory", lastMobFarmerInventoryStatus);
+		status.put("dropPolicy", lastMobFarmerDropPolicyStatus);
 		status.put("candidates", lastMobFarmerCandidates);
 		status.put("lootCandidates", lastMobFarmerLootCandidates);
 		status.put("pathing", safeValue(this::computeMobFarmerPathing, new LinkedHashMap<>()));
@@ -4502,6 +4829,10 @@ public class CvHelperModPlugin extends Plugin
 		settings.put("requireLineOfSight", getMobFarmerRequireLineOfSight());
 		settings.put("maxDistance", getMobFarmerMaxDistance());
 		settings.put("attackIntervalTicks", getMobFarmerAttackIntervalTicks());
+		settings.put("confirmAttackBeforeInterrupt", getMobFarmerConfirmAttackBeforeInterrupt());
+		settings.put("attackConfirmTimeoutTicks", getMobFarmerAttackConfirmTimeoutTicks());
+		settings.put("combatStallTicks", getMobFarmerCombatStallTicks());
+		settings.put("attackStyleSlot", getMobFarmerAttackStyleSlot());
 		settings.put("autoEatEnabled", getMobFarmerAutoEatEnabled());
 		settings.put("eatHitpointPercent", getMobFarmerEatHitpointPercent());
 		settings.put("foodItems", getMobFarmerFoodItems());
@@ -4511,6 +4842,8 @@ public class CvHelperModPlugin extends Plugin
 		settings.put("loginRecoveryF2pOnly", getMobFarmerLoginRecoveryF2pOnly());
 		settings.put("loginClickToPlayEnabled", getMobFarmerLoginClickToPlayEnabled());
 		settings.put("loginDisconnectRecoveryEnabled", getMobFarmerLoginDisconnectRecoveryEnabled());
+		settings.put("loginClickOffsetX", getMobFarmerLoginClickOffsetX());
+		settings.put("loginClickOffsetY", getMobFarmerLoginClickOffsetY());
 		settings.put("doorAutoOpenEnabled", getMobFarmerDoorAutoOpenEnabled());
 		settings.put("doorAutoCloseEnabled", getMobFarmerDoorAutoCloseEnabled());
 		settings.put("doorAllowlist", getMobFarmerDoorAllowlist());
@@ -4542,7 +4875,11 @@ public class CvHelperModPlugin extends Plugin
 		settings.put("intermediateActionsEnabled", getMobFarmerIntermediateActionsEnabled());
 		settings.put("intermediateItems", getMobFarmerIntermediateItems());
 		settings.put("intermediateActionMappings", getMobFarmerIntermediateActionMappings());
+		settings.put("minBuryBatch", getMobFarmerMinBuryBatch());
+		settings.put("combatInterruptItems", getMobFarmerCombatInterruptItems());
 		settings.put("neverDropItems", getMobFarmerNeverDropItems());
+		settings.put("dropItems", getMobFarmerDropItems());
+		settings.put("maxDropValue", getMobFarmerMaxDropValue());
 		settings.put("highAlchEnabled", getMobFarmerHighAlchEnabled());
 		settings.put("highAlchMinHa", getMobFarmerHighAlchMinHa());
 		settings.put("highAlchMinDelta", getMobFarmerHighAlchMinDelta());
@@ -4567,6 +4904,10 @@ public class CvHelperModPlugin extends Plugin
 		schema.add(settingSchema("requireLineOfSight", "Require LOS", "boolean", "Skip mobs without RuneLite line of sight from the local player.", null));
 		schema.add(settingSchema("maxDistance", "Max distance", "number", "Maximum path/target distance for auto-targeting. Use 0 to disable.", null));
 		schema.add(settingSchema("attackIntervalTicks", "Attack interval ticks", "number", "Fallback weapon cadence used for global attack scheduling and post-action re-attacks. Most standard weapons are 4 ticks.", null));
+		schema.add(settingSchema("confirmAttackBeforeInterrupt", "Confirm attack before interrupt", "boolean", "Wait for a combat XP drop (proof the swing landed) before burying/scattering or looting mid-combat, so the inventory click cannot cancel the attack.", null));
+		schema.add(settingSchema("attackConfirmTimeoutTicks", "Attack confirm timeout", "number", "If no combat XP drop is seen for this many ticks in combat (e.g. 0-damage splashes), allow the interrupt anyway. 0 = auto (2x attack interval).", null));
+		schema.add(settingSchema("combatStallTicks", "Combat stall recovery", "number", "Engaged + in range but no XP for this many ticks -> re-issue attack (menu, then direct click) to break a stuck-combat freeze. 0 = auto (3x measured interval, min 8).", null));
+		schema.add(settingSchema("attackStyleSlot", "Attack style slot", "number", "Combat attack-style slot to keep selected (1-4, top to bottom in Combat Options) to control which stat is trained. 0 = leave as-is. Requires the combat tab opened once.", null));
 		schema.add(settingSchema("autoEatEnabled", "Auto-eat", "boolean", "Eat configured food before combat/loot when HP is below threshold.", null));
 		schema.add(settingSchema("eatHitpointPercent", "Eat below HP %", "number", "Auto-eat when current hitpoints are at or below this percent.", null));
 		schema.add(settingSchema("foodItems", "Food items", "textarea", "Food item names or id:<item id>, separated by |, comma, semicolon, or newlines.", null));
@@ -4576,6 +4917,8 @@ public class CvHelperModPlugin extends Plugin
 		schema.add(settingSchema("loginRecoveryF2pOnly", "F2P recovery only", "boolean", "Skip automatic login recovery on members, PvP, seasonal, or special worlds.", null));
 		schema.add(settingSchema("loginClickToPlayEnabled", "Click-to-play", "boolean", "Allow the guarded login-screen click/Enter helper.", null));
 		schema.add(settingSchema("loginDisconnectRecoveryEnabled", "Disconnect recovery", "boolean", "Allow guarded Enter recovery from CONNECTION_LOST.", null));
+		schema.add(settingSchema("loginClickOffsetX", "Login click offset X (px)", "number", "Pixel nudge applied to every login/disconnect-screen click point. Positive = right. Tune live if the computed point is off due to stretching/letterboxing.", null));
+		schema.add(settingSchema("loginClickOffsetY", "Login click offset Y (px)", "number", "Pixel nudge applied to every login/disconnect-screen click point. Positive = down.", null));
 		schema.add(settingSchema("doorAutoOpenEnabled", "Auto-open closed doors", "boolean", "Click Open on a closed, allowlisted and non-denylisted door blocking the path, then wait for native collision to confirm the transition is clear.", null));
 		schema.add(settingSchema("doorAutoCloseEnabled", "Auto-close open doors", "boolean", "Click Close on an open, allowlisted and non-denylisted door/gate blocking the path (rare). Off by default.", null));
 		schema.add(settingSchema("doorAllowlist", "Door allowlist (id or name)", "textarea", "Doors/gates the farmer may click, separated by |, comma, semicolon, or newlines. Empty means unknown/unallowlisted doors require manual action.", null));
@@ -4607,7 +4950,11 @@ public class CvHelperModPlugin extends Plugin
 		schema.add(settingSchema("intermediateActionsEnabled", "Intermediate actions", "boolean", "Use configured inventory actions such as Bury/Scatter during safe loop windows.", null));
 		schema.add(settingSchema("intermediateItems", "Intermediate items", "textarea", "Inventory items eligible for configured intermediate actions.", null));
 		schema.add(settingSchema("intermediateActionMappings", "Intermediate map", "textarea", "Mappings like bones -> Bury; ashes -> Scatter|Bury. Drop is never allowed here.", null));
+		schema.add(settingSchema("minBuryBatch", "Min bury batch", "number", "Accumulate this many buryable items before clearing the whole batch in one downtime session. Always overridden when inventory is full. 1 = bury every downtime.", null));
+		schema.add(settingSchema("combatInterruptItems", "Extreme-value interrupt loot", "textarea", "The ONLY loot allowed to interrupt an in-progress attack; everything else waits for downtime. Empty = attacks are never interrupted for loot.", null));
 		schema.add(settingSchema("neverDropItems", "Protected items", "textarea", "Inventory items protected from future drop/replacement actions. Built-in safeguards always protect clue/rare unique items (for example clue scroll rewards, keys, totems, shards, champion scroll, long/curved bones).", null));
+		schema.add(settingSchema("dropItems", "Safe replacement drops", "textarea", "Items Mob Farmer may drop through the shared inventory policy when a higher-value or explicitly required loot item cannot fit. Empty disables automatic replacement drops.", null));
+		schema.add(settingSchema("maxDropValue", "Max replacement drop GE", "number", "Hard maximum total GE value for a Mob Farmer replacement drop. Protected items always win.", null));
 		schema.add(settingSchema("highAlchEnabled", "High Alch policy", "boolean", "Evaluate safe High Alchemy candidates while farming. Current pass reports safe candidates and availability instead of casting unsafely.", null));
 		schema.add(settingSchema("highAlchMinHa", "Min HA value", "number", "Minimum single-item High Alchemy value for candidate reporting.", null));
 		schema.add(settingSchema("highAlchMinDelta", "Min HA delta", "number", "Require HA value minus GE value to be at least this amount.", null));
@@ -4658,6 +5005,8 @@ public class CvHelperModPlugin extends Plugin
 			out.put("spellAvailabilityMode", getActionSpellAvailabilityMode(slot).name());
 			out.put("returnPanel", getActionReturnPanel(slot));
 			out.put("returnMouseCenter", getActionReturnMouseCenter(slot));
+			out.put("sequenceIndex", actionSequenceIndexes.getOrDefault(slot, 0));
+			out.put("lastRun", lastActionSlotRuns.get(slot));
 			slots.add(out);
 		}
 		return slots;
@@ -4689,6 +5038,10 @@ public class CvHelperModPlugin extends Plugin
 		applyBooleanSetting(settings, "requireLineOfSight", updates, this::setMobFarmerRequireLineOfSight, errors);
 		applyIntSetting(settings, "maxDistance", updates, this::setMobFarmerMaxDistance, errors);
 		applyIntSetting(settings, "attackIntervalTicks", updates, this::setMobFarmerAttackIntervalTicks, errors);
+		applyBooleanSetting(settings, "confirmAttackBeforeInterrupt", updates, this::setMobFarmerConfirmAttackBeforeInterrupt, errors);
+		applyIntSetting(settings, "attackConfirmTimeoutTicks", updates, this::setMobFarmerAttackConfirmTimeoutTicks, errors);
+		applyIntSetting(settings, "combatStallTicks", updates, this::setMobFarmerCombatStallTicks, errors);
+		applyIntSetting(settings, "attackStyleSlot", updates, this::setMobFarmerAttackStyleSlot, errors);
 		applyBooleanSetting(settings, "autoEatEnabled", updates, this::setMobFarmerAutoEatEnabled, errors);
 		applyIntSetting(settings, "eatHitpointPercent", updates, this::setMobFarmerEatHitpointPercent, errors);
 		applyStringSetting(settings, "foodItems", updates, this::setMobFarmerFoodItems);
@@ -4698,6 +5051,8 @@ public class CvHelperModPlugin extends Plugin
 		applyBooleanSetting(settings, "loginRecoveryF2pOnly", updates, this::setMobFarmerLoginRecoveryF2pOnly, errors);
 		applyBooleanSetting(settings, "loginClickToPlayEnabled", updates, this::setMobFarmerLoginClickToPlayEnabled, errors);
 		applyBooleanSetting(settings, "loginDisconnectRecoveryEnabled", updates, this::setMobFarmerLoginDisconnectRecoveryEnabled, errors);
+		applyIntSetting(settings, "loginClickOffsetX", updates, this::setMobFarmerLoginClickOffsetX, errors);
+		applyIntSetting(settings, "loginClickOffsetY", updates, this::setMobFarmerLoginClickOffsetY, errors);
 		applyBooleanSetting(settings, "doorAutoOpenEnabled", updates, this::setMobFarmerDoorAutoOpenEnabled, errors);
 		applyBooleanSetting(settings, "doorAutoCloseEnabled", updates, this::setMobFarmerDoorAutoCloseEnabled, errors);
 		applyStringSetting(settings, "doorAllowlist", updates, this::setMobFarmerDoorAllowlist);
@@ -4729,7 +5084,11 @@ public class CvHelperModPlugin extends Plugin
 		applyBooleanSetting(settings, "intermediateActionsEnabled", updates, this::setMobFarmerIntermediateActionsEnabled, errors);
 		applyStringSetting(settings, "intermediateItems", updates, this::setMobFarmerIntermediateItems);
 		applyStringSetting(settings, "intermediateActionMappings", updates, this::setMobFarmerIntermediateActionMappings);
+		applyIntSetting(settings, "minBuryBatch", updates, this::setMobFarmerMinBuryBatch, errors);
+		applyStringSetting(settings, "combatInterruptItems", updates, this::setMobFarmerCombatInterruptItems);
 		applyStringSetting(settings, "neverDropItems", updates, this::setMobFarmerNeverDropItems);
+		applyStringSetting(settings, "dropItems", updates, this::setMobFarmerDropItems);
+		applyIntSetting(settings, "maxDropValue", updates, this::setMobFarmerMaxDropValue, errors);
 		applyBooleanSetting(settings, "highAlchEnabled", updates, this::setMobFarmerHighAlchEnabled, errors);
 		applyIntSetting(settings, "highAlchMinHa", updates, this::setMobFarmerHighAlchMinHa, errors);
 		applyIntSetting(settings, "highAlchMinDelta", updates, this::setMobFarmerHighAlchMinDelta, errors);
@@ -5087,6 +5446,9 @@ public class CvHelperModPlugin extends Plugin
 		out.put("intermediateActionsEnabled", getMobFarmerIntermediateActionsEnabled());
 		out.put("intermediateItems", getMobFarmerIntermediateItems());
 		out.put("intermediateActionMappings", getMobFarmerIntermediateActionMappings());
+		out.put("minBuryBatch", getMobFarmerMinBuryBatch());
+		out.put("buryBatchActive", mobFarmerBuryBatchActive);
+		out.put("combatInterruptItems", getMobFarmerCombatInterruptItems());
 		out.put("parsedIntermediateActionMappings", parsedIntermediateActionMappingsStatus());
 		out.put("neverDropItems", getMobFarmerNeverDropItems());
 		out.put("highAlch", highAlchPolicyStatus());
@@ -5127,7 +5489,8 @@ public class CvHelperModPlugin extends Plugin
 	{
 		Map<String, Object> out = new LinkedHashMap<>();
 		int tick = safeValue(client::getTickCount, 0);
-		int interval = getMobFarmerAttackIntervalTicks();
+		int measured = mobFarmerMeasuredAttackInterval();
+		int interval = mobFarmerEffectiveAttackInterval();
 		Integer lastAttackTick = lastMobFarmerActionTickForKind(MobFarmerActionKind.COMBAT);
 		int nextAttackTick = lastAttackTick == null ? tick : lastAttackTick + interval;
 		Actor interacting = safeValue(() -> client.getLocalPlayer() == null ? null : client.getLocalPlayer().getInteracting(), null);
@@ -5135,8 +5498,12 @@ public class CvHelperModPlugin extends Plugin
 		out.put("lastAttackTick", lastAttackTick);
 		out.put("estimatedNextAttackTick", nextAttackTick);
 		out.put("attackIntervalTicks", interval);
-		out.put("attackIntervalSource", "configured-fallback");
-		out.put("weaponAttackSpeedKnown", false);
+		out.put("attackIntervalSource", measured > 0 ? "measured-xp-drops" : "static-fallback");
+		out.put("measuredIntervalTicks", measured > 0 ? measured : null);
+		out.put("configuredIntervalTicks", getMobFarmerAttackIntervalTicks());
+		out.put("staticIntervalTicks", mobFarmerStaticAttackInterval());
+		out.put("xpGapSamples", new ArrayList<>(mobFarmerXpGaps));
+		out.put("weaponAttackSpeedKnown", measured > 0);
 		out.put("attackDue", lastAttackTick == null || tick >= nextAttackTick);
 		out.put("ticksUntilAttack", lastAttackTick == null ? 0 : Math.max(0, nextAttackTick - tick));
 		out.put("currentTarget", interacting == null ? "" : interacting.getName());
@@ -5147,6 +5514,30 @@ public class CvHelperModPlugin extends Plugin
 		out.put("lootTargetDistance", intValue(pendingMobFarmerReattackLootTarget.get("pathDistance"), intValue(pendingMobFarmerReattackLootTarget.get("distance"), -1)));
 		out.put("lastIntermediateAction", lastMobFarmerIntermediateDecision);
 		out.put("lastReattack", lastMobFarmerReattackStatus);
+		out.put("attackConfirm", mobFarmerAttackConfirmStatus(tick));
+		out.put("inBurySafeWindow", mobFarmerInBurySafeWindow());
+		out.put("attackPending", mobFarmerAttackPending());
+		out.put("buryBatchActive", mobFarmerBuryBatchActive);
+		out.put("combatStallTicks", getMobFarmerCombatStallTicks());
+		int currentStyle = safeValue(() -> client.getVarpValue(VarPlayer.ATTACK_STYLE), -1);
+		out.put("attackStyleSlot", getMobFarmerAttackStyleSlot());
+		out.put("currentAttackStyleIndex", currentStyle);
+		out.put("stuckRecovery", new LinkedHashMap<>(lastMobFarmerStuckRecoveryStatus));
+		return out;
+	}
+
+	private Map<String, Object> mobFarmerAttackConfirmStatus(int tick)
+	{
+		Map<String, Object> out = new LinkedHashMap<>();
+		int dropTick = lastMobFarmerCombatXpDropTick;
+		out.put("confirmEnabled", getMobFarmerConfirmAttackBeforeInterrupt());
+		out.put("confirmTimeoutTicks", getMobFarmerAttackConfirmTimeoutTicks());
+		out.put("safeWindowTicks", Math.max(1, mobFarmerEffectiveAttackInterval() - 1));
+		out.put("lastXpDropTick", dropTick < 0 ? null : dropTick);
+		out.put("ticksSinceXpDrop", dropTick < 0 ? null : tick - dropTick);
+		out.put("lastXpDropGain", lastMobFarmerCombatXpDropGain);
+		out.put("combatXpTotal", lastMobFarmerCombatXp < 0 ? null : lastMobFarmerCombatXp);
+		out.put("lastDecision", new LinkedHashMap<>(lastMobFarmerAttackConfirmStatus));
 		return out;
 	}
 
@@ -5323,25 +5714,317 @@ public class CvHelperModPlugin extends Plugin
 		return combatLease || oscillationHold;
 	}
 
-	private boolean mobFarmerPriorityLootCanInterruptCombat(Map<String, Object> target)
+	/**
+	 * True when an inventory/loot action this tick will NOT cancel a pending melee attack
+	 * swing. The bug we guard against (OSR-52 follow-up): clicking Bury/loot on the same
+	 * tick the next swing is scheduled deletes the queued attack, costing the hit and any
+	 * XP. Melee XP is granted on the exact tick the swing lands (hit delay 0), so a combat
+	 * XP drop is proof this cooldown cycle's swing already resolved; per live testing,
+	 * burying + moving on that same tick is safe because the next swing is a full
+	 * attack-interval away. We therefore allow interrupts only inside a short window after
+	 * each confirmed XP drop, and fall back to "allowed" after a timeout so 0-damage swings
+	 * (which grant no XP) cannot stall the bot forever.
+	 *
+	 * Note: distance combat (ranged/magic) has a delayed hit, so the XP-drop tick lags the
+	 * swing tick. This guarantee is validated for melee (cows); for distance styles the
+	 * configured attack interval still bounds the behaviour conservatively.
+	 */
+	private boolean mobFarmerAttackConfirmedForInterrupt(Actor interacting, String phase)
 	{
-		if (target == null || !(target.get("mobFarmerPriorityReasons") instanceof List))
+		Map<String, Object> details = new LinkedHashMap<>();
+		int tick = safeValue(client::getTickCount, 0);
+		int interval = getMobFarmerAttackIntervalTicks();
+		details.put("phase", phase);
+		details.put("currentTick", tick);
+		details.put("attackIntervalTicks", interval);
+		details.put("confirmEnabled", getMobFarmerConfirmAttackBeforeInterrupt());
+
+		if (!getMobFarmerConfirmAttackBeforeInterrupt())
+		{
+			return finishAttackConfirm(details, "confirm-disabled", true);
+		}
+		boolean inCombat = interacting != null && !isEffectivelyDead(interacting);
+		details.put("inCombat", inCombat);
+		if (!inCombat)
+		{
+			// Not mid-swing against a live target, so there is nothing to cancel.
+			return finishAttackConfirm(details, "not-in-combat-safe", true);
+		}
+		int dropTick = lastMobFarmerCombatXpDropTick;
+		int ticksSinceDrop = dropTick < 0 ? -1 : tick - dropTick;
+		details.put("lastXpDropTick", dropTick < 0 ? null : dropTick);
+		details.put("ticksSinceXpDrop", ticksSinceDrop < 0 ? null : ticksSinceDrop);
+		details.put("lastXpDropGain", lastMobFarmerCombatXpDropGain);
+		// Safe band: from the confirmed swing tick up to (but not including) the tick the
+		// next swing becomes imminent. For a 4-tick weapon this is ticksSinceDrop in [0,3).
+		int safeWindow = Math.max(1, interval - 1);
+		details.put("safeWindowTicks", safeWindow);
+		if (ticksSinceDrop >= 0 && ticksSinceDrop < safeWindow)
+		{
+			return finishAttackConfirm(details, "confirmed-attack-window", true);
+		}
+		// Fallback so splashes / 0-damage swings (no XP drop) do not stall the loop.
+		int timeout = getMobFarmerAttackConfirmTimeoutTicks();
+		Integer lastAttackTick = lastMobFarmerActionTickForKind(MobFarmerActionKind.COMBAT);
+		int sinceReference = dropTick >= 0
+			? ticksSinceDrop
+			: (lastAttackTick == null ? Integer.MAX_VALUE : tick - lastAttackTick);
+		details.put("confirmTimeoutTicks", timeout);
+		details.put("ticksSinceConfirmReference", sinceReference == Integer.MAX_VALUE ? null : sinceReference);
+		if (timeout > 0 && sinceReference != Integer.MAX_VALUE && sinceReference >= timeout)
+		{
+			return finishAttackConfirm(details, "confirm-timeout-fallback", true);
+		}
+		return finishAttackConfirm(details, "holding-for-attack-confirmation", false);
+	}
+
+	private boolean finishAttackConfirm(Map<String, Object> details, String result, boolean safe)
+	{
+		details.put("result", result);
+		details.put("safeToInterrupt", safe);
+		details.put("at", Instant.now().toString());
+		lastMobFarmerAttackConfirmStatus = details;
+		return safe;
+	}
+
+	/**
+	 * True while an attack has been commanded but its swing has not yet been confirmed by a
+	 * combat XP drop. During this window the player may not be {@code interacting} yet (still
+	 * stepping into range), so naive "not in combat" checks would wrongly allow a loot/bury
+	 * click that cancels the pending swing. Times out after the attack interval so a missed
+	 * swing, splash (0 XP) or out-of-range chase cannot wedge the loop forever.
+	 */
+	private boolean mobFarmerAttackPending()
+	{
+		Integer commandTick = lastMobFarmerActionTickForKind(MobFarmerActionKind.COMBAT);
+		if (commandTick == null)
 		{
 			return false;
 		}
-		for (Object reasonValue : (List<?>) target.get("mobFarmerPriorityReasons"))
+		int tick = safeValue(client::getTickCount, 0);
+		int sinceCommand = tick - commandTick;
+		if (sinceCommand < 0 || sinceCommand > mobFarmerEffectiveAttackInterval() + 2)
 		{
-			String reason = String.valueOf(reasonValue);
-			if ("allowlist".equals(reason) || reason.startsWith("despawn:"))
+			return false;
+		}
+		// XP for this command already landed -> swing confirmed, no longer pending.
+		return lastMobFarmerCombatXpDropTick < commandTick;
+	}
+
+	private boolean mobFarmerEngagedWithTarget(Actor interacting)
+	{
+		return interacting instanceof NPC
+			&& !isEffectivelyDead(interacting)
+			&& matchesAnyMobTarget((NPC) interacting, mobFarmerTarget);
+	}
+
+	/**
+	 * True in the post-XP-drop window of an attack cycle, when an in-place inventory action
+	 * (bury/scatter) can run concurrently with the auto-attack without delaying the next swing.
+	 * Burying in place does not break a melee interaction, so we keep swinging tick-perfect.
+	 */
+	private boolean mobFarmerInBurySafeWindow()
+	{
+		if (lastMobFarmerCombatXpDropTick < 0)
+		{
+			return false;
+		}
+		int tick = safeValue(client::getTickCount, 0);
+		int sinceDrop = tick - lastMobFarmerCombatXpDropTick;
+		int interval = mobFarmerEffectiveAttackInterval();
+		return sinceDrop >= 0 && sinceDrop < Math.max(1, interval - 1);
+	}
+
+	/**
+	 * Watchdog for the rare "engaged but attacks never register" freeze (suspected client/idle
+	 * hiccup that swallows automated menu actions). While engaged with a live, in-range target
+	 * and no combat XP for the stall window, re-issue the attack -- first via the menu, then
+	 * escalating to a single direct canvas click -- to break the loop. Throttled to one action
+	 * per attack interval and reset as soon as XP resumes.
+	 */
+	/**
+	 * Stuck-combat watchdog. The OSRS client can stop acting on invoked menu actions after a
+	 * stretch of no real input (player won't walk to / attack the target despite valid menu
+	 * actions -- confirmed live: account froze for thousands of ticks while an identical client
+	 * farmed fine). A REAL left-click on the game world resets that state (user-confirmed:
+	 * "clicking the ground resets things"). We reproduce it focus-independently by dispatching a
+	 * synthetic left-click to THIS client's canvas (on the nearest target if we can map it, else
+	 * a viewport ground point), which walks/engages and wakes the input pipeline. Fires only when
+	 * we should be fighting (a reachable target is nearby) but have had no combat XP for the
+	 * stall window, so it never disturbs a client that is actually farming.
+	 */
+	private boolean tryMobFarmerStuckCombatRecovery(Player localPlayer, boolean live, int generation)
+	{
+		int tick = safeValue(client::getTickCount, 0);
+		int interval = mobFarmerEffectiveAttackInterval();
+		int dropTick = lastMobFarmerCombatXpDropTick;
+		int ticksSinceXp = dropTick < 0 ? Integer.MAX_VALUE : tick - dropTick;
+		if (ticksSinceXp <= interval + 1)
+		{
+			mobFarmerUnstickAttempts = 0;
+			return false;
+		}
+		int stallTicks = getMobFarmerCombatStallTicks();
+		Integer lastAtk = lastMobFarmerActionTickForKind(MobFarmerActionKind.COMBAT);
+		int sinceRef = dropTick >= 0 ? ticksSinceXp : (lastAtk == null ? -1 : tick - lastAtk);
+		if (sinceRef < stallTicks)
+		{
+			return false;
+		}
+		// Only intervene when there is genuinely something to fight nearby.
+		Map<String, Object> nearTarget = mobFarmerNearestReachableTarget();
+		if (nearTarget == null)
+		{
+			return false;
+		}
+		if (mobFarmerLastUnstickTick >= 0 && tick - mobFarmerLastUnstickTick < Math.max(3, interval))
+		{
+			return false;
+		}
+		mobFarmerLastUnstickTick = tick;
+		mobFarmerUnstickAttempts++;
+		Map<String, Object> status = new LinkedHashMap<>();
+		status.put("at", Instant.now().toString());
+		status.put("tick", tick);
+		status.put("ticksSinceXp", ticksSinceXp == Integer.MAX_VALUE ? null : ticksSinceXp);
+		status.put("ticksSinceRef", sinceRef);
+		status.put("stallTicks", stallTicks);
+		status.put("attempt", mobFarmerUnstickAttempts);
+		status.put("recoveryMode", "canvas-ground-click");
+		status.put("target", nearTarget.get("name"));
+		status.put("targetDistance", nearTarget.get("distance"));
+		lastMobFarmerStuckRecoveryStatus = status;
+		recordMobFarmerStabilization("stuck-combat-recovery", status);
+		setMobFarmerDecision("stuck-combat-recovery", status);
+		mobFarmerStatus.set("stuck-combat-recovery:ground-click");
+		updatePanelStatus("Mob farmer breaking stuck state with a ground/target click");
+		if (!live || isStaleMobFarmerLoop(generation))
+		{
+			return true;
+		}
+		mobFarmerCanvasGroundClickReset(nearTarget);
+		return true;
+	}
+
+	/** Nearest reachable target candidate (from the last selection pass) that has a canvas point. */
+	private Map<String, Object> mobFarmerNearestReachableTarget()
+	{
+		Map<String, Object> best = null;
+		int bestD = Integer.MAX_VALUE;
+		for (Map<String, Object> c : lastMobFarmerCandidates)
+		{
+			if (c == null || Boolean.FALSE.equals(c.get("reachable")))
 			{
-				return true;
+				continue;
 			}
-			if (reason.startsWith("value:") && getMobFarmerHighPriorityLootValueGe() > 0)
+			if (firstPoint(c, "canvasTileCenter", "center", "clickPoint") == null)
+			{
+				continue;
+			}
+			int d = intValue(c.get("distance"), Integer.MAX_VALUE);
+			if (d < bestD)
+			{
+				bestD = d;
+				best = c;
+			}
+		}
+		return best;
+	}
+
+	/**
+	 * Dispatch a synthetic left-click to this client's canvas (focus-independent) at the target's
+	 * mapped canvas point, falling back to a viewport ground point. Mimics a real ground/target
+	 * click to break a stuck input state. Runs on the EDT.
+	 */
+	private void mobFarmerCanvasGroundClickReset(Map<String, Object> target)
+	{
+		Canvas canvas = client.getCanvas();
+		if (canvas == null)
+		{
+			return;
+		}
+		int cw = canvas.getWidth();
+		int ch = canvas.getHeight();
+		if (cw <= 1 || ch <= 1)
+		{
+			return;
+		}
+		int x = cw / 2;
+		int y = (int) Math.round(ch * 0.60);
+		Map<String, Object> pt = target == null ? null : firstPoint(target, "canvasTileCenter", "center", "clickPoint");
+		Dimension real = safeValue(client::getRealDimensions, null);
+		if (pt != null && real != null && real.width > 0 && real.height > 0)
+		{
+			int rx = intValue(pt.get("x"), Integer.MIN_VALUE);
+			int ry = intValue(pt.get("y"), Integer.MIN_VALUE);
+			if (rx != Integer.MIN_VALUE && ry != Integer.MIN_VALUE)
+			{
+				int sx = (int) Math.round(rx * (cw / (double) real.width));
+				int sy = (int) Math.round(ry * (ch / (double) real.height));
+				if (sx >= 0 && sx < cw && sy >= 0 && sy < ch)
+				{
+					x = sx;
+					y = sy;
+				}
+			}
+		}
+		final int fx = x;
+		final int fy = y;
+		java.awt.EventQueue.invokeLater(() ->
+		{
+			try
+			{
+				long t = System.currentTimeMillis();
+				canvas.dispatchEvent(new MouseEvent(canvas, MouseEvent.MOUSE_MOVED, t, 0, fx, fy, 0, false));
+				canvas.dispatchEvent(new MouseEvent(canvas, MouseEvent.MOUSE_PRESSED, t, InputEvent.BUTTON1_DOWN_MASK, fx, fy, 1, false, MouseEvent.BUTTON1));
+				canvas.dispatchEvent(new MouseEvent(canvas, MouseEvent.MOUSE_RELEASED, t, InputEvent.BUTTON1_DOWN_MASK, fx, fy, 1, false, MouseEvent.BUTTON1));
+				canvas.dispatchEvent(new MouseEvent(canvas, MouseEvent.MOUSE_CLICKED, t, InputEvent.BUTTON1_DOWN_MASK, fx, fy, 1, false, MouseEvent.BUTTON1));
+			}
+			catch (RuntimeException ignored)
+			{
+			}
+		});
+	}
+
+	/** Visible loot contains an item from the separately-configured extreme-value override list. */
+	private boolean mobFarmerLootHasCombatOverride(Player localPlayer)
+	{
+		String overrideItems = getMobFarmerCombatInterruptItems();
+		if (overrideItems == null || overrideItems.trim().isEmpty())
+		{
+			return false;
+		}
+		for (Map<String, Object> item : collectGroundItemTargets(localPlayer))
+		{
+			String name = String.valueOf(item.get("name"));
+			int itemId = intValue(item.get("itemId"), -1);
+			int quantity = intValue(item.get("quantity"), 1);
+			if (matchesItemPolicy(name, itemId, quantity, overrideItems))
 			{
 				return true;
 			}
 		}
 		return false;
+	}
+
+	private boolean mobFarmerPriorityLootCanInterruptCombat(Map<String, Object> target)
+	{
+		// Attack always wins: the ONLY loot allowed to interrupt an active swing is an item on
+		// the separately-configured extreme-value override list. Ordinary "priority" loot
+		// (allowlist/despawn/high-value) now waits for downtime like everything else.
+		if (target == null)
+		{
+			return false;
+		}
+		String overrideItems = getMobFarmerCombatInterruptItems();
+		if (overrideItems == null || overrideItems.trim().isEmpty())
+		{
+			return false;
+		}
+		String name = String.valueOf(target.get("name"));
+		int itemId = intValue(target.get("itemId"), -1);
+		int quantity = intValue(target.get("quantity"), 1);
+		return matchesItemPolicy(name, itemId, quantity, overrideItems);
 	}
 
 	private boolean tryMobFarmerPriorityLootInterrupt(Player localPlayer, Actor interacting, boolean live, int generation, String phase)
@@ -5490,6 +6173,15 @@ public class CvHelperModPlugin extends Plugin
 		{
 			return false;
 		}
+		// In the attack-always-wins model the top-of-loop gate protects pending swings and the
+		// normal downtime flow (loot -> bury -> target selection) re-engages on its own, so the
+		// legacy post-action reattack is redundant and would jump back to combat before a bury
+		// batch can run. Retire it cleanly when attack confirmation is enabled.
+		if (getMobFarmerConfirmAttackBeforeInterrupt())
+		{
+			clearMobFarmerReattackAfterPickup("superseded-by-attack-priority-gate");
+			return false;
+		}
 		Map<String, Object> status = new LinkedHashMap<>(lastMobFarmerReattackStatus);
 		int tick = safeValue(client::getTickCount, 0);
 		status.put("pending", true);
@@ -5527,24 +6219,19 @@ public class CvHelperModPlugin extends Plugin
 			{
 				status.put("freshLoot", freshLoot);
 				status.put("lootMovementPending", true);
-				status.put("cadenceMode", "stutter-step-reattack-before-resuming-loot");
+				status.put("cadenceMode", "reattack-after-downtime-action");
 			}
 			else
 			{
 				status.put("lootResolved", true);
 			}
 		}
-		if (!attackDue)
-		{
-			status.put("result", "preserving-combat-cadence");
-			status.put("reattackAttempted", false);
-			status.put("reattackSkipReason", "attack-cooldown");
-			lastMobFarmerReattackStatus = status;
-			setMobFarmerDecision("preserving-combat-cadence", status);
-			recordMobFarmerStabilization("holding-post-action-until-attack-window", status);
-			mobFarmerStatus.set("waiting-attack-cadence:" + pendingMobFarmerReattackAction);
-			return true;
-		}
+		// Re-engage immediately. The attack-priority gate at the top of the loop already
+		// held all interrupts until the previous swing was confirmed, so there is no swing to
+		// preserve here -- waiting would only waste downtime. Re-clicking attack a tick before
+		// the cooldown is ready is ideal for tick-perfect DPS.
+		status.put("attackDue", attackDue);
+		status.put("reattackPolicy", "immediate-reengage");
 		Actor interacting = localPlayer.getInteracting();
 		if (interacting != null && !isEffectivelyDead(interacting))
 		{
@@ -6286,11 +6973,68 @@ public class CvHelperModPlugin extends Plugin
 		{
 			return;
 		}
+		if (tryMobFarmerApplyAttackStyle(live, generation))
+		{
+			return;
+		}
+		// Break a stuck input state (player won't act on invoked menu actions after AFK) with a
+		// real ground/target click before anything else, so combat can resume.
+		if (tryMobFarmerStuckCombatRecovery(localPlayer, live, generation))
+		{
+			return;
+		}
+		// Attack always wins. Two protected combat states short-circuit the loot/utility flow:
+		//  (1) Engaged with our target: keep swinging. We allow an in-place bury/scatter in the
+		//      post-XP safe window (concurrent with the auto-attack, never breaks it) and an
+		//      extreme-value loot override, plus the stuck-combat watchdog. We never walk off to
+		//      loot here -- movement is what costs swings.
+		//  (2) An attack is commanded but not yet confirmed by an XP drop: hold everything so the
+		//      pending swing cannot be cancelled, even though we may not be `interacting` yet.
+		// Genuine downtime (target dead/gone, no pending swing) falls through to the normal flow.
+		Actor combatGateInteracting = localPlayer.getInteracting();
+		boolean confirmAttacks = getMobFarmerConfirmAttackBeforeInterrupt();
+		if (confirmAttacks && mobFarmerEngagedWithTarget(combatGateInteracting))
+		{
+			if (getMobFarmerLootEnabled() && mobFarmerLootHasCombatOverride(localPlayer))
+			{
+				MobFarmerLootSelection override = selectMobFarmerLoot(localPlayer, false);
+				lastMobFarmerLootCandidates = override.reports;
+				if (override.target != null && mobFarmerPriorityLootCanInterruptCombat(override.target))
+				{
+					setMobFarmerLootDecision("extreme-value-combat-override:" + targetLabelForMessage(override.target), override.target);
+					recordMobFarmerIntent("LOOT_ITEM", override.target);
+					if (clickMobFarmerAutomationTarget("loot", override.target, live, generation))
+					{
+						return;
+					}
+				}
+			}
+			if (mobFarmerInBurySafeWindow() && tryMobFarmerIntermediateAction(localPlayer, live, generation, "combat-safe-window"))
+			{
+				return;
+			}
+			mobFarmerStatus.set("continuing-target:" + combatGateInteracting.getName());
+			setMobFarmerDecision("continuing-target", actorSummary(combatGateInteracting));
+			updatePanelStatus("Mob farmer continuing target: " + combatGateInteracting.getName());
+			return;
+		}
+		if (confirmAttacks && mobFarmerAttackPending())
+		{
+			Map<String, Object> hold = new LinkedHashMap<>();
+			hold.put("attackPending", true);
+			hold.put("interacting", combatGateInteracting == null ? null : combatGateInteracting.getName());
+			hold.put("lastXpDropTick", lastMobFarmerCombatXpDropTick < 0 ? null : lastMobFarmerCombatXpDropTick);
+			recordMobFarmerStabilization("awaiting-attack-confirmation", hold);
+			setMobFarmerDecision("awaiting-attack-confirmation", hold);
+			mobFarmerStatus.set("awaiting-attack-confirmation");
+			updatePanelStatus("Mob farmer holding for attack to land");
+			return;
+		}
 		if (tryMobFarmerReattackAfterPickup(localPlayer, live, generation))
 		{
 			return;
 		}
-		if (tryMobFarmerIntermediateAction(localPlayer, live, generation, "pre-combat"))
+		if (tryMobFarmerInventoryReplacement(localPlayer, live, generation))
 		{
 			return;
 		}
@@ -6326,6 +7070,12 @@ public class CvHelperModPlugin extends Plugin
 			clearPendingMobFarmerDeath("death-loot-window-expired");
 		}
 
+		// Burying happens concurrently with combat (post-XP safe window) so it never steals
+		// swings, and never blocks engaging an available target. A full inventory is NOT a
+		// reason to bury here -- we keep attacking and the concurrent bury frees bone slots as
+		// swings land. (Cowhide etc. simply stops being looted until a gap, which is correct:
+		// attack always wins.)
+
 		boolean holdCombatForStabilizer = mobFarmerShouldHoldCombat(interacting);
 		if (holdCombatForStabilizer)
 		{
@@ -6343,13 +7093,20 @@ public class CvHelperModPlugin extends Plugin
 		{
 			if (interacting instanceof NPC && matchesAnyMobTarget((NPC) interacting, mobFarmerTarget))
 			{
-				if (tryMobFarmerIntermediateAction(localPlayer, live, generation, "combat-window"))
+				// Only bury/scatter/loot mid-combat once the current swing is confirmed
+				// (XP drop) so the inventory click cannot cancel the pending attack.
+				boolean safeToInterrupt = mobFarmerAttackConfirmedForInterrupt(interacting, "combat-window");
+				if (safeToInterrupt && tryMobFarmerIntermediateAction(localPlayer, live, generation, "combat-window"))
 				{
 					return;
 				}
-				if (getMobFarmerLootDuringCombat() && !holdCombatForStabilizer && tryMobFarmerLoot(localPlayer, live, generation, "combat-window"))
+				if (safeToInterrupt && getMobFarmerLootDuringCombat() && !holdCombatForStabilizer && tryMobFarmerLoot(localPlayer, live, generation, "combat-window"))
 				{
 					return;
+				}
+				if (!safeToInterrupt)
+				{
+					recordMobFarmerStabilization("holding-interrupt-for-attack-confirmation", lastMobFarmerAttackConfirmStatus);
 				}
 				if (getMobFarmerLootDuringCombat() && holdCombatForStabilizer)
 				{
@@ -6367,11 +7124,12 @@ public class CvHelperModPlugin extends Plugin
 			CvHelperMobAggroResponse aggroResponse = getMobFarmerAggroResponse();
 			if (aggroResponse == CvHelperMobAggroResponse.CONTINUE_ANY_ATTACKER || (!lastMobFarmerMultiCombat && aggroResponse == CvHelperMobAggroResponse.IGNORE_IN_MULTI))
 			{
-				if (tryMobFarmerIntermediateAction(localPlayer, live, generation, "combat-window-undesired"))
+				boolean safeToInterruptUndesired = mobFarmerAttackConfirmedForInterrupt(interacting, "combat-window-undesired");
+				if (safeToInterruptUndesired && tryMobFarmerIntermediateAction(localPlayer, live, generation, "combat-window-undesired"))
 				{
 					return;
 				}
-				if (getMobFarmerLootDuringCombat() && tryMobFarmerLoot(localPlayer, live, generation, "combat-window-undesired"))
+				if (safeToInterruptUndesired && getMobFarmerLootDuringCombat() && tryMobFarmerLoot(localPlayer, live, generation, "combat-window-undesired"))
 				{
 					return;
 				}
@@ -6782,6 +7540,7 @@ public class CvHelperModPlugin extends Plugin
 				}
 				return true;
 			}
+			mobFarmerBuryBatchActive = false;
 			setMobFarmerIntermediateDecision("none:" + phase, null);
 			return false;
 		}
@@ -6791,8 +7550,35 @@ public class CvHelperModPlugin extends Plugin
 			return false;
 		}
 
+		// Batch gate: accumulate buryable items until the threshold (or inventory full),
+		// then clear the whole batch in one downtime session before re-engaging.
+		int buryableCount = countMobFarmerBuryableItems(lastInventoryTargets);
+		boolean inventoryFull = isMobFarmerInventoryFull();
+		int batchThreshold = getMobFarmerMinBuryBatch();
+		if (!mobFarmerBuryBatchActive)
+		{
+			if (inventoryFull || buryableCount >= batchThreshold)
+			{
+				mobFarmerBuryBatchActive = true;
+			}
+			else
+			{
+				Map<String, Object> acc = new LinkedHashMap<>();
+				acc.put("phase", phase);
+				acc.put("buryableCount", buryableCount);
+				acc.put("batchThreshold", batchThreshold);
+				acc.put("inventoryFull", inventoryFull);
+				setMobFarmerIntermediateDecision("accumulating-bury-batch", acc);
+				return false;
+			}
+		}
+
 		Map<String, Object> decision = new LinkedHashMap<>();
 		decision.put("phase", phase);
+		decision.put("buryableCount", buryableCount);
+		decision.put("batchThreshold", batchThreshold);
+		decision.put("inventoryFull", inventoryFull);
+		decision.put("buryBatchActive", mobFarmerBuryBatchActive);
 		decision.put("target", intermediateAction.target);
 		decision.put("matchedRule", intermediateAction.matchedRule);
 		decision.put("configuredAction", configuredActionText(intermediateAction.preferredActions));
@@ -6805,6 +7591,52 @@ public class CvHelperModPlugin extends Plugin
 		targetWithRule.put("intermediateMatchedRule", intermediateAction.matchedRule);
 		targetWithRule.put("intermediateConfiguredActions", Arrays.asList(intermediateAction.preferredActions));
 		return invokeMobFarmerInventoryAction("intermediate", targetWithRule, live, generation, intermediateAction.preferredActions);
+	}
+
+	/** Count inventory items eligible for an intermediate (bury/scatter) action. */
+	private int countMobFarmerBuryableItems(List<Map<String, Object>> inventoryTargets)
+	{
+		if (inventoryTargets == null)
+		{
+			return 0;
+		}
+		List<IntermediateActionRule> rules = intermediateActionRules();
+		int count = 0;
+		for (Map<String, Object> target : inventoryTargets)
+		{
+			String name = String.valueOf(target.get("itemName"));
+			if (name.trim().isEmpty() || "null".equals(name))
+			{
+				continue;
+			}
+			int itemId = intValue(target.get("itemId"), -1);
+			int quantity = intValue(target.get("quantity"), 1);
+			boolean matched = matchingIntermediateActionRule(name, itemId, quantity, rules) != null
+				|| matchesItemPolicy(name, itemId, quantity, getMobFarmerIntermediateItems());
+			if (matched)
+			{
+				count += Math.max(1, quantity);
+			}
+		}
+		return count;
+	}
+
+	private boolean isMobFarmerInventoryFull()
+	{
+		ItemContainer inventory = safeValue(() -> client.getItemContainer(InventoryID.INVENTORY), null);
+		if (inventory == null)
+		{
+			return false;
+		}
+		int used = 0;
+		for (Item item : inventory.getItems())
+		{
+			if (item != null && item.getId() >= 0 && item.getQuantity() > 0)
+			{
+				used++;
+			}
+		}
+		return used >= 28;
 	}
 
 	private IntermediateInventoryAction findIntermediateInventoryAction(List<Map<String, Object>> inventoryTargets)
@@ -6998,6 +7830,99 @@ public class CvHelperModPlugin extends Plugin
 		}
 		recordMobFarmerIntent("LOOT_ITEM", selection.target);
 		return clickMobFarmerAutomationTarget("loot", selection.target, live, generation);
+	}
+
+	private boolean tryMobFarmerInventoryReplacement(Player localPlayer, boolean live, int generation)
+	{
+		Map<String, Object> inventory = lastMobFarmerInventoryStatus;
+		if (!Boolean.TRUE.equals(inventory.get("full")) || getMobFarmerDropItems().trim().isEmpty())
+		{
+			lastMobFarmerDropPolicyStatus = new LinkedHashMap<>();
+			lastMobFarmerDropPolicyStatus.put("enabled", !getMobFarmerDropItems().trim().isEmpty());
+			lastMobFarmerDropPolicyStatus.put("decision", Boolean.TRUE.equals(inventory.get("full")) ? "SKIP_NO_ALLOWLIST" : "SKIP_INVENTORY_NOT_FULL");
+			return false;
+		}
+
+		String protectedItems = getMobFarmerNeverDropItems();
+		if (config.dropPolicyProtectedItems() != null && !config.dropPolicyProtectedItems().trim().isEmpty())
+		{
+			protectedItems = protectedItems + "|" + config.dropPolicyProtectedItems();
+		}
+		InventoryDropService.DropPolicyStatus dropStatus = inventoryDropService.evaluateDropOpportunity(
+			true,
+			CvHelperDropMode.WHEN_FULL,
+			28,
+			getMobFarmerDropItems(),
+			protectedItems,
+			getMobFarmerMaxDropValue(),
+			InventoryDropService.DropOpportunity.INVENTORY_FULL
+		);
+		Map<String, Object> policy = dropStatus.toMap();
+		policy.put("live", live);
+		policy.put("replacementOnly", true);
+		if (dropStatus.decision != InventoryDropService.DropDecision.DROP_ALLOWED || dropStatus.candidates.isEmpty())
+		{
+			policy.put("decision", "SKIP_NO_SAFE_DROP");
+			lastMobFarmerDropPolicyStatus = policy;
+			return false;
+		}
+
+		InventoryDropService.DropCandidate drop = dropStatus.candidates.get(0);
+		MobFarmerLootCandidate bestLoot = null;
+		for (Map<String, Object> item : collectGroundItemTargets(localPlayer))
+		{
+			MobFarmerLootCandidate candidate = evaluateMobFarmerLootCandidate(item);
+			boolean capacityBlocked = candidate.reasons.contains("inventory-full");
+			boolean hardRejected = candidate.reasons.stream().anyMatch(reason ->
+				!"inventory-full".equals(reason)
+					&& !"allowlist".equals(reason)
+					&& !"ground-items-highlighted".equals(reason)
+					&& !reason.startsWith("ground-items-")
+					&& !reason.startsWith("priority:"));
+			if (!capacityBlocked || hardRejected)
+			{
+				continue;
+			}
+			long lootValue = longValue(item.get("gePrice"));
+			boolean required = Boolean.TRUE.equals(item.get("allowlistMatch")) || Boolean.TRUE.equals(item.get("groundItemsHighlighted"));
+			if (!required && lootValue <= drop.totalGeValue)
+			{
+				continue;
+			}
+			if (bestLoot == null || lootValue > longValue(bestLoot.item.get("gePrice")))
+			{
+				bestLoot = candidate;
+			}
+		}
+		if (bestLoot == null)
+		{
+			policy.put("decision", "SKIP_NO_HIGHER_VALUE_LOOT");
+			policy.put("dropCandidate", drop.toMap());
+			lastMobFarmerDropPolicyStatus = policy;
+			return false;
+		}
+
+		Map<String, Object> loot = bestLoot.item;
+		policy.put("decision", live ? "DROP_FOR_REPLACEMENT" : "DRY_DROP_FOR_REPLACEMENT");
+		policy.put("dropCandidate", drop.toMap());
+		policy.put("replacementLoot", lootCandidateReport(bestLoot));
+		policy.put("valueDelta", longValue(loot.get("gePrice")) - drop.totalGeValue);
+		policy.put("protectedWins", true);
+		lastMobFarmerDropPolicyStatus = policy;
+		setMobFarmerLootDecision("inventory-replacement", policy);
+		if (!live || isStaleMobFarmerLoop(generation))
+		{
+			mobFarmerStatus.set("dry-drop-for-loot:" + drop.itemName + "->" + targetLabelForMessage(loot));
+			return true;
+		}
+		boolean queued = dropInventorySlot(drop.slot, drop.itemId);
+		policy.put("actionQueued", queued);
+		policy.put("actualAction", queued ? "Drop" : "none");
+		policy.put("failureReason", queued ? null : "drop-action-not-queued");
+		lastMobFarmerDropPolicyStatus = policy;
+		recordMobFarmerActionAttempt("inventory-replacement-drop", policy);
+		mobFarmerStatus.set(queued ? "dropping-for-loot:" + drop.itemName : "drop-for-loot-failed:" + drop.itemName);
+		return true;
 	}
 
 	private MobFarmerLootSelection selectMobFarmerLoot(Player localPlayer)
@@ -7209,6 +8134,14 @@ public class CvHelperModPlugin extends Plugin
 			candidate.reject("too-far-" + (candidate.highPriority ? "priority" : "normal") + ":" + distance + ">" + allowedRadius);
 			candidate.item.put("cadenceDecision", "skipped-radius");
 			return;
+		}
+		// Spatial priority: order by reachable path distance (nearest first) when known,
+		// rather than straight-line distance, so spam-pickup grabs the closest pile first.
+		if (candidate.item.get("pathDistance") instanceof Number)
+		{
+			int chebyshev = intValue(candidate.item.get("distance"), distance);
+			candidate.score += (distance - chebyshev) * 1000;
+			candidate.item.put("spatialOrdering", "path-distance");
 		}
 		int travelTicks = Math.max(0, distance - 1);
 		int estimatedMissedAttacks = travelTicks / getMobFarmerAttackIntervalTicks();
@@ -7706,6 +8639,7 @@ public class CvHelperModPlugin extends Plugin
 		}
 		try
 		{
+			primeMobFarmerCanvasMouse();
 			client.menuAction(menu.param0, menu.param1, menu.menuAction, menu.identifier, menu.itemId, menu.option, label);
 			recordMobFarmerScheduledAction(schedulerKind, schedulerTarget, actionName + ":" + menu.option);
 			attempt.put("result", "invoked");
@@ -7851,6 +8785,109 @@ public class CvHelperModPlugin extends Plugin
 		return null;
 	}
 
+	/**
+	 * Keep the client's mouse canvas position valid before invoking a menu action. OSRS
+	 * silently drops invoked {@code client.menuAction(...)} calls when the client mouse is
+	 * off-canvas ({@code getMouseCanvasPosition()==(-1,-1)}), which is exactly what happens
+	 * when the window is backgrounded / on another monitor / the real cursor leaves the
+	 * canvas (i.e. whenever you AFK). There is no {@code setMouseCanvasPosition}, so we
+	 * dispatch a synthetic MOUSE_MOVED to the canvas (the same thing a real cursor over the
+	 * window does), which updates the client's input state. Focus-independent. This is the
+	 * root-cause fix for "combat/loot freezes after AFK".
+	 */
+	private void primeMobFarmerCanvasMouse()
+	{
+		try
+		{
+			Canvas canvas = client.getCanvas();
+			if (canvas == null)
+			{
+				return;
+			}
+			int w = canvas.getWidth();
+			int h = canvas.getHeight();
+			int x = w > 1 ? w / 2 : 1;
+			int y = h > 1 ? h / 2 : 1;
+			canvas.dispatchEvent(new MouseEvent(canvas, MouseEvent.MOUSE_MOVED, System.currentTimeMillis(), 0, x, y, 0, false));
+		}
+		catch (RuntimeException ignored)
+		{
+			// Best effort; never let input-priming break the action.
+		}
+	}
+
+	/**
+	 * Dispatch a key press directly to the client canvas (focus-independent), used for login /
+	 * disconnect recovery instead of a Robot key that only reaches the OS-focused window and so
+	 * misses backgrounded / secondary-monitor clients.
+	 */
+	private void dispatchMobFarmerCanvasKey(int keyCode, char keyChar)
+	{
+		try
+		{
+			Canvas canvas = client.getCanvas();
+			if (canvas == null)
+			{
+				return;
+			}
+			long t = System.currentTimeMillis();
+			canvas.dispatchEvent(new KeyEvent(canvas, KeyEvent.KEY_PRESSED, t, 0, keyCode, keyChar));
+			canvas.dispatchEvent(new KeyEvent(canvas, KeyEvent.KEY_TYPED, t, 0, KeyEvent.VK_UNDEFINED, keyChar));
+			canvas.dispatchEvent(new KeyEvent(canvas, KeyEvent.KEY_RELEASED, t, 0, keyCode, keyChar));
+		}
+		catch (RuntimeException ignored)
+		{
+		}
+	}
+
+	// Combat Options (interface 593) attack-style buttons CombatInterface._0.._3 -> child ids.
+	private static final int[] MOB_FARMER_COMBAT_STYLE_CHILDREN = {6, 10, 14, 18};
+
+	/**
+	 * Keep the configured combat attack-style slot selected so the farmer trains the desired
+	 * stat. Reads VarPlayer.ATTACK_STYLE (0-3) and clicks the matching Combat Options button
+	 * only when it differs. Best-effort: if the combat interface isn't loaded (combat tab never
+	 * opened) it defers without blocking farming. Returns true if it took an action this tick.
+	 */
+	private boolean tryMobFarmerApplyAttackStyle(boolean live, int generation)
+	{
+		int slot = getMobFarmerAttackStyleSlot();
+		if (slot < 1 || slot > 4)
+		{
+			return false;
+		}
+		int desired = slot - 1;
+		int current = safeValue(() -> client.getVarpValue(VarPlayer.ATTACK_STYLE), -1);
+		if (current == desired)
+		{
+			return false;
+		}
+		if (!live || isStaleMobFarmerLoop(generation))
+		{
+			return false;
+		}
+		int child = MOB_FARMER_COMBAT_STYLE_CHILDREN[desired];
+		int widgetId = (593 << 16) | child;
+		Widget styleWidget = safeValue(() -> client.getWidget(593, child), null);
+		Map<String, Object> details = new LinkedHashMap<>();
+		details.put("desiredSlot", slot);
+		details.put("currentStyleIndex", current);
+		details.put("widgetId", widgetId);
+		if (styleWidget == null)
+		{
+			details.put("result", "combat-tab-not-loaded");
+			setMobFarmerDecision("attack-style-deferred", details);
+			return false;
+		}
+		primeMobFarmerCanvasMouse();
+		client.menuAction(-1, widgetId, MenuAction.CC_OP, 1, -1, "Attack style", "");
+		details.put("result", "selected");
+		setMobFarmerDecision("attack-style-selected:" + slot, details);
+		mobFarmerStatus.set("setting-attack-style:slot" + slot);
+		updatePanelStatus("Mob farmer setting attack style slot " + slot);
+		return true;
+	}
+
 	private void invokeMobFarmerAttack(Map<String, Object> target, Map<String, Object> clickPoint, boolean live, int generation)
 	{
 		recordMobFarmerIntent("ATTACK_TARGET", target);
@@ -7920,6 +8957,7 @@ public class CvHelperModPlugin extends Plugin
 			attempt.put("menuAction", menuAction.name());
 			attempt.put("identifier", index);
 			attempt.put("option", "Attack");
+			primeMobFarmerCanvasMouse();
 			client.menuAction(0, 0, menuAction, index, -1, "Attack", label);
 			recordMobFarmerScheduledAction(MobFarmerActionKind.COMBAT, schedulerTarget, "attack-menu-action");
 			recordMobFarmerCombatLease(target, "attack-menu-action");
@@ -8033,6 +9071,7 @@ public class CvHelperModPlugin extends Plugin
 			attempt.put("identifier", itemId);
 			attempt.put("itemId", itemId);
 			attempt.put("option", "Take");
+			primeMobFarmerCanvasMouse();
 			client.menuAction(sceneX, sceneY, MenuAction.GROUND_ITEM_THIRD_OPTION, itemId, itemId, "Take", label);
 			recordMobFarmerScheduledAction(MobFarmerActionKind.LOOT_PICKUP, schedulerTarget, "loot-menu-action");
 			attempt.put("result", "invoked");
@@ -8113,19 +9152,6 @@ public class CvHelperModPlugin extends Plugin
 		status.put("configSource", "runtime-config");
 		status.put("scanRadiusTiles", getSkillFarmerScanRadius(skill));
 		status.put("maxCandidates", getSkillFarmerMaxCandidates(skill));
-		if (mining)
-		{
-			status.put("lastCompletedTarget", lastCompletedMiningTarget == null ? "" : targetLabelForMessage(lastCompletedMiningTarget));
-			status.put("completionReason", miningCompletionReason == null ? "" : miningCompletionReason);
-			status.put("lastInvalidationTick", lastMiningInvalidationTick);
-			status.putIfAbsent("rejectedStaleTiles", new ArrayList<>());
-		}
-		else
-		{
-			status.put("lastCompletedTarget", lastCompletedWoodcuttingTarget == null ? "" : targetLabelForMessage(lastCompletedWoodcuttingTarget));
-			status.put("completionReason", woodcuttingCompletionReason == null ? "" : woodcuttingCompletionReason);
-			status.put("lastInvalidationTick", lastWoodcuttingInvalidationTick);
-		}
 		status.put("inventory", inventoryPolicyStatus());
 		return status;
 	}
@@ -8774,29 +9800,27 @@ public class CvHelperModPlugin extends Plugin
 		selection.put("dropPolicy", dropStatus.toMap());
 		Map<String, Object> selected = mapValue(selection.get("selected"));
 		boolean isWoodcutting = "woodcutting".equals(skill);
-		boolean isMining = "mining".equals(skill);
-		Map<String, Object> previousWoodcuttingTarget = lastSelectedWoodcuttingTarget;
-		String woodcuttingInvalidReason = isWoodcutting && previousWoodcuttingTarget != null
-			? woodcuttingTargetValidityReason(skill, target, action, previousWoodcuttingTarget)
-			: null;
-		if (woodcuttingInvalidReason != null)
-		{
-			markWoodcuttingTargetCompleted(woodcuttingInvalidReason);
-			selection.put("treeInvalidated", true);
-			selection.put("decision", "tree-" + woodcuttingInvalidReason + "-switching");
-		}
-		if (selected.isEmpty())
+		if (selected == null)
 		{
 			selection.put("currentAction", "no-target");
 			setSkillFarmerStatus(skill, selection);
 			return;
 		}
+		boolean isMining = "mining".equals(skill);
+		Map<String, Object> previousWoodcuttingTarget = lastSelectedWoodcuttingTarget;
 		boolean selectedMatchesLast = isWoodcutting && previousWoodcuttingTarget != null
 			&& selectedMatchesLastTarget(selected, previousWoodcuttingTarget);
 		// rockDepleted was computed up front (before markMiningTargetCompleted nulled
 		// lastSelectedMiningTarget), so it still reflects whether THIS tick is the one
 		// where the previous rock turned out to be gone -- recomputing here would
 		// always read false since the field has already been cleared by now.
+		String woodcuttingInvalidReason = isWoodcutting && previousWoodcuttingTarget != null
+			? woodcuttingTargetValidityReason(skill, target, action, previousWoodcuttingTarget)
+			: null;
+		if (woodcuttingInvalidReason != null)
+		{
+			markWoodcuttingTargetCompleted(woodcuttingInvalidReason);
+		}
 		boolean shouldStickToLast = isWoodcutting && config.woodcuttingStickToTarget()
 			&& activelyChopping && lastSelectedWoodcuttingTarget != null;
 		if (shouldStickToLast && !rockDepleted)
@@ -8815,6 +9839,7 @@ public class CvHelperModPlugin extends Plugin
 		}
 		if (woodcuttingInvalidReason != null)
 		{
+			selection.put("treeInvalidated", true);
 			selection.put("decision", "tree-" + woodcuttingInvalidReason + "-switching");
 		}
 		setSkillFarmerStatus(skill, selection);
@@ -9046,14 +10071,14 @@ public class CvHelperModPlugin extends Plugin
 		// Mining's source is the XP-drop handler; Woodcutting's is the per-tick validity check.
 		if (mining)
 		{
-			out.put("lastCompletedTarget", lastCompletedMiningTarget == null ? "" : targetLabelForMessage(lastCompletedMiningTarget));
-			out.put("completionReason", miningCompletionReason == null ? "" : miningCompletionReason);
+			out.put("lastCompletedTarget", lastCompletedMiningTarget == null ? null : targetLabelForMessage(lastCompletedMiningTarget));
+			out.put("completionReason", miningCompletionReason);
 			out.put("lastInvalidationTick", lastMiningInvalidationTick);
 		}
 		else
 		{
-			out.put("lastCompletedTarget", lastCompletedWoodcuttingTarget == null ? "" : targetLabelForMessage(lastCompletedWoodcuttingTarget));
-			out.put("completionReason", woodcuttingCompletionReason == null ? "" : woodcuttingCompletionReason);
+			out.put("lastCompletedTarget", lastCompletedWoodcuttingTarget == null ? null : targetLabelForMessage(lastCompletedWoodcuttingTarget));
+			out.put("completionReason", woodcuttingCompletionReason);
 			out.put("lastInvalidationTick", lastWoodcuttingInvalidationTick);
 		}
 		out.put("currentTick", client.getTickCount());
@@ -9439,6 +10464,10 @@ public class CvHelperModPlugin extends Plugin
 			target.put("pathVisited", pathing.visited);
 			target.put("pathFailureReason", pathing.failureReason);
 			target.put("doorTransition", pathing.doorTransition);
+			target.put("transitionRoute", pathing.transitionRoute);
+			target.put("transitionCount", pathing.transitionCount);
+			target.put("routeDepth", pathing.routeDepth);
+			target.put("failedTransitionIndex", pathing.failedTransitionIndex);
 			target.put("blockedByDoor", pathing.blockedByDoor);
 			target.put("manualActionRequired", pathing.manualActionRequired);
 			target.put("manualActionReason", pathing.manualActionReason);
@@ -9604,6 +10633,7 @@ public class CvHelperModPlugin extends Plugin
 				return;
 			}
 			MenuAction menuAction = menuActionFromName(String.valueOf(target.get("menuAction")), MenuAction.GAME_OBJECT_FIRST_OPTION);
+			primeMobFarmerCanvasMouse();
 			client.menuAction(sceneX, sceneY, menuAction, id, -1, action, targetLabelForMessage(target));
 		}
 		finally
@@ -9675,6 +10705,7 @@ public class CvHelperModPlugin extends Plugin
 							menu.identifier,
 							menu.option
 						);
+						primeMobFarmerCanvasMouse();
 						client.menuAction(menu.param0, menu.param1, menu.menuAction, menu.componentOpId, menu.itemId, menu.option, "");
 						dropped++;
 					}
@@ -10250,7 +11281,21 @@ public class CvHelperModPlugin extends Plugin
 	 */
 	private boolean tryHandleMobFarmerDoorTransition(Player localPlayer, Map<String, Object> target, boolean live)
 	{
-		Map<String, Object> doorTransition = mapValue(target.get("doorTransition"));
+		List<Map<String, Object>> transitionRoute = new ArrayList<>();
+		Object routeValue = target.get("transitionRoute");
+		if (routeValue instanceof List)
+		{
+			for (Object step : (List<?>) routeValue)
+			{
+				Map<String, Object> mapped = mapValue(step);
+				if (!mapped.isEmpty())
+				{
+					transitionRoute.add(mapped);
+				}
+			}
+		}
+		Map<String, Object> doorTransition = transitionRoute.isEmpty()
+			? mapValue(target.get("doorTransition")) : transitionRoute.get(0);
 		if (doorTransition.isEmpty())
 		{
 			if (mobFarmerDoorTransitionKey != null)
@@ -10267,7 +11312,8 @@ public class CvHelperModPlugin extends Plugin
 		Map<String, Object> tileMap = mapValue(doorTransition.get("worldTile"));
 		Map<String, Object> fromTileMap = mapValue(doorTransition.get("fromTile"));
 		Map<String, Object> toTileMap = mapValue(doorTransition.get("toTile"));
-		boolean knownAction = "Open".equals(requiredAction) || "Close".equals(requiredAction);
+		boolean knownAction = "Open".equals(requiredAction) || "Close".equals(requiredAction)
+			|| "Enter".equals(requiredAction) || "Pass".equals(requiredAction) || "Climb-over".equals(requiredAction);
 		if (doorId < 0 || tileMap == null || !knownAction)
 		{
 			// Unknown/ambiguous required action (eg. unknown-door-action / disabled / denylisted
@@ -10291,7 +11337,10 @@ public class CvHelperModPlugin extends Plugin
 		boolean alreadyDone = pathfinding.isDoorTransitionSatisfied(localPlayer, fromTile, toTile, requiredAction)
 			|| ("Open".equals(requiredAction) && state != null && state == 1)
 			|| ("Close".equals(requiredAction) && state != null && state == 0);
-		String doorKey = doorId + "@" + wx + "," + wy + "," + plane + ":" + requiredAction;
+		int transitionIndex = intValue(doorTransition.get("index"), 0);
+		String doorKey = transitionIndex + ":" + doorId + "@" + wx + "," + wy + "," + plane + ":" + requiredAction;
+		doorTransition.put("routeDepth", intValue(target.get("routeDepth"), 0));
+		doorTransition.put("transitionCount", transitionRoute.isEmpty() ? 1 : transitionRoute.size());
 
 		if (alreadyDone)
 		{
@@ -10340,7 +11389,7 @@ public class CvHelperModPlugin extends Plugin
 		mobFarmerDoorTransitionAttempts++;
 		recordMobFarmerDoorTransition(clicked ? "clicked" : "click-failed", doorTransition);
 		mobFarmerStatus.set((clicked ? "door-transition-clicked:" : "door-transition-click-failed:") + doorName);
-		updatePanelStatus("Mob farmer " + requiredAction.toLowerCase() + "ing door: " + doorName);
+		updatePanelStatus("Mob farmer transition: " + requiredAction + " " + doorName);
 		return true;
 	}
 
@@ -10349,6 +11398,9 @@ public class CvHelperModPlugin extends Plugin
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("result", result);
 		payload.put("door", doorTransition);
+		payload.put("transitionIndex", doorTransition.get("index"));
+		payload.put("transitionCount", doorTransition.get("transitionCount"));
+		payload.put("routeDepth", doorTransition.get("routeDepth"));
 		payload.put("attempts", mobFarmerDoorTransitionAttempts);
 		payload.put("updatedAt", Instant.now().toString());
 		lastMobFarmerDoorTransitionStatus = payload;
@@ -10398,6 +11450,7 @@ public class CvHelperModPlugin extends Plugin
 		}
 		try
 		{
+			primeMobFarmerCanvasMouse();
 			client.menuAction(localPoint.getSceneX(), localPoint.getSceneY(), menuAction, doorId, -1, action, name);
 			return true;
 		}
@@ -10484,6 +11537,10 @@ public class CvHelperModPlugin extends Plugin
 		entity.put("pathVisited", pathing.visited);
 		entity.put("pathFailureReason", pathing.failureReason);
 		entity.put("doorTransition", pathing.doorTransition);
+		entity.put("transitionRoute", pathing.transitionRoute);
+		entity.put("transitionCount", pathing.transitionCount);
+		entity.put("routeDepth", pathing.routeDepth);
+		entity.put("failedTransitionIndex", pathing.failedTransitionIndex);
 		entity.put("blockedByDoor", pathing.blockedByDoor);
 		entity.put("manualActionRequired", pathing.manualActionRequired);
 		entity.put("manualActionReason", pathing.manualActionReason);
@@ -10579,6 +11636,10 @@ public class CvHelperModPlugin extends Plugin
 		report.put("pathFailureReason", candidate.entity.get("pathFailureReason"));
 		report.put("playerWorldLocation", candidate.entity.get("playerWorldLocation"));
 		report.put("doorTransition", candidate.entity.get("doorTransition"));
+		report.put("transitionRoute", candidate.entity.get("transitionRoute"));
+		report.put("transitionCount", candidate.entity.get("transitionCount"));
+		report.put("routeDepth", candidate.entity.get("routeDepth"));
+		report.put("failedTransitionIndex", candidate.entity.get("failedTransitionIndex"));
 		report.put("blockedByDoor", candidate.entity.get("blockedByDoor"));
 		report.put("manualActionRequired", candidate.entity.get("manualActionRequired"));
 		report.put("manualActionReason", candidate.entity.get("manualActionReason"));
@@ -11011,6 +12072,7 @@ public class CvHelperModPlugin extends Plugin
 			attempt.put("detectedScreen", detectedLoginScreen(gameState));
 			attempt.put("worldAllowed", mobFarmerLoginWorldAllowed());
 			attempt.put("startedAt", Instant.now().toString());
+			attempt.put("geometry", loginScreenGeometryDiagnostics());
 			if (gameState != GameState.LOGIN_SCREEN && gameState != GameState.LOGIN_SCREEN_AUTHENTICATOR)
 			{
 				attempt.put("failureReason", "bad-game-state");
@@ -11030,10 +12092,17 @@ public class CvHelperModPlugin extends Plugin
 			{
 				Rectangle bounds = loginWidget.getBounds();
 				Map<String, Object> canvasPoint = pointMap(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-				screenPoint = canvasPointToScreen(canvasPoint);
+				Point rawScreenPoint = canvasPointToScreen(canvasPoint);
+				screenPoint = applyLoginClickOffset(rawScreenPoint);
+				attempt.put("widgetBounds", rectangleMap(bounds));
 				attempt.put("canvasPoint", canvasPoint);
+				attempt.put("rawScreenPoint", awtPointMap(rawScreenPoint));
+				attempt.put("clickOffset", pointMap(getMobFarmerLoginClickOffsetX(), getMobFarmerLoginClickOffsetY()));
 				attempt.put("screenPoint", awtPointMap(screenPoint));
-				if (screenPoint == null && enterFallbackAllowed)
+				// Prefer the focus-independent canvas Enter even when the widget is visible: the
+				// Robot widget-click only reaches the OS-focused window (misses backgrounded /
+				// secondary-monitor clients and can leak the click into another window).
+				if (enterFallbackAllowed)
 				{
 					enterFallback = true;
 				}
@@ -11111,35 +12180,35 @@ public class CvHelperModPlugin extends Plugin
 	private void pressLoginEnterFallback(String eventName, String panelMessage, Map<String, Object> attemptDetails)
 	{
 		Map<String, Object> queuedAttempt = attemptDetails == null ? new LinkedHashMap<>() : new LinkedHashMap<>(attemptDetails);
-		Point focusPoint = loginCanvasFocusPoint();
+		Point rawFocusPoint = loginScreenCanvasCenter();
+		Point focusPoint = applyLoginClickOffset(rawFocusPoint);
 		queuedAttempt.putIfAbsent("source", "pressLoginEnterFallback");
 		queuedAttempt.put("eventName", eventName);
 		queuedAttempt.put("plannedAction", "enter-key");
 		queuedAttempt.put("usedEnterFallback", true);
 		queuedAttempt.put("focusBeforeEnter", focusPoint != null);
+		queuedAttempt.put("rawFocusPoint", awtPointMap(rawFocusPoint));
+		queuedAttempt.put("clickOffset", pointMap(getMobFarmerLoginClickOffsetX(), getMobFarmerLoginClickOffsetY()));
 		queuedAttempt.put("focusPoint", awtPointMap(focusPoint));
+		queuedAttempt.put("geometry", loginScreenGeometryDiagnostics());
 		queuedAttempt.put("result", "queued");
 		setLastLoginClickAttempt("queued", queuedAttempt);
-		Thread loginClickThread = new Thread(() ->
+		// Focus-independent: dispatch Enter straight to THIS client's canvas on the EDT instead
+		// of a Robot key press, which only reaches the OS-focused window and so (a) misses a
+		// backgrounded/secondary-monitor client and (b) could leak Enter into another window.
+		java.awt.EventQueue.invokeLater(() ->
 		{
 			Map<String, Object> result = new LinkedHashMap<>(queuedAttempt);
 			try
 			{
-				Robot robot = new Robot();
-				if (focusPoint != null)
-				{
-					clickScreenPoint(robot, focusPoint);
-					robot.delay(80);
-					result.put("focusClickedAt", Instant.now().toString());
-				}
-				pressEnter(robot);
-				result.put("actualActionInvoked", focusPoint == null ? "enter-key" : "focus-click+enter-key");
+				dispatchMobFarmerCanvasKey(KeyEvent.VK_ENTER, '\n');
+				result.put("actualActionInvoked", "canvas-enter-dispatch");
 				result.put("pressedAt", Instant.now().toString());
 				setLastLoginClickAttempt("pressed-enter", result);
 				updatePanelStatus(panelMessage);
 				lastEvent.set(eventName + "@" + Instant.now());
 			}
-			catch (RuntimeException | java.awt.AWTException e)
+			catch (RuntimeException e)
 			{
 				result.put("failureReason", e.getMessage());
 				setLastLoginClickAttempt("failed", result);
@@ -11147,9 +12216,7 @@ public class CvHelperModPlugin extends Plugin
 				updatePanelStatus("Login Enter fallback failed: " + e.getMessage());
 				lastEvent.set(eventName + "-failed:" + e.getMessage() + "@" + Instant.now());
 			}
-		}, "cv-helper-login-enter");
-		loginClickThread.setDaemon(true);
-		loginClickThread.start();
+		});
 	}
 
 	private Point loginCanvasFocusPoint()
@@ -11186,6 +12253,100 @@ public class CvHelperModPlugin extends Plugin
 		{
 			return null;
 		}
+	}
+
+	/**
+	 * Centre of the login/disconnect screen's actually-rendered content (reconnect
+	 * "Click to continue", Enter-fallback focus, etc), NOT the raw Swing canvas size.
+	 * Two distinct bugs lived here before:
+	 * <p>
+	 * 1. {@link #loginCanvasFocusPoint()}'s old approach biased toward the in-game
+	 * viewport offsets, which the client doesn't reset on disconnect -- they keep
+	 * reporting the LAST in-game viewport's stale geometry.
+	 * <p>
+	 * 2. A plain "canvas.getSize() / 2" centre (the first fix for #1) is ALSO wrong
+	 * whenever the canvas's aspect ratio doesn't match the game's native resolution --
+	 * confirmed live: a 928x1031 canvas only renders the game at ~928x610 (anchored at
+	 * the canvas's top-left corner), leaving a blank band at the bottom. The Swing
+	 * canvas's geometric centre lands in that dead band, well south of any on-screen
+	 * button. RuneLite's own mouse-input translation (see
+	 * {@code stretchedmode.TranslateMouseListener}) divides screen coordinates by
+	 * stretchedDimensions/realDimensions with NO centering offset, confirming the
+	 * rendered image is anchored at the canvas origin, not centred within it.
+	 * <p>
+	 * The fix: take the centre of the game's own native resolution (realDimensions,
+	 * the coordinate space {@link #canvasPointToScreen} expects) and run it through the
+	 * same scale transform every other click in this class already uses for widget
+	 * bounds, rather than reasoning about the canvas/Swing size at all.
+	 */
+	private Point loginScreenCanvasCenter()
+	{
+		try
+		{
+			Dimension realDimensions = client.getRealDimensions();
+			if (realDimensions == null || realDimensions.width <= 0 || realDimensions.height <= 0)
+			{
+				return null;
+			}
+			Map<String, Object> centerCanvasPoint = pointMap(realDimensions.width / 2, realDimensions.height / 2);
+			Point screenPoint = canvasPointToScreen(centerCanvasPoint);
+			if (screenPoint != null)
+			{
+				return screenPoint;
+			}
+			// canvasPointToScreen needs a live canvas/realDimensions pair; fall back to the
+			// plain Swing canvas centre only if that's unavailable (eg. canvas not yet shown).
+			Point canvasLocation = client.getCanvas().getLocationOnScreen();
+			Dimension size = client.getCanvas().getSize();
+			if (canvasLocation == null || size == null || size.width <= 0 || size.height <= 0)
+			{
+				return null;
+			}
+			return new Point(canvasLocation.x + size.width / 2, canvasLocation.y + size.height / 2);
+		}
+		catch (RuntimeException e)
+		{
+			return null;
+		}
+	}
+
+	/**
+	 * Raw geometry behind every login/disconnect-screen click computation, so a future
+	 * miss can be diagnosed from {@code lastClickAttempt} alone instead of needing a live
+	 * screenshot/window inspection again. Captures the inputs to both letterbox regimes
+	 * {@link #canvasPointToScreen} now handles (anchored vs centered) plus the monitor
+	 * the canvas currently lives on.
+	 */
+	private Map<String, Object> loginScreenGeometryDiagnostics()
+	{
+		Map<String, Object> out = new LinkedHashMap<>();
+		try
+		{
+			java.awt.Canvas canvas = client.getCanvas();
+			Point canvasLocation = canvas == null ? null : canvas.getLocationOnScreen();
+			Dimension canvasSize = canvas == null ? null : canvas.getSize();
+			Dimension realDimensions = client.getRealDimensions();
+			boolean stretched = client.isStretchedEnabled();
+			Dimension stretchedDimensions = stretched ? client.getStretchedDimensions() : null;
+			out.put("canvasLocation", awtPointMap(canvasLocation));
+			out.put("canvasSize", canvasSize == null ? null : pointMap(canvasSize.width, canvasSize.height));
+			out.put("realDimensions", realDimensions == null ? null : pointMap(realDimensions.width, realDimensions.height));
+			out.put("stretchedEnabled", stretched);
+			out.put("stretchedDimensions", stretchedDimensions == null ? null : pointMap(stretchedDimensions.width, stretchedDimensions.height));
+			if (canvas != null)
+			{
+				java.awt.GraphicsConfiguration gc = canvas.getGraphicsConfiguration();
+				if (gc != null && gc.getDevice() != null)
+				{
+					out.put("monitor", gc.getDevice().getIDstring());
+				}
+			}
+		}
+		catch (RuntimeException e)
+		{
+			out.put("error", e.getMessage());
+		}
+		return out;
 	}
 
 	private void pressEnter(Robot robot)
@@ -11464,6 +12625,8 @@ public class CvHelperModPlugin extends Plugin
 			server.createContext("/entities/nearest", this::handleNearestEntityRequest);
 			server.createContext("/automation/mob-farmer/status", this::handleMobFarmerStatusRequest);
 			server.createContext("/automation/mob-farmer/config", this::handleMobFarmerConfigRequest);
+			server.createContext("/automation/actions/run", this::handleActionRunRequest);
+			server.createContext("/automation/actions/reset-sequence", this::handleActionResetSequenceRequest);
 			server.createContext("/automation/mob-farmer/focus-click", this::handleMobFarmerFocusClickRequest);
 			server.createContext("/automation/mob-farmer/step", this::handleMobFarmerStepRequest);
 			server.createContext("/automation/mob-farmer/start", this::handleMobFarmerStartRequest);
@@ -11627,7 +12790,7 @@ public class CvHelperModPlugin extends Plugin
 			body.put("status", lastEvent.get());
 			body.put("port", localPort());
 			body.put("preferredPort", config.localPort() > 0 ? config.localPort() : DEFAULT_LOCAL_PORT);
-			body.put("endpoints", new String[]{"/status", "/login/click", "/capture", "/capture/screen", "/capture/minimap", "/capture/latest/client-frame", "/capture/latest/screen", "/capture/latest/minimap", "/player/status", "/targets/prayer", "/targets/spell", "/targets/minimap", "/targets/inventory", "/targets/equipment", "/targets/panels", "/targets/combat", "/targets", "/entities", "/entities/nearest", "/automation/mob-farmer/status", "/automation/mob-farmer/config", "/automation/mob-farmer/focus-click", "/automation/mob-farmer/step", "/automation/mob-farmer/start", "/automation/mob-farmer/stop", "/automation/mining/status", "/automation/mining/config", "/automation/mining/step", "/automation/mining/start", "/automation/mining/stop", "/automation/woodcutting/status", "/automation/woodcutting/config", "/automation/woodcutting/step", "/automation/woodcutting/start", "/automation/woodcutting/stop", "/automation/panic-stop", "/chat/responder"});
+			body.put("endpoints", new String[]{"/status", "/login/click", "/capture", "/capture/screen", "/capture/minimap", "/capture/latest/client-frame", "/capture/latest/screen", "/capture/latest/minimap", "/player/status", "/targets/prayer", "/targets/spell", "/targets/minimap", "/targets/inventory", "/targets/equipment", "/targets/panels", "/targets/combat", "/targets", "/entities", "/entities/nearest", "/automation/actions/run", "/automation/actions/reset-sequence", "/automation/mob-farmer/status", "/automation/mob-farmer/config", "/automation/mob-farmer/focus-click", "/automation/mob-farmer/step", "/automation/mob-farmer/start", "/automation/mob-farmer/stop", "/automation/mining/status", "/automation/mining/config", "/automation/mining/step", "/automation/mining/start", "/automation/mining/stop", "/automation/woodcutting/status", "/automation/woodcutting/config", "/automation/woodcutting/step", "/automation/woodcutting/start", "/automation/woodcutting/stop", "/automation/panic-stop", "/chat/responder"});
 			Map<String, Object> playerStatus = getPlayerStatusOnClientThread();
 			body.put("player", playerStatus);
 			body.put("spellbook", playerStatus.get("spellbook"));
@@ -12080,6 +13243,61 @@ public class CvHelperModPlugin extends Plugin
 			Thread.currentThread().interrupt();
 			writeResponse(exchange, 503, "{\"error\":\"interrupted\"}");
 		}
+	}
+
+	private void handleActionRunRequest(HttpExchange exchange) throws IOException
+	{
+		if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod()))
+		{
+			writeResponse(exchange, 204, "");
+			return;
+		}
+		if (!"POST".equalsIgnoreCase(exchange.getRequestMethod()))
+		{
+			writeResponse(exchange, 405, "{\"error\":\"method-not-allowed\"}");
+			return;
+		}
+		int slot = parseQueryInt(exchange, "slot", -1);
+		if (slot < 1 || slot > getActionSlotCount())
+		{
+			writeResponse(exchange, 400, "{\"error\":\"slot-must-be-1-to-22\"}");
+			return;
+		}
+		clientThread.invokeLater(() -> performConfiguredAction(slot));
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("ok", true);
+		body.put("queued", true);
+		body.put("slot", slot);
+		body.put("enabled", getActionEnabled(slot));
+		body.put("surface", getActionSurface(slot).name());
+		body.put("target", getActionTarget(slot));
+		writeJson(exchange, 202, body);
+	}
+
+	private void handleActionResetSequenceRequest(HttpExchange exchange) throws IOException
+	{
+		if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod()))
+		{
+			writeResponse(exchange, 204, "");
+			return;
+		}
+		if (!"POST".equalsIgnoreCase(exchange.getRequestMethod()))
+		{
+			writeResponse(exchange, 405, "{\"error\":\"method-not-allowed\"}");
+			return;
+		}
+		int slot = parseQueryInt(exchange, "slot", -1);
+		if (slot < 1 || slot > getActionSlotCount())
+		{
+			writeResponse(exchange, 400, "{\"error\":\"slot-must-be-1-to-22\"}");
+			return;
+		}
+		clientThread.invokeLater(() -> resetActionSequence(slot));
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("ok", true);
+		body.put("slot", slot);
+		body.put("sequenceIndex", 0);
+		writeJson(exchange, 202, body);
 	}
 
 	private void handleMobFarmerStepRequest(HttpExchange exchange) throws IOException
@@ -13993,6 +15211,18 @@ public class CvHelperModPlugin extends Plugin
 			}
 		}
 		return "";
+	}
+
+	private int parseQueryInt(HttpExchange exchange, String key, int fallback)
+	{
+		try
+		{
+			return Integer.parseInt(queryParam(exchange, key));
+		}
+		catch (NumberFormatException e)
+		{
+			return fallback;
+		}
 	}
 
 	private String decodeQuery(String value)
