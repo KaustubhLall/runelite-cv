@@ -39,6 +39,28 @@ Open questions, migration notes, or known limitations.
 
 ## Active Contracts
 
+## Contract: CV Helper hotkey input safety
+
+- Status: active
+- Owners: OSR-45
+- Components: plugin | local export
+- Last updated: 2026-06-27
+
+### Contract
+
+- Normal debug, capture, entity, and configured action hotkeys are suppressed while a RuneLite Swing text component has focus, the RuneLite window is inactive, an OSRS meslayer input is active, or the default OSRS chat input widgets are accepting text.
+- The default-chat widget guard is independent of `CHATINPUT` length so the first typed character cannot trigger an action before the client updates its chat string. When RuneLite's Key Remapping plugin displays `Press Enter to Chat...`, that redacted prompt-state boolean marks chat as locked and normal hotkeys remain available until Enter/Slash/Colon opens typing mode.
+- Suppressed keys are not consumed, allowing the intended text input to receive them, and their pre-dispatch pressed-key state is cleared.
+- Panic stop is the explicit global exception and remains available while text input is active.
+- `/status.hotkeyGuard` exposes the input/focus booleans, redacted string lengths, last event path, matched key, decision, and reason. It never exposes typed chat content.
+
+### Verification
+
+- With public chat accepting input, press a configured action key and confirm `/status.hotkeyGuard.lastDecision` reports `suppressed` with `chatbox-input-active` while no action fires.
+- Focus a RuneLite Swing text field and confirm the reason is `swing-text-input-focused`.
+- Focus another application or WebHelper and confirm no RuneLite action fires.
+- Close chat/input, focus RuneLite, and confirm the same configured hotkey is allowed.
+
 ## Contract: CV Helper implementation source of truth
 
 - Status: active

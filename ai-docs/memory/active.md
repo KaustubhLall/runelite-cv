@@ -169,3 +169,11 @@ Files changed:
 - WebHelper v3 parses those strings into compact allow/protect chips with exact-token tooltips and honest empty states.
 - Recent Activity is a full-height flex child whose own body scrolls, eliminating the unused space beneath the log.
 - Scope is limited to `InventoryDropService`, `skillFarmer.js`, `mob-farmer.css`, and matching contract/spec/memory notes. GP-tier coloring, object/preset icon expansion, and asset-library work remain separate.
+
+## OSR-45 hotkey input safety (2026-06-27)
+
+- Both the AWT `KeyEventDispatcher` and RuneLite `HotkeyListener` paths now use one guard and one diagnostic shape.
+- Client-tick-cached Chatbox widget visibility closes the first-character hole left by `CHATINPUT`-length-only checks, while the redacted `Press Enter to Chat...` prompt state keeps normal hotkeys available when RuneLite's Key Remapping plugin has chat locked.
+- Normal hotkeys fail closed for OSRS chat/meslayer input, Swing text focus, or an inactive RuneLite window. Suppression clears pre-dispatch pressed-key state and does not consume the key.
+- Panic stop remains the documented global exception.
+- `/status.hotkeyGuard` reports only focus/input booleans and string lengths, never chat content.

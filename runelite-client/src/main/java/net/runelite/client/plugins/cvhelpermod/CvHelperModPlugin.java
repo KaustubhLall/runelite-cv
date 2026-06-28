@@ -17,6 +17,7 @@ import com.google.gson.Gson;
 import com.google.inject.Provides;
 import java.awt.AWTException;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
 import java.awt.KeyEventDispatcher;
@@ -27,6 +28,7 @@ import java.awt.Polygon;
 import java.awt.Rectangle;
 import java.awt.Robot;
 import java.awt.Shape;
+import java.awt.Window;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
@@ -95,6 +97,7 @@ import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldArea;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.ChatMessage;
+import net.runelite.api.events.ClientTick;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.StatChanged;
@@ -357,6 +360,14 @@ public class CvHelperModPlugin extends Plugin
 	protected final Set<String> enabledSpellbooks = new HashSet<>();
 	protected final List<HotkeyListener> actionHotkeyListeners = new ArrayList<>();
 	protected final Set<String> preDispatcherPressedKeys = new HashSet<>();
+	protected volatile boolean hotkeyChatDisplayVisible;
+	protected volatile boolean hotkeyMesLayerAvailable;
+	protected volatile boolean hotkeyPressEnterPromptVisible;
+	protected volatile boolean hotkeyDefaultChatInputActive;
+	protected volatile int hotkeyMesLayerMode = InputType.NONE.getType();
+	protected volatile int hotkeyChatInputLength;
+	protected volatile int hotkeyMesLayerInputLength;
+	protected volatile Map<String, Object> lastHotkeyGuardDecision = new LinkedHashMap<>();
 	protected final AtomicBoolean actionInProgress = new AtomicBoolean(false);
 	protected final Map<Integer, Integer> actionSequenceIndexes = new HashMap<>();
 	protected final AtomicBoolean mobFarmerRunning = new AtomicBoolean(false);
@@ -1081,6 +1092,12 @@ public class CvHelperModPlugin extends Plugin
 	}
 
 	@Subscribe
+	public void onClientTick(ClientTick event)
+	{
+		refreshHotkeyInputState();
+	}
+
+	@Subscribe
 	public void onGameTick(GameTick event)
 	{
 		int tick = safeValue(client::getTickCount, 0);
@@ -1379,7 +1396,7 @@ public class CvHelperModPlugin extends Plugin
 		@Override
 		public void keyPressed(java.awt.event.KeyEvent e)
 		{
-			if (shouldSuppressHotkey())
+			if (shouldSuppressMatchedHotkey(e, config.debugHotkey(), "debug"))
 			{
 				return;
 			}
@@ -1398,7 +1415,7 @@ public class CvHelperModPlugin extends Plugin
 		@Override
 		public void keyPressed(java.awt.event.KeyEvent e)
 		{
-			if (shouldSuppressHotkey())
+			if (shouldSuppressMatchedHotkey(e, config.printBoundsHotkey(), "print-bounds"))
 			{
 				return;
 			}
@@ -1417,7 +1434,7 @@ public class CvHelperModPlugin extends Plugin
 		@Override
 		public void keyPressed(java.awt.event.KeyEvent e)
 		{
-			if (shouldSuppressHotkey())
+			if (shouldSuppressMatchedHotkey(e, config.captureScreenHotkey(), "capture-screen"))
 			{
 				return;
 			}
@@ -1436,7 +1453,7 @@ public class CvHelperModPlugin extends Plugin
 		@Override
 		public void keyPressed(java.awt.event.KeyEvent e)
 		{
-			if (shouldSuppressHotkey())
+			if (shouldSuppressMatchedHotkey(e, config.refreshEntitiesHotkey(), "refresh-entities"))
 			{
 				return;
 			}
@@ -1455,7 +1472,7 @@ public class CvHelperModPlugin extends Plugin
 		@Override
 		public void keyPressed(java.awt.event.KeyEvent e)
 		{
-			if (shouldSuppressHotkey())
+			if (shouldSuppressMatchedHotkey(e, config.nearestEntityHotkey(), "nearest-entity"))
 			{
 				return;
 			}
@@ -1474,6 +1491,10 @@ public class CvHelperModPlugin extends Plugin
 		@Override
 		public void keyPressed(java.awt.event.KeyEvent e)
 		{
+			if (config.panicStopHotkey().matches(e))
+			{
+				recordPanicStopHotkey(e, "HotkeyListener");
+			}
 			super.keyPressed(e);
 		}
 
@@ -1501,7 +1522,7 @@ public class CvHelperModPlugin extends Plugin
 				@Override
 				public void keyPressed(java.awt.event.KeyEvent e)
 				{
-					if (shouldSuppressHotkey())
+					if (shouldSuppressMatchedHotkey(e, getActionHotkey(actionSlot), "action-slot-" + actionSlot))
 					{
 						return;
 					}
@@ -1551,22 +1572,34 @@ public class CvHelperModPlugin extends Plugin
 		}
 
 		String key = preDispatchKey(event);
-		if (preDispatcherPressedKeys.contains(key))
-		{
-			event.consume();
-			return true;
-		}
-
 		if (config.panicStopHotkey().matches(event))
 		{
+			if (preDispatcherPressedKeys.contains(key))
+			{
+				event.consume();
+				return true;
+			}
 			preDispatcherPressedKeys.add(key);
+			recordPanicStopHotkey(event, "KeyEventDispatcher");
 			panicStop();
 			event.consume();
 			return true;
 		}
-		if (shouldSuppressHotkey())
+
+		String matchedHotkey = matchedNonPanicHotkey(event);
+		if (matchedHotkey == null)
 		{
 			return false;
+		}
+		if (shouldSuppressHotkey("KeyEventDispatcher", event, matchedHotkey))
+		{
+			preDispatcherPressedKeys.remove(key);
+			return false;
+		}
+		if (preDispatcherPressedKeys.contains(key))
+		{
+			event.consume();
+			return true;
 		}
 
 		if (config.debugHotkey().matches(event))
@@ -1617,6 +1650,38 @@ public class CvHelperModPlugin extends Plugin
 		return false;
 	}
 
+	private String matchedNonPanicHotkey(KeyEvent event)
+	{
+		if (config.debugHotkey().matches(event))
+		{
+			return "debug";
+		}
+		if (config.printBoundsHotkey().matches(event))
+		{
+			return "print-bounds";
+		}
+		if (config.captureScreenHotkey().matches(event))
+		{
+			return "capture-screen";
+		}
+		if (config.refreshEntitiesHotkey().matches(event))
+		{
+			return "refresh-entities";
+		}
+		if (config.nearestEntityHotkey().matches(event))
+		{
+			return "nearest-entity";
+		}
+		for (int slot = 1; slot <= ACTION_SLOT_COUNT; slot++)
+		{
+			if (getActionHotkey(slot).matches(event))
+			{
+				return "action-slot-" + slot;
+			}
+		}
+		return null;
+	}
+
 	private String preDispatchKey(KeyEvent event)
 	{
 		int modifierMask = InputEvent.SHIFT_DOWN_MASK
@@ -1626,27 +1691,148 @@ public class CvHelperModPlugin extends Plugin
 		return event.getExtendedKeyCode() + ":" + (event.getModifiersEx() & modifierMask);
 	}
 
-	private boolean shouldSuppressHotkey()
+	private boolean shouldSuppressMatchedHotkey(KeyEvent event, Keybind keybind, String matchedHotkey)
 	{
-		if (client == null)
+		if (event == null || keybind == null || !keybind.matches(event))
 		{
 			return false;
 		}
-
-		java.awt.Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
-		if (focusOwner instanceof javax.swing.text.JTextComponent)
+		boolean suppressed = shouldSuppressHotkey("HotkeyListener", event, matchedHotkey);
+		if (suppressed)
 		{
-			return true;
+			preDispatcherPressedKeys.remove(preDispatchKey(event));
+		}
+		return suppressed;
+	}
+
+	private boolean shouldSuppressHotkey(String path, KeyEvent event, String matchedHotkey)
+	{
+		Map<String, Object> diagnostics = hotkeyDiagnostics(path, event, matchedHotkey);
+		String reason = null;
+		if (client == null)
+		{
+			reason = "client-unavailable";
+		}
+		else if (Boolean.TRUE.equals(diagnostics.get("swingTextInputFocused")))
+		{
+			reason = "swing-text-input-focused";
+		}
+		else if (!Boolean.TRUE.equals(diagnostics.get("runeLiteWindowActive")))
+		{
+			reason = "runelite-window-unfocused";
+		}
+		else if (hotkeyMesLayerMode != InputType.NONE.getType())
+		{
+			reason = "meslayer-input-active";
+		}
+		else if (hotkeyDefaultChatInputActive)
+		{
+			reason = "chatbox-input-active";
+		}
+		else if (hotkeyChatInputLength > 0)
+		{
+			reason = "chat-input-present";
+		}
+		else if (hotkeyMesLayerInputLength > 0)
+		{
+			reason = "meslayer-input-present";
 		}
 
-		if (client.getVarcIntValue(VarClientID.MESLAYERMODE) != InputType.NONE.getType())
+		boolean suppressed = reason != null;
+		diagnostics.put("decision", suppressed ? "suppressed" : "allowed");
+		diagnostics.put("suppressionReason", reason);
+		diagnostics.put("panicStopBypassesGuard", true);
+		lastHotkeyGuardDecision = diagnostics;
+		if (suppressed)
 		{
-			return true;
+			log.debug("CV Helper hotkey {} suppressed on {}: {}", matchedHotkey, path, reason);
 		}
+		return suppressed;
+	}
 
-		String chatInput = client.getVarcStrValue(VarClientID.CHATINPUT);
-		String mesLayerInput = client.getVarcStrValue(VarClientID.MESLAYERINPUT);
-		return (chatInput != null && !chatInput.isEmpty()) || (mesLayerInput != null && !mesLayerInput.isEmpty());
+	private void recordPanicStopHotkey(KeyEvent event, String path)
+	{
+		Map<String, Object> diagnostics = hotkeyDiagnostics(path, event, "panic-stop");
+		diagnostics.put("decision", "allowed");
+		diagnostics.put("suppressionReason", null);
+		diagnostics.put("panicStopBypassesGuard", true);
+		diagnostics.put("reason", "panic-stop-global-exception");
+		lastHotkeyGuardDecision = diagnostics;
+	}
+
+	private Map<String, Object> hotkeyDiagnostics(String path, KeyEvent event, String matchedHotkey)
+	{
+		KeyboardFocusManager focusManager = KeyboardFocusManager.getCurrentKeyboardFocusManager();
+		Component focusOwner = focusManager.getFocusOwner();
+		Window activeWindow = focusManager.getActiveWindow();
+		Component canvas = client == null ? null : client.getCanvas();
+		Window runeLiteWindow = canvas == null ? null : SwingUtilities.getWindowAncestor(canvas);
+		boolean runeLiteWindowActive = runeLiteWindow != null
+			&& (runeLiteWindow == activeWindow || runeLiteWindow.isActive());
+
+		Map<String, Object> diagnostics = new LinkedHashMap<>();
+		diagnostics.put("at", Instant.now().toString());
+		diagnostics.put("path", path);
+		diagnostics.put("matchedHotkey", matchedHotkey);
+		diagnostics.put("keyCode", event == null ? null : event.getExtendedKeyCode());
+		diagnostics.put("keyText", event == null ? null : KeyEvent.getKeyText(event.getExtendedKeyCode()));
+		diagnostics.put("modifiers", event == null ? null : event.getModifiersEx());
+		diagnostics.put("eventSourceClass", event == null || event.getSource() == null ? null : event.getSource().getClass().getName());
+		diagnostics.put("runeLiteWindowActive", runeLiteWindowActive);
+		diagnostics.put("canvasFocusOwner", canvas != null && canvas.isFocusOwner());
+		diagnostics.put("focusOwnerClass", focusOwner == null ? null : focusOwner.getClass().getName());
+		diagnostics.put("swingTextInputFocused", focusOwner instanceof javax.swing.text.JTextComponent);
+		diagnostics.put("gameState", client == null ? null : safeValue(() -> client.getGameState().name(), null));
+		diagnostics.put("mesLayerMode", hotkeyMesLayerMode);
+		diagnostics.put("chatDisplayVisible", hotkeyChatDisplayVisible);
+		diagnostics.put("mesLayerAvailable", hotkeyMesLayerAvailable);
+		diagnostics.put("pressEnterPromptVisible", hotkeyPressEnterPromptVisible);
+		diagnostics.put("defaultChatInputActive", hotkeyDefaultChatInputActive);
+		diagnostics.put("chatInputPresent", hotkeyChatInputLength > 0);
+		diagnostics.put("chatInputLength", hotkeyChatInputLength);
+		diagnostics.put("mesLayerInputPresent", hotkeyMesLayerInputLength > 0);
+		diagnostics.put("mesLayerInputLength", hotkeyMesLayerInputLength);
+		return diagnostics;
+	}
+
+	private void refreshHotkeyInputState()
+	{
+		if (client == null)
+		{
+			return;
+		}
+		hotkeyMesLayerMode = safeValue(() -> client.getVarcIntValue(VarClientID.MESLAYERMODE), InputType.NONE.getType());
+		String chatInput = safeValue(() -> client.getVarcStrValue(VarClientID.CHATINPUT), "");
+		String mesLayerInput = safeValue(() -> client.getVarcStrValue(VarClientID.MESLAYERINPUT), "");
+		hotkeyChatInputLength = chatInput == null ? 0 : chatInput.length();
+		hotkeyMesLayerInputLength = mesLayerInput == null ? 0 : mesLayerInput.length();
+		hotkeyChatDisplayVisible = safeValue(() -> widgetVisible(InterfaceID.Chatbox.CHATDISPLAY), false);
+		hotkeyMesLayerAvailable = safeValue(() -> widgetVisible(InterfaceID.Chatbox.MES_LAYER_HIDE), false);
+		Widget chatInputWidget = safeValue(() -> client.getWidget(InterfaceID.Chatbox.INPUT), null);
+		String chatInputWidgetText = chatInputWidget == null ? "" : safeValue(chatInputWidget::getText, "");
+		hotkeyPressEnterPromptVisible = normalize(chatInputWidgetText).contains("press enter to chat");
+		hotkeyDefaultChatInputActive = client.getGameState() == GameState.LOGGED_IN
+			&& hotkeyChatDisplayVisible
+			&& hotkeyMesLayerAvailable
+			&& !hotkeyPressEnterPromptVisible;
+	}
+
+	private Map<String, Object> hotkeyGuardStatus()
+	{
+		Map<String, Object> status = new LinkedHashMap<>();
+		status.put("panicStopBypassesGuard", true);
+		status.put("panicStopReason", "panic-stop-global-exception");
+		status.put("mesLayerMode", hotkeyMesLayerMode);
+		status.put("chatDisplayVisible", hotkeyChatDisplayVisible);
+		status.put("mesLayerAvailable", hotkeyMesLayerAvailable);
+		status.put("pressEnterPromptVisible", hotkeyPressEnterPromptVisible);
+		status.put("defaultChatInputActive", hotkeyDefaultChatInputActive);
+		status.put("chatInputPresent", hotkeyChatInputLength > 0);
+		status.put("chatInputLength", hotkeyChatInputLength);
+		status.put("mesLayerInputPresent", hotkeyMesLayerInputLength > 0);
+		status.put("mesLayerInputLength", hotkeyMesLayerInputLength);
+		status.put("lastDecision", new LinkedHashMap<>(lastHotkeyGuardDecision));
+		return status;
 	}
 
 	CvHelperModConfig getConfig()
@@ -11268,6 +11454,7 @@ public class CvHelperModPlugin extends Plugin
 			body.put("loginRecovery", getLoginRecoveryDiagnosticsOnClientThread());
 			body.put("chatResponder", chatResponderService.getStatus());
 			body.put("antiIdle", getAntiIdleStatus());
+			body.put("hotkeyGuard", hotkeyGuardStatus());
 			writeJson(exchange, 200, body);
 		}
 		catch (RuntimeException e)

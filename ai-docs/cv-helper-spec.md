@@ -467,6 +467,7 @@ The mob-farmer verifier panel shows status, controls, runtime details, configura
 - Bind localhost only; do not expose remote interfaces.
 - Avoid automating gameplay directly in the plugin until the helper contract is stable. The first goal is geometry/export, not action execution.
 - Docs and Linear should be updated whenever the API shape changes.
+- Action/debug hotkeys must fail closed around text input and window focus. Default OSRS chat visibility is part of the guard even when `CHATINPUT` is still empty; RuneLite's redacted `Press Enter to Chat...` prompt state distinguishes locked chat from active typing. Swing text focus, meslayer mode/input, and inactive RuneLite windows also suppress normal hotkeys. Panic stop intentionally bypasses this guard. Redacted diagnostics live under `/status.hotkeyGuard`.
 
 ## Next Implementation Slice
 
