@@ -140,7 +140,7 @@ import okhttp3.Response;
 	name = "CV Helper (Modular)",
 	description = "Highlights hovered UI areas and prepares coordinate capture for CV extraction.",
 	tags = {"overlay", "ui", "coordinates", "debug"},
-	enabledByDefault = false
+	enabledByDefault = true
 )
 @Slf4j
 public class CvHelperModPlugin extends Plugin
