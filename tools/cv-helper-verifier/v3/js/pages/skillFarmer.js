@@ -4,7 +4,7 @@
  * candidate table, Inventory & Drop Policy, Candidate Summary stat cards, Run &
  * Status — plus the shared 2D path grid. Mount-once + per-cell patching.
  * ========================================================================== */
-import { panel, metric, kvList, table, idChip, badge, gpValue } from "../components.js";
+import { panel, metric, kvList, table, idChip, badge, gpValue, itemValue } from "../components.js";
 import { icon, refreshIcons, itemIcon, objectIcon } from "../icons.js";
 import { escapeHtml, formatGp, formatRelativeTime, selectedValue, humanizeAction, decisionTone, compass, compassLong } from "../format.js";
 import { buildPathGrid, gridSignature, getGridRadius } from "../pathGrid.js";
@@ -131,8 +131,9 @@ function dropPolicy(dp, inv) {
 	const dropList = cands.length
 		? `<div class="drop-cands"><div class="drop-cands-h">Drop Candidates (${cands.length})</div>${cands.slice(0, 5).map((d) => {
 			const itemId = d.id ?? d.itemId;
-			const itemIconHtml = itemIcon(itemId, d.name, "sm");
-			return `<div class="drop-cand"><span class="dc-name">${itemIconHtml} ${escapeHtml(d.name || "item")} <small>${idChip(itemId)}</small></span><span class="dc-meta">×${escapeHtml(d.quantity ?? 1)} · ${gpValue(num(d.gePriceEach) ?? num(d.gePrice))}</span></div>`;
+			const dropName = d.itemName ?? d.name ?? "item";
+			const itemIconHtml = itemIcon(itemId, dropName, "sm");
+			return `<div class="drop-cand"><span class="dc-name">${itemIconHtml} ${escapeHtml(dropName)} <small>${idChip(itemId)}</small></span><span class="dc-meta">×${escapeHtml(d.quantity ?? 1)} · ${itemValue(d.totalGeValue, d.geValue, d.quantity)}</span></div>`;
 		}).join("")}</div>`
 		: `<p class="empty compact">No drop candidates.</p>`;
 	return `<div class="dp-head"><span class="gilt-label">Policy Status</span>${status}</div>${rows}${policyChips(dp)}${dropList}`;

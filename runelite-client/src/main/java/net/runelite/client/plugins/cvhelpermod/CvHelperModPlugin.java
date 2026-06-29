@@ -140,7 +140,7 @@ import okhttp3.Response;
 	name = "CV Helper (Modular)",
 	description = "Highlights hovered UI areas and prepares coordinate capture for CV extraction.",
 	tags = {"overlay", "ui", "coordinates", "debug"},
-	enabledByDefault = false
+	enabledByDefault = true
 )
 @Slf4j
 public class CvHelperModPlugin extends Plugin
@@ -166,6 +166,12 @@ public class CvHelperModPlugin extends Plugin
 	// Hard safety ceiling on objects evaluated per scan, independent of the
 	// user-configurable maxCandidates display cap (see collectSkillFarmerObjects).
 	protected static final int SKILL_FARMER_HARD_CAP = 500;
+	// Ceiling on how many nearest matching objects get a per-tick pathfinding BFS. The BFS is the
+	// expensive part of a scan; running it for EVERY match froze FPS when the target is a common
+	// tree/rock (e.g. oak), which has dozens of matches in range. The nearest reachable target is
+	// effectively always among the nearest handful by straight-line distance, so capping the BFS
+	// count keeps selection correct while bounding cost. The effective cap is min(this, maxCandidates).
+	protected static final int SKILL_FARMER_MAX_PATHFINDS = 16;
 	protected static final String MOB_FARMER_IMPLICIT_NEVER_DROP_ITEMS = String.join("|",
 		"rune pouch",
 		"coins",
@@ -3922,6 +3928,16 @@ public class CvHelperModPlugin extends Plugin
 		updatePanelStatus("Mob farmer target: " + mobFarmerTarget);
 	}
 
+	String getMobFarmerTargetBlacklist()
+	{
+		return config.mobFarmerTargetBlacklist() == null ? "" : config.mobFarmerTargetBlacklist().trim();
+	}
+
+	void setMobFarmerTargetBlacklist(String items)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_TARGET_BLACKLIST, items == null ? "" : items.trim());
+	}
+
 	String getWoodcuttingFarmerTarget()
 	{
 		return woodcuttingFarmerTarget;
@@ -4826,6 +4842,7 @@ public class CvHelperModPlugin extends Plugin
 	{
 		Map<String, Object> settings = new LinkedHashMap<>();
 		settings.put("target", getMobFarmerTarget());
+		settings.put("targetBlacklist", getMobFarmerTargetBlacklist());
 		settings.put("recoveryLoopDelayMs", getMobFarmerRecoveryLoopDelayMs());
 		settings.put("autorunEnabled", getMobFarmerAutorunEnabled());
 		settings.put("autorunMinEnergy", getMobFarmerAutorunMinEnergy());
@@ -4901,6 +4918,7 @@ public class CvHelperModPlugin extends Plugin
 	{
 		List<Map<String, Object>> schema = new ArrayList<>();
 		schema.add(settingSchema("target", "Mob targets", "text", "Partial NPC name, id:<npc id>, or a list separated by |, comma, semicolon, or newlines.", null));
+		schema.add(settingSchema("targetBlacklist", "Never-attack mobs", "text", "NPCs to never attack even if they match the target (wins over the target list). Same format as Mob targets.", null));
 		schema.add(settingSchema("recoveryLoopDelayMs", "Recovery delay ms", "number", "Wall-clock delay for logged-out recovery and manual loop sleeps. Logged-in farming is game-tick driven.", null));
 		schema.add(settingSchema("autorunEnabled", "Auto-run on", "boolean", "Click the run orb when run is off and energy reaches the threshold. Never toggles run off.", null));
 		schema.add(settingSchema("autorunMinEnergy", "Run energy %", "number", "Minimum run energy percent required before auto-run toggles on.", null));
@@ -5035,6 +5053,7 @@ public class CvHelperModPlugin extends Plugin
 		List<String> errors = new ArrayList<>();
 		List<Runnable> updates = new ArrayList<>();
 		applyStringSetting(settings, "target", updates, this::setMobFarmerTarget);
+		applyStringSetting(settings, "targetBlacklist", updates, this::setMobFarmerTargetBlacklist);
 		applyIntSetting(settings, "recoveryLoopDelayMs", updates, this::setMobFarmerRecoveryLoopDelayMs, errors);
 		applyBooleanSetting(settings, "autorunEnabled", updates, this::setMobFarmerAutorunEnabled, errors);
 		applyIntSetting(settings, "autorunMinEnergy", updates, this::setMobFarmerAutorunMinEnergy, errors);
@@ -10257,25 +10276,38 @@ public class CvHelperModPlugin extends Plugin
 				{
 					for (GameObject object : gameObjects)
 					{
-						Map<String, Object> candidate = skillFarmerObjectTarget(skill, object, targetText, action, localPlayer);
+						Map<String, Object> candidate = skillFarmerObjectTarget(skill, object, targetText, action, localPlayer, false);
 						if (candidate != null)
 						{
 							objects.add(candidate);
 						}
 					}
 				}
-				addSkillFarmerCandidate(objects, skillFarmerObjectTarget(skill, tile.getWallObject(), targetText, action, localPlayer));
-				addSkillFarmerCandidate(objects, skillFarmerObjectTarget(skill, tile.getDecorativeObject(), targetText, action, localPlayer));
-				addSkillFarmerCandidate(objects, skillFarmerObjectTarget(skill, tile.getGroundObject(), targetText, action, localPlayer));
+				addSkillFarmerCandidate(objects, skillFarmerObjectTarget(skill, tile.getWallObject(), targetText, action, localPlayer, false));
+				addSkillFarmerCandidate(objects, skillFarmerObjectTarget(skill, tile.getDecorativeObject(), targetText, action, localPlayer, false));
+				addSkillFarmerCandidate(objects, skillFarmerObjectTarget(skill, tile.getGroundObject(), targetText, action, localPlayer, false));
 			}
 		}
 		objects = deduplicateSkillFarmerCandidates(objects);
 		objects.sort((left, right) -> Integer.compare(intValue(left.get("distance"), Integer.MAX_VALUE), intValue(right.get("distance"), Integer.MAX_VALUE)));
-		// Every reachable object within the scan radius must be evaluated so the best
-		// valid target is never hidden behind nearer stale/depleted/unreachable ones;
-		// maxCandidates is a display cap applied later in selectSkillFarmerObject, not
-		// an evaluation cap here. SKILL_FARMER_HARD_CAP is just a CPU/memory safety
-		// valve for pathological scan radii, well above any realistic maxCandidates.
+		// The scan above matched objects cheaply (name/action/visibility) but DEFERRED the
+		// expensive interaction-area BFS. Now pathfind only the nearest few matches -- the nearest
+		// reachable target is effectively always among them by straight-line distance, so this keeps
+		// selection correct while turning "one BFS per matching tree" (which froze FPS on common
+		// targets like oak) into a small fixed cost per tick. Candidates beyond the cap keep their
+		// "pathing-deferred" reason and stay non-selectable. The transient __footprint is stripped
+		// here so it never reaches JSON serialization.
+		int pathfindCap = Math.min(getSkillFarmerMaxCandidates(skill), SKILL_FARMER_MAX_PATHFINDS);
+		int pathed = 0;
+		for (Map<String, Object> candidate : objects)
+		{
+			if (pathed < pathfindCap && listValue(candidate.get("reasons")).contains("pathing-deferred"))
+			{
+				evaluateDeferredSkillFarmerPathing(candidate, skill, localPlayer);
+				pathed++;
+			}
+			candidate.remove("__footprint");
+		}
 		return objects.size() > SKILL_FARMER_HARD_CAP ? new ArrayList<>(objects.subList(0, SKILL_FARMER_HARD_CAP)) : objects;
 	}
 
@@ -10466,6 +10498,18 @@ public class CvHelperModPlugin extends Plugin
 
 	private Map<String, Object> skillFarmerObjectTarget(String skill, TileObject object, String targetText, String action, Player localPlayer)
 	{
+		return skillFarmerObjectTarget(skill, object, targetText, action, localPlayer, true);
+	}
+
+	/**
+	 * Build a skill-farmer candidate for one object. When {@code evaluatePathing} is false the
+	 * expensive interaction-area BFS is deferred (the object's footprint is stashed under the
+	 * transient {@code __footprint} key and a {@code pathing-deferred} reason is added); the caller
+	 * then pathfinds only the nearest few via {@link #evaluateDeferredSkillFarmerPathing}. This is
+	 * what keeps a common target (oak) from firing one BFS per matching tree every tick.
+	 */
+	private Map<String, Object> skillFarmerObjectTarget(String skill, TileObject object, String targetText, String action, Player localPlayer, boolean evaluatePathing)
+	{
 		if (object == null || object.getId() <= 0)
 		{
 			return null;
@@ -10559,32 +10603,19 @@ public class CvHelperModPlugin extends Plugin
 		target.put("targetText", targetText);
 		if (targetMatch && actionMatch && visible)
 		{
-			InteractionPathingResult pathing = pathfinding.pathDistanceToInteractionArea(localPlayer, objectFootprint, Math.max(SKILL_FARMER_PATH_SEARCH_TILES, getSkillFarmerScanRadius(skill)));
-			target.put("reachable", pathing.reachable);
-			target.put("pathDistance", pathing.reachable ? pathing.pathDistance : null);
-			target.put("interactionPathDistance", pathing.reachable ? pathing.pathDistance : null);
-			target.put("interactionReachable", pathing.reachable);
-			target.put("interactionTile", pointValue(pathing.interactionTile));
-			target.put("evaluatedInteractionTiles", pathing.evaluatedInteractionTiles);
-			target.put("walkableInteractionTiles", pathing.walkableInteractionTiles);
-			target.put("blockedInteractionTiles", pathing.blockedInteractionTiles);
-			target.put("blockedByCollision", pathing.blockedByCollision);
-			target.put("blockedByScene", pathing.blockedByScene);
-			target.put("pathSearchLimit", pathing.searchLimit);
-			target.put("pathVisited", pathing.visited);
-			target.put("pathFailureReason", pathing.failureReason);
-			target.put("doorTransition", pathing.doorTransition);
-			target.put("transitionRoute", pathing.transitionRoute);
-			target.put("transitionCount", pathing.transitionCount);
-			target.put("routeDepth", pathing.routeDepth);
-			target.put("failedTransitionIndex", pathing.failedTransitionIndex);
-			target.put("blockedByDoor", pathing.blockedByDoor);
-			target.put("manualActionRequired", pathing.manualActionRequired);
-			target.put("manualActionReason", pathing.manualActionReason);
-			target.put("blockingDoor", pathing.blockingDoor);
-			if (!pathing.reachable)
+			if (evaluatePathing)
 			{
-				reasons.add(pathing.manualActionRequired ? "manual-action-required:" + pathing.manualActionReason : "unreachable:" + pathing.failureReason);
+				InteractionPathingResult pathing = pathfinding.pathDistanceToInteractionArea(localPlayer, objectFootprint, Math.max(SKILL_FARMER_PATH_SEARCH_TILES, getSkillFarmerScanRadius(skill)));
+				applySkillFarmerPathing(target, reasons, pathing);
+			}
+			else
+			{
+				// Defer the BFS -- the scan pathfinds only the nearest few matches afterwards.
+				// __footprint is transient and stripped before the candidate is returned/serialized.
+				target.put("__footprint", objectFootprint);
+				target.put("reachable", false);
+				target.put("pathDistance", null);
+				reasons.add("pathing-deferred");
 			}
 		}
 		else
@@ -10606,6 +10637,62 @@ public class CvHelperModPlugin extends Plugin
 		target.put("selectable", reasons.isEmpty());
 		target.put("reasons", reasons);
 		return target;
+	}
+
+	/** Apply an interaction-area pathing result onto a skill-farmer candidate map. */
+	private void applySkillFarmerPathing(Map<String, Object> target, List<String> reasons, InteractionPathingResult pathing)
+	{
+		target.put("reachable", pathing.reachable);
+		target.put("pathDistance", pathing.reachable ? pathing.pathDistance : null);
+		target.put("interactionPathDistance", pathing.reachable ? pathing.pathDistance : null);
+		target.put("interactionReachable", pathing.reachable);
+		target.put("interactionTile", pointValue(pathing.interactionTile));
+		target.put("evaluatedInteractionTiles", pathing.evaluatedInteractionTiles);
+		target.put("walkableInteractionTiles", pathing.walkableInteractionTiles);
+		target.put("blockedInteractionTiles", pathing.blockedInteractionTiles);
+		target.put("blockedByCollision", pathing.blockedByCollision);
+		target.put("blockedByScene", pathing.blockedByScene);
+		target.put("pathSearchLimit", pathing.searchLimit);
+		target.put("pathVisited", pathing.visited);
+		target.put("pathFailureReason", pathing.failureReason);
+		target.put("doorTransition", pathing.doorTransition);
+		target.put("transitionRoute", pathing.transitionRoute);
+		target.put("transitionCount", pathing.transitionCount);
+		target.put("routeDepth", pathing.routeDepth);
+		target.put("failedTransitionIndex", pathing.failedTransitionIndex);
+		target.put("blockedByDoor", pathing.blockedByDoor);
+		target.put("manualActionRequired", pathing.manualActionRequired);
+		target.put("manualActionReason", pathing.manualActionReason);
+		target.put("blockingDoor", pathing.blockingDoor);
+		if (!pathing.reachable)
+		{
+			reasons.add(pathing.manualActionRequired ? "manual-action-required:" + pathing.manualActionReason : "unreachable:" + pathing.failureReason);
+		}
+	}
+
+	/**
+	 * Run the deferred interaction-area BFS for a candidate built with {@code evaluatePathing=false}
+	 * and recompute its {@code selectable} flag. Reads (and the caller then clears) the transient
+	 * {@code __footprint}.
+	 */
+	private void evaluateDeferredSkillFarmerPathing(Map<String, Object> candidate, String skill, Player localPlayer)
+	{
+		List<String> reasons = listValue(candidate.get("reasons"));
+		reasons.remove("pathing-deferred");
+		Object footprint = candidate.get("__footprint");
+		if (!(footprint instanceof WorldArea) || localPlayer == null)
+		{
+			candidate.put("reachable", false);
+			candidate.put("pathDistance", null);
+			reasons.add("unreachable:no-footprint");
+			candidate.put("selectable", false);
+			candidate.put("reasons", reasons);
+			return;
+		}
+		InteractionPathingResult pathing = pathfinding.pathDistanceToInteractionArea(localPlayer, (WorldArea) footprint, Math.max(SKILL_FARMER_PATH_SEARCH_TILES, getSkillFarmerScanRadius(skill)));
+		applySkillFarmerPathing(candidate, reasons, pathing);
+		candidate.put("selectable", reasons.isEmpty());
+		candidate.put("reasons", reasons);
 	}
 
 	private boolean matchesTargetText(String name, int id, String targetText)
@@ -11650,6 +11737,14 @@ public class CvHelperModPlugin extends Plugin
 		int distance = entity.get("distance") instanceof Number ? ((Number) entity.get("distance")).intValue() : Integer.MAX_VALUE;
 		candidate.score = distance;
 
+		// Never-attack list wins over the target list: reject a blacklisted NPC even if it also
+		// matches the target (e.g. "spider" targeted, "deadly red spider" blacklisted).
+		String targetBlacklist = getMobFarmerTargetBlacklist();
+		if (!targetBlacklist.isEmpty() && matchesAnyMobTarget(npc, targetBlacklist))
+		{
+			candidate.reject("blacklisted");
+			return candidate;
+		}
 		if (!matchesAnyMobTarget(npc, mobFarmerTarget))
 		{
 			candidate.reject("target-mismatch");

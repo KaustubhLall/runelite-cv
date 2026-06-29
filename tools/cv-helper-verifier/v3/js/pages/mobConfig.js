@@ -11,7 +11,7 @@ import { escapeHtml, formatError, structuredRows } from "../format.js";
 let configPayload = null;   // { schema:[{key,label,type,description,options}], settings:{} }
 
 /* Which schema keys appear on each focused tab. Configuration shows all. */
-const TARGETING_KEYS = ["target", "maxDistance", "requireLineOfSight", "engagedMode", "aggroResponse", "afterLootCombatMode", "attackInteractionMode", "lootInteractionMode"];
+const TARGETING_KEYS = ["target", "targetBlacklist", "maxDistance", "requireLineOfSight", "engagedMode", "aggroResponse", "afterLootCombatMode", "attackInteractionMode", "lootInteractionMode"];
 const POLICY_KEYS = [
 	"lootEnabled", "lootDuringCombat", "attackBeforeLoot", "lootMinValueGe", "lootMinSingleGe", "lootMinStackGe",
 	"lootMinStackQuantity", "lootAlwaysStackGe", "lootNeverStackBelowGe", "highPriorityLootValueGe", "lootUrgentDespawnTicks",

@@ -121,10 +121,10 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 
 @PluginDescriptor(
-	name = "CV Helper",
-	description = "Highlights hovered UI areas and prepares coordinate capture for CV extraction.",
+	name = "CV Helper (Legacy)",
+	description = "Deprecated monolithic CV Helper. Superseded by \"CV Helper (Modular)\"; kept for reference only.",
 	tags = {"overlay", "ui", "coordinates", "debug"},
-	enabledByDefault = true
+	enabledByDefault = false
 )
 @Slf4j
 public class CvHelperPlugin extends Plugin

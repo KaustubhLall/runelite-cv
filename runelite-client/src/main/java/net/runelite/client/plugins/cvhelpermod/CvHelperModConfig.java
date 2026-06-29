@@ -121,6 +121,7 @@ public interface CvHelperModConfig extends Config
 	String ANTI_IDLE_RESTORE_MOUSE = "antiIdleRestoreMouse";
 
 	String MOB_FARMER_TARGET = "mobFarmerTarget";
+	String MOB_FARMER_TARGET_BLACKLIST = "mobFarmerTargetBlacklist";
 	String MOB_FARMER_RECOVERY_LOOP_DELAY_MS = "mobFarmerRecoveryLoopDelayMs";
 	String MOB_FARMER_AUTORUN_ENABLED = "mobFarmerAutorunEnabled";
 	String MOB_FARMER_AUTORUN_MIN_ENERGY = "mobFarmerAutorunMinEnergy";
@@ -592,6 +593,17 @@ public interface CvHelperModConfig extends Config
 	default String mobFarmerTarget()
 	{
 		return "cow";
+	}
+
+	@ConfigItem(
+		keyName = MOB_FARMER_TARGET_BLACKLIST,
+		name = "Never-attack mobs",
+		description = "NPCs to never attack even if they match the target. Same format (name, id:<npc id>, separated by |, comma, semicolon, or newlines). Wins over the target list.",
+		section = mobFarmerSection
+	)
+	default String mobFarmerTargetBlacklist()
+	{
+		return "";
 	}
 
 	@ConfigItem(

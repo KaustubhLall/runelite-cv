@@ -482,6 +482,8 @@ class CvHelperModPanel extends PluginPanel
 
 		JTextField target = new JTextField(plugin.getMobFarmerTarget());
 		target.setToolTipText("Partial name or id:<npc id>, for example cow or id:2790");
+		JTextField targetBlacklist = new JTextField(plugin.getMobFarmerTargetBlacklist());
+		targetBlacklist.setToolTipText("NPCs to never attack even if they match the target (wins over the target). Same format, e.g. deadly red spider|id:1234");
 		JComboBox<CvHelperMobEngagedMode> engagedMode = new JComboBox<>(CvHelperMobEngagedMode.values());
 		engagedMode.setSelectedItem(plugin.getMobFarmerEngagedMode());
 		engagedMode.addActionListener(e -> plugin.setMobFarmerEngagedMode((CvHelperMobEngagedMode) engagedMode.getSelectedItem()));
@@ -607,6 +609,7 @@ class CvHelperModPanel extends PluginPanel
 		saveGuards.addActionListener(e ->
 		{
 			plugin.setMobFarmerTarget(target.getText());
+			plugin.setMobFarmerTargetBlacklist(targetBlacklist.getText());
 			plugin.setMobFarmerEngagedMode((CvHelperMobEngagedMode) engagedMode.getSelectedItem());
 			plugin.setMobFarmerAggroResponse((CvHelperMobAggroResponse) aggroResponse.getSelectedItem());
 			plugin.setMobFarmerRequireLineOfSight(requireLineOfSight.isSelected());
@@ -689,6 +692,8 @@ class CvHelperModPanel extends PluginPanel
 			help,
 			label("Mob target"),
 			target,
+			label("Never-attack mobs"),
+			targetBlacklist,
 			label("Already-engaged mobs"),
 			engagedMode,
 			label("Undesired attacker"),
