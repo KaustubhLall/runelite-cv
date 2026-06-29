@@ -15,17 +15,20 @@ const TARGETING_KEYS = ["target", "maxDistance", "requireLineOfSight", "engagedM
 const POLICY_KEYS = [
 	"lootEnabled", "lootDuringCombat", "attackBeforeLoot", "lootMinValueGe", "lootMinSingleGe", "lootMinStackGe",
 	"lootMinStackQuantity", "lootAlwaysStackGe", "lootNeverStackBelowGe", "highPriorityLootValueGe", "lootUrgentDespawnTicks",
-	"lootCleanupPileCount", "lootRadius", "lootItems", "lootBlacklist", "lootOwnershipMode", "groundItemsMode",
-	"respectGroundItemsHidden", "intermediateActionsEnabled", "intermediateItems", "intermediateActionMappings",
-	"neverDropItems", "highAlchEnabled", "highAlchMinHa", "highAlchMinDelta", "highAlchMaxLoss", "highAlchItems", "highAlchBlacklist",
+	"lootCleanupPileCount", "lootRadius", "highPriorityLootRadius", "normalLootMaxMissedAttacks", "lootItems", "lootBlacklist", "lootOwnershipMode", "groundItemsMode",
+	"respectGroundItemsHidden", "intermediateActionsEnabled", "intermediateItems", "intermediateActionMappings", "minBuryBatch", "combatInterruptItems",
+	"neverDropItems", "dropItems", "maxDropValue", "highAlchEnabled", "highAlchMinHa", "highAlchMinDelta", "highAlchMaxLoss", "highAlchItems", "highAlchBlacklist",
 ];
+const COMBAT_CADENCE_KEYS = ["attackIntervalTicks", "confirmAttackBeforeInterrupt", "attackConfirmTimeoutTicks", "combatStallTicks", "attackStyleSlot", "combatInterruptItems"];
 const SECTIONS = [
 	{ title: "Targeting", keys: TARGETING_KEYS },
+	{ title: "Combat cadence", keys: COMBAT_CADENCE_KEYS },
 	{ title: "Survival & Run", keys: ["autoEatEnabled", "eatHitpointPercent", "foodItems", "stopIfNoFood", "survivalPreemptsActions", "autorunEnabled", "autorunMinEnergy", "recoveryLoopDelayMs", "focusClickAfterLogin", "panicStopHotkey"] },
-	{ title: "Login Recovery", keys: ["loginRecoveryEnabled", "loginRecoveryF2pOnly", "loginClickToPlayEnabled", "loginDisconnectRecoveryEnabled", "autoResumeAfterLogin", "preferredLoginWorld"] },
+	{ title: "Login Recovery", keys: ["loginRecoveryEnabled", "loginRecoveryF2pOnly", "loginClickToPlayEnabled", "loginDisconnectRecoveryEnabled", "loginClickOffsetX", "loginClickOffsetY", "autoResumeAfterLogin", "preferredLoginWorld"] },
 	{ title: "Pathing", keys: ["doorAutoOpenEnabled", "doorAutoCloseEnabled", "doorAllowlist", "doorDenylist"] },
-	{ title: "Looting", keys: ["lootEnabled", "lootDuringCombat", "attackBeforeLoot", "lootMinValueGe", "lootMinSingleGe", "lootMinStackGe", "lootMinStackQuantity", "lootAlwaysStackGe", "lootNeverStackBelowGe", "highPriorityLootValueGe", "lootUrgentDespawnTicks", "lootCleanupPileCount", "lootRadius", "lootItems", "lootBlacklist", "lootOwnershipMode", "groundItemsMode", "respectGroundItemsHidden"] },
-	{ title: "Intermediate Actions", keys: ["intermediateActionsEnabled", "intermediateItems", "intermediateActionMappings", "neverDropItems"] },
+	{ title: "Looting", keys: ["lootEnabled", "lootDuringCombat", "attackBeforeLoot", "lootMinValueGe", "lootMinSingleGe", "lootMinStackGe", "lootMinStackQuantity", "lootAlwaysStackGe", "lootNeverStackBelowGe", "highPriorityLootValueGe", "lootUrgentDespawnTicks", "lootCleanupPileCount", "lootRadius", "highPriorityLootRadius", "normalLootMaxMissedAttacks", "lootItems", "lootBlacklist", "lootOwnershipMode", "groundItemsMode", "respectGroundItemsHidden"] },
+	{ title: "Inventory replacement", keys: ["neverDropItems", "dropItems", "maxDropValue"] },
+	{ title: "Intermediate Actions", keys: ["intermediateActionsEnabled", "intermediateItems", "intermediateActionMappings", "minBuryBatch"] },
 	{ title: "High Alchemy", keys: ["highAlchEnabled", "highAlchMinHa", "highAlchMinDelta", "highAlchMaxLoss", "highAlchItems", "highAlchBlacklist"] },
 ];
 
@@ -153,6 +156,10 @@ export function renderMobDebug(mobStatus) {
 			${block("Decision", "brain", s.decision)}
 			${block("Death-loot Timing", "skull", s.deathLootTiming)}
 			${block("Reattach After Pickup", "repeat", s.reattachAfterPickup)}
+		</div>
+		<div class="grid cols-3" style="margin-bottom:var(--gap)">
+			${block("Combat Cadence", "swords", s.combatCadence)}
+			${block("Attack Confirm", "shield", s.combatCadence && s.combatCadence.attackConfirm)}
 		</div>
 		${panel({ title: "Raw mob-farmer payload", iconName: "scroll-text", flush: true, body: `<details><summary class="raw-summary">full JSON</summary><pre class="raw-json">${escapeHtml(JSON.stringify(s, null, 2))}</pre></details>` })}`;
 	const sig = html.length + ":" + JSON.stringify(s.scheduler || {}).length;

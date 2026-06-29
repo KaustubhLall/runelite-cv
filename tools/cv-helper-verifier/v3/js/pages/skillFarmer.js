@@ -4,8 +4,8 @@
  * candidate table, Inventory & Drop Policy, Candidate Summary stat cards, Run &
  * Status — plus the shared 2D path grid. Mount-once + per-cell patching.
  * ========================================================================== */
-import { panel, metric, kvList, table, idChip, badge } from "../components.js";
-import { icon, refreshIcons, itemIcon } from "../icons.js";
+import { panel, metric, kvList, table, idChip, badge, gpValue } from "../components.js";
+import { icon, refreshIcons, itemIcon, objectIcon } from "../icons.js";
 import { escapeHtml, formatGp, formatRelativeTime, selectedValue, humanizeAction, decisionTone, compass, compassLong } from "../format.js";
 import { buildPathGrid, gridSignature, getGridRadius } from "../pathGrid.js";
 
@@ -13,6 +13,7 @@ const arr = (v) => (Array.isArray(v) ? v : []);
 const obj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
 const num = (v) => (typeof v === "number" ? v : undefined);
 const yesno = (v) => (v === true ? `<span class="cell-yes">yes</span>` : v === false ? `<span class="cell-skip">no</span>` : "—");
+const str = (v) => (typeof v === "string" ? v : "");
 
 function setCell(id, html) {
 	const el = document.getElementById(id);
@@ -31,14 +32,14 @@ const tile = (w) => (w ? `${w.x}, ${w.y}` : "—");
 function metricStrip(skill, s, sel, inv, player) {
 	const action = humanizeAction(s.currentAction || s.decision);
 	return `
-		${metric({ iconName: skill === "mining" ? "pickaxe" : "trees", label: "Selected", value: escapeHtml(sel.name || "—"), sub: sel.id ? `obj ${idChip(sel.id)}` : "none" })}
+		${metric({ iconHtml: (skill === "mining" || skill === "woodcutting") ? objectIcon(sel.id, sel.name, "sm") : icon(skill === "woodcutting" ? "trees" : "pickaxe", ""), label: "Selected", value: escapeHtml(sel.name || "—"), sub: sel.id ? `obj ${idChip(sel.id)}` : "none" })}
 		${metric({ iconName: "swords", label: "Action", value: action.label, tone: action.tone, sub: escapeHtml(String(s.currentAction || "")) })}
 		${metric({ iconName: "route", label: "Path Distance", value: sel.pathDistance !== undefined ? `${sel.pathDistance} tiles` : "—", tone: sel.reachable === false ? "bad" : "good" })}
 		${metric({ iconName: "check-circle", label: "Reachable", value: sel.reachable === true ? "Yes" : sel.reachable === false ? "No" : "—", tone: sel.reachable ? "good" : sel.reachable === false ? "bad" : "" })}
 		${metric({ iconName: "radar", label: "Scan Radius", value: `${selectedValue(s.scanRadiusTiles, "—")} tiles` })}
 		${metric({ iconName: "backpack", label: "Free Slots", value: `${selectedValue(inv.freeSlots, "—")} / ${selectedValue(inv.slotCount, 28)}`, tone: inv.full ? "warn" : "good" })}
-		${metric({ iconName: "coins", label: "Inventory GE", value: formatGp(num(inv.gePrice)), tone: "gold" })}
-		${metric({ iconName: "wand-2", label: "Inventory HA", value: formatGp(num(inv.haPrice)), tone: "gold" })}`;
+		${metric({ iconHtml: gpValue(num(inv.gePrice)), label: "Inventory GE", value: "", tone: "" })}
+		${metric({ iconHtml: gpValue(num(inv.haPrice)), label: "Inventory HA", value: "", tone: "" })}`;
 }
 
 function selectedDetails(sel) {
@@ -64,7 +65,7 @@ function candidateTable(candidates, sel) {
 			cls: isSel ? "row-sel" : c.reachable === false ? "row-bad" : c.selectable ? "row-good" : "",
 			cells: [
 				`${i + 1}`,
-				escapeHtml(c.name || c.label || "object"),
+				`${objectIcon(c.id, c.name || c.label, "sm")} ${escapeHtml(c.name || c.label || "object")}`,
 				idChip(c.id) || "—",
 				escapeHtml(tile(c.worldLocation)),
 				escapeHtml(selectedValue(c.distance, "—")),
@@ -84,6 +85,38 @@ function candidateTable(candidates, sel) {
 	], rows, empty: "No candidates in scan radius." });
 }
 
+function parsePolicyList(v) {
+	const s = str(v).trim();
+	if (!s) return [];
+	return s.split(/[|,;\r\n]+/).map((t) => t.trim()).filter(Boolean);
+}
+
+function policyChip(item, type) {
+	const cls = type === "allow" ? "allow" : "protect";
+	const ico = type === "allow" ? "check" : "shield";
+	const label = type === "allow" ? "Allowed to drop" : "Protected / never drop";
+	const name = item.name || item;
+	const itemId = item.id || -1;
+	const hasIcon = itemId > 0;
+	
+	// Use item icon if we have a valid ID, otherwise use generic icon
+	const iconHtml = hasIcon ? itemIcon(itemId, name, "policy-item-icon") : icon(ico);
+	const noIconClass = hasIcon ? "" : "has-no-icon";
+	return `<span class="policy-chip ${cls} ${noIconClass}" title="${escapeHtml(label)}: ${escapeHtml(name)}">${iconHtml} <span class="policy-label">${escapeHtml(name)}</span></span>`;
+}
+
+function policyChips(dp) {
+	const allow = dp.configuredAllowlistItems || parsePolicyList(dp.configuredAllowlist).map((name) => ({ name, id: -1 }));
+	const protect = dp.configuredProtectedItems || parsePolicyList(dp.configuredProtected).map((name) => ({ name, id: -1 }));
+	const allowSection = allow.length
+		? `<div class="policy-h"><i data-lucide="check"></i> Allowed to drop (${allow.length})</div><div class="policy-chips allow">${allow.map((item) => policyChip(item, "allow")).join("")}</div>`
+		: `<div class="policy-h"><i data-lucide="check"></i> Allowed to drop</div><p class="policy-empty">Any non-protected item below max value is droppable.</p>`;
+	const protectSection = protect.length
+		? `<div class="policy-h"><i data-lucide="shield"></i> Protected / never drop (${protect.length})</div><div class="policy-chips protect">${protect.slice(0, 16).map((item) => policyChip(item, "protect")).join("")}${protect.length > 16 ? `<span class="policy-more">+${protect.length - 16} more</span>` : ""}</div>`
+		: `<div class="policy-h"><i data-lucide="shield"></i> Protected / never drop</div><p class="policy-empty">No protected list configured; only built-in safeguards apply.</p>`;
+	return `<div class="policy-lists">${allowSection}${protectSection}</div>`;
+}
+
 function dropPolicy(dp, inv) {
 	const cands = arr(dp.candidates);
 	const status = dp.enabled ? badge("Active", "good") : badge("Idle", "");
@@ -99,10 +132,10 @@ function dropPolicy(dp, inv) {
 		? `<div class="drop-cands"><div class="drop-cands-h">Drop Candidates (${cands.length})</div>${cands.slice(0, 5).map((d) => {
 			const itemId = d.id ?? d.itemId;
 			const itemIconHtml = itemIcon(itemId, d.name, "sm");
-			return `<div class="drop-cand"><span class="dc-name">${itemIconHtml} ${escapeHtml(d.name || "item")} <small>${idChip(itemId)}</small></span><span class="dc-meta">×${escapeHtml(d.quantity ?? 1)} · ${formatGp(num(d.gePriceEach) ?? num(d.gePrice))}</span></div>`;
+			return `<div class="drop-cand"><span class="dc-name">${itemIconHtml} ${escapeHtml(d.name || "item")} <small>${idChip(itemId)}</small></span><span class="dc-meta">×${escapeHtml(d.quantity ?? 1)} · ${gpValue(num(d.gePriceEach) ?? num(d.gePrice))}</span></div>`;
 		}).join("")}</div>`
 		: `<p class="empty compact">No drop candidates.</p>`;
-	return `<div class="dp-head"><span class="gilt-label">Policy Status</span>${status}</div>${rows}${dropList}`;
+	return `<div class="dp-head"><span class="gilt-label">Policy Status</span>${status}</div>${rows}${policyChips(dp)}${dropList}`;
 }
 
 function summaryCards(sm, candidates) {
@@ -170,7 +203,7 @@ function mount(skill) {
 		<div class="skill-row2">
 			${panel({ title: "Pathing / Reachability", iconName: "compass", extra: zoomControls(), body: `<div id="${id("pathing")}"></div>` })}
 			${panel({ title: "Candidate Summary", iconName: "list", body: `<div id="${id("summary")}"></div>` })}
-			${panel({ title: "Recent Activity", iconName: "scroll-text", body: `<div id="${id("events")}"></div>` })}
+			${panel({ title: "Recent Activity", iconName: "scroll-text", className: "activity-panel", body: `<div id="${id("events")}" class="activity-body"></div>` })}
 			${panel({ title: "Run & Status", iconName: "heart-pulse", body: `<div id="${id("run")}"></div>` })}
 		</div>`;
 	refreshIcons();

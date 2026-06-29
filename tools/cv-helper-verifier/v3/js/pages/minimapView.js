@@ -37,13 +37,13 @@ function mount() {
 	if (!el || el.dataset.mounted === "1") return;
 	el.dataset.mounted = "1";
 	el.innerHTML = `
-		<div class="mf-top">
-			<div class="mf-top-left" style="grid-template-columns:1fr">
-				${panel({ title: "Lens & Scan Info", iconName: "info", body: `<div id="minimap-info"></div>` })}
-				${panel({ title: "Candidates in view", iconName: "list", extra: `<span id="minimap-candcount"></span>`, flush: true, body: `<div id="minimap-candidates"></div>` })}
-			</div>
-			<div class="mf-top-right">
+		<div class="minimap-layout">
+			<div class="minimap-main">
 				${panel({ title: "Reachability Grid", iconName: "compass", body: `<div class="path-grid-box"><div class="compass">N</div><div id="minimap-grid"></div></div><div class="path-legend" id="minimap-legend"></div>` })}
+			</div>
+			<div class="minimap-side">
+				${panel({ title: "Lens & Scan Info", iconName: "info", body: `<div id="minimap-info"></div>` })}
+				${panel({ title: "Candidates in view", iconName: "list", extra: `<span id="minimap-candcount"></span>`, flush: true, className: "candidates-panel", body: `<div id="minimap-candidates"></div>` })}
 			</div>
 		</div>`;
 	refreshIcons();
@@ -79,18 +79,22 @@ function statusBadge(c) {
 	return `<span class="badge">evaluated</span>`;
 }
 
-function candidateRow(c) {
+function candidateCard(c) {
 	const reach = c.reachable === true ? `<span class="cell-yes">yes</span>` : c.reachable === false ? `<span class="cell-skip">no</span>` : "—";
-	return `<div class="qc-row">${objectIcon(c.id, c.name || c.label, "sm")}<span class="qc-label">${escapeHtml(c.name || c.label || "object")} <small class="muted">#${escapeHtml(String(c.id ?? "—"))}</small></span><span class="muted" style="margin-right:8px">${selectedValue(c.distance, "—")} tiles</span>${statusBadge(c)}<span style="width:8px;display:inline-block"></span>${reach}</div>`;
+	const name = escapeHtml(c.name || c.label || "object");
+	return `<div class="cand-card">
+		<div class="cand-head">${objectIcon(c.id, c.name || c.label, "cand-icon")}<div class="cand-title"><span class="cand-name" title="${name}">${name}</span><span class="cand-meta">#${escapeHtml(String(c.id ?? "—"))} · ${selectedValue(c.distance, "—")} tiles</span></div></div>
+		<div class="cand-status">${statusBadge(c)}<span>${reach}</span></div>
+	</div>`;
 }
 
 function candidatesBody(candidates) {
 	if (!candidates.length) return `<p class="empty compact">No objects in range at this radius.</p>`;
-	return candidates.slice(0, 60).map(candidateRow).join("");
+	return `<div class="cand-grid">${candidates.slice(0, 60).map(candidateCard).join("")}</div>`;
 }
 
 function legendHtml(lens) {
-	const base = `<span><i class="lg-you"></i>You</span><span><i class="lg-reach"></i>Reachable</span><span><i class="lg-obstacle"></i>Obstacle</span><span><i class="lg-unreachable"></i>Unreachable</span><span><i class="lg-door-pending"></i>Pending door</span><span><i class="lg-center"></i>Object centre</span>`;
+	const base = `<span><i class="lg-you"></i>You</span><span><i class="lg-reach"></i>Reachable</span><span><i class="lg-obstacle"></i>Obstacle</span><span><i class="lg-unreachable"></i>Unreachable</span><span><i class="lg-door-pending"></i>Transition</span><span><i class="lg-multi-transition"></i>Multi-transition</span><span><i class="lg-door-blocked"></i>Manual action</span><span><i class="lg-failed-transition"></i>Failed step</span><span><i class="lg-center"></i>Object centre</span>`;
 	return lens === "scene"
 		? `${base}<span><i class="lg-target"></i>Scanned object</span>`
 		: `${base}<span><i class="lg-target"></i>Selected</span>`;

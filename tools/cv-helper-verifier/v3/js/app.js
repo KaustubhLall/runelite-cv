@@ -387,8 +387,15 @@ async function renderActiveView(status, player, auto, attempted) {
 			break;
 		}
 		case "actions": {
-			const cfg = await requestOptional("/automation/mob-farmer/config", {}, attempted);
-			renderActionsView(cfg);
+			const [cfg, ...payloads] = await Promise.all([
+				requestOptional("/automation/mob-farmer/config", {}, attempted),
+				...SURFACES.map((surface) => requestOptional(`/targets/${surface}`, {}, attempted)),
+				requestOptional("/entities", {}, attempted),
+			]);
+			const targetPayloads = {};
+			SURFACES.forEach((surface, index) => { targetPayloads[surface] = payloads[index]; });
+			targetPayloads.entities = payloads[payloads.length - 1];
+			renderActionsView(cfg, targetPayloads);
 			break;
 		}
 		case "configuration":

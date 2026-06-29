@@ -117,6 +117,45 @@ export function itemIcon(itemId, name = "", extraClass = "") {
 }
 
 /**
+ * Map a GP value to the OSRS coin stack visual item ID.
+ * OSRS uses different item models for different stack sizes.
+ * @param {number} value - GP value
+ * @returns {number} Coin item ID
+ */
+export function gpCoinItemId(value) {
+	if (typeof value !== "number") return 995;
+	const abs = Math.abs(value);
+	if (abs >= 250_000_000) return 1004; // 10000 coins pile (250m+)
+	if (abs >= 1_000_000) return 1003; // 1000 coins pile (1m-249m)
+	if (abs >= 100_000) return 1002; // 250 coins pile (100k-999k)
+	if (abs >= 25_000) return 1001; // 100 coins pile (25k-99k)
+	if (abs >= 1_000) return 1000; // 25 coins pile (1k-24k)
+	if (abs >= 2) return 999; // 5 coins pile (2-999)
+	return 995; // 1 coin
+}
+
+/**
+ * Render a GP/coin icon using the actual game coin stack item for the given value.
+ * Falls back to the coins emblem if the asset doesn't exist.
+ * @param {number} value - GP value to determine stack size
+ * @param {string} extraClass - Additional CSS classes
+ * @returns {string} HTML for the GP icon
+ */
+export function gpIcon(value = 0, extraClass = "") {
+	const cls = extraClass ? ` ${escapeHtml(extraClass)}` : "";
+	const itemId = gpCoinItemId(value);
+	const iconPath = `${ASSET_BASE}/items/${itemId}.png`;
+	
+	// Try to use the actual coin item sprite, fall back to emblem
+	return `<img 
+		src="${iconPath}" 
+		alt="GP" 
+		class="gp-icon${cls}" 
+		onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';"
+	/><span class="gp-icon-fallback" style="display:none">${icon("coins", "")}</span>`;
+}
+
+/**
  * Render an object icon from the asset library.
  * Falls back to a placeholder if the icon doesn't exist.
  * @param {number} objectId - The object ID
@@ -124,18 +163,95 @@ export function itemIcon(itemId, name = "", extraClass = "") {
  * @param {string} extraClass - Additional CSS classes
  * @returns {string} HTML for the object icon
  */
+const MINING_PRESET_FALLBACKS = {
+	"clay rocks": "clay",
+	"copper rocks": "copper-tin",
+	"tin rocks": "copper-tin",
+	"blurite rocks": "blurite",
+	"iron rocks": "iron",
+	"iron ore vein": "iron",
+	"silver rocks": "silver",
+	"coal rocks": "coal",
+	"coal ore vein": "coal",
+	"gold rocks": "gold",
+	"gold vein": "gold",
+	"mithril rocks": "mithril",
+	"mithril ore vein": "mithril",
+	"adamantite rocks": "adamantite",
+	"adamant ore vein": "adamantite",
+	"runite rocks": "runite",
+	"amethyst crystals": "amethyst",
+	"gem rocks": "gem-rocks",
+	"granite rocks": "granite",
+	"sandstone rocks": "sandstone",
+	"lovakite rocks": "lovakite",
+	"daeyalt rocks": "daeyalt",
+	"daeyalt essence": "daeyalt",
+	"limestone rock": "limestone",
+	"limestone rocks": "limestone",
+	"volcanic sulphur": "volcanic-sulphur",
+	"rune essence": "rune-essence",
+	"pure essence": "pure-essence",
+	"ancient essence crystals": "ancient-essence",
+	"ancient essence": "ancient-essence"
+};
+
+const WOODCUTTING_PRESET_FALLBACKS = {
+	"tree": "tree",
+	"oak": "oak",
+	"willow": "willow",
+	"maple": "maple",
+	"yew": "yew",
+	"magic": "magic",
+	"redwood": "redwood",
+	"dead tree": "dead-tree",
+	"dying tree": "dying-tree",
+	"evergreen": "evergreen",
+	"jungle tree": "jungle-tree",
+	"teak": "teak",
+	"mahogany": "mahogany",
+	"sulliusceps": "sulliusceps",
+	"cursed magic": "cursed-magic",
+	"arctic pine": "arctic-pine",
+	"blisterwood": "blisterwood",
+	"cave oak": "cave-oak",
+	"cave willow": "cave-willow",
+	"cave maple": "cave-maple"
+};
+
 export function objectIcon(objectId, name = "", extraClass = "") {
 	const cls = extraClass ? ` ${escapeHtml(extraClass)}` : "";
 	const safeName = escapeHtml(name || "object");
 	const iconPath = `${ASSET_BASE}/objects/${objectId}.png`;
+	const lowerName = (name || "").toLowerCase();
+
+	// Choose a context-aware fallback icon based on the object name
+	let fallbackIcon = "box";
+	if (lowerName.includes("rock") || lowerName.includes("ore") || lowerName.includes("min")) {
+		fallbackIcon = "pickaxe";
+	} else if (lowerName.includes("tree") || lowerName.includes("oak") || lowerName.includes("willow") || lowerName.includes("maple") || lowerName.includes("yew") || lowerName.includes("magic") || lowerName.includes("wood")) {
+		fallbackIcon = "trees";
+	} else if (lowerName.includes("fishing") || lowerName.includes("fish") || lowerName.includes("spot")) {
+		fallbackIcon = "fish";
+	}
+
+	// Try per-object sprite first, then sheet-based preset sprite for known mining/woodcutting objects, then Lucide fallback
+	let presetPath = "";
+	if (MINING_PRESET_FALLBACKS[lowerName]) {
+		presetPath = `${ASSET_BASE}/mining-presets/mining-preset-${MINING_PRESET_FALLBACKS[lowerName]}.png`;
+	} else if (WOODCUTTING_PRESET_FALLBACKS[lowerName]) {
+		presetPath = `${ASSET_BASE}/woodcutting-presets/woodcutting-preset-${WOODCUTTING_PRESET_FALLBACKS[lowerName]}.png`;
+	}
+	const onerror = presetPath
+		? `if (this.dataset.fallback) { this.style.display='none'; this.nextElementSibling.style.display='inline'; } else { this.dataset.fallback='1'; this.src='${presetPath}'; }`
+		: `this.style.display='none'; this.nextElementSibling.style.display='inline';`;
 	
-	// Use an img with error handling to show placeholder if icon doesn't exist
 	return `<img 
 		src="${iconPath}" 
 		alt="${safeName}" 
 		class="object-icon${cls}" 
-		onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';"
-	/><span class="object-icon-fallback" style="display:none">${icon("box", "")}</span>`;
+		onerror="${onerror}"
+	/><span class="object-icon-fallback" style="display:none">${icon(fallbackIcon, "")}</span>`;
 }
 
 /**

@@ -113,3 +113,10 @@ afterEvaluate {
         dependsOn(tasks.generateGrammarSource)
     }
 }
+
+tasks.register<JavaExec>("runObjectExport") {
+    group = "application"
+    description = "Run ObjectExportMain to export object sprites"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("net.runelite.cache.ObjectExportMain")
+}

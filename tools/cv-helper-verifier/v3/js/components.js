@@ -2,8 +2,8 @@
  * components.js — pure HTML-string builders for the themed UI atoms.
  * Every helper returns a string; callers inject and then call refreshIcons().
  * ========================================================================== */
-import { icon } from "./icons.js";
-import { escapeHtml } from "./format.js";
+import { icon, gpIcon } from "./icons.js";
+import { escapeHtml, getGpTier, formatGpValue } from "./format.js";
 
 const isHtml = (v) => typeof v === "string" && /<\/?[a-z]/i.test(v);
 const safe = (v) => (isHtml(v) ? v : escapeHtml(v));
@@ -22,13 +22,13 @@ export function panel({ title, iconName, extra = "", body = "", flush = false, c
 }
 
 /** Hero metric card for the top strip. */
-export function metric({ iconName, label, value, sub = "", tone = "", bar = null }) {
+export function metric({ iconName, iconHtml, label, value, sub = "", tone = "", bar = null }) {
 	const barHtml = bar && typeof bar.percent === "number"
 		? `<div class="m-bar"><i style="width:${Math.max(0, Math.min(100, bar.percent))}%;background:${bar.color || "var(--good)"}"></i></div>`
 		: "";
 	return `
 		<div class="metric ${tone}">
-			<span class="m-ico">${icon(iconName || "circle")}</span>
+			<span class="m-ico">${iconHtml || icon(iconName || "circle")}</span>
 			<span class="m-body">
 				<span class="m-label">${escapeHtml(label)}</span>
 				<span class="m-value ${tone}">${safe(value)}</span>
@@ -79,4 +79,16 @@ export function detailTable(rows, empty = "No data.") {
 	return `<div class="tbl-wrap"><table class="tbl">
 		<tbody>${rows.map(([k, v]) => `<tr><td class="muted">${escapeHtml(k)}</td><td>${safe(v)}</td></tr>`).join("")}</tbody>
 	</table></div>`;
+}
+
+/** GP value badge with coin icon, tier color, and tooltip. */
+export function gpValue(value, { label = "", showIcon = true, tooltip = true } = {}) {
+	if (typeof value !== "number") return `<span class="gp-value gp-muted">—</span>`;
+	const tier = getGpTier(value);
+	const compact = formatGpValue(value);
+	const rawFormatted = value.toLocaleString("en-US");
+	const iconHtml = showIcon ? `<span class="gp-ico">${gpIcon(value)}</span>` : "";
+	const labelHtml = label ? `<span class="gp-label">${escapeHtml(label)}</span>` : "";
+	const tooltipAttr = tooltip ? `title="${rawFormatted} GP"` : "";
+	return `<span class="gp-badge ${tier.colorClass}" ${tooltipAttr}>${iconHtml}${labelHtml}<span class="gp-text">${compact}</span></span>`;
 }

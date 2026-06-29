@@ -68,11 +68,35 @@ svg.ico { width: 1em; height: 1em; vertical-align: -0.14em; }
 
 /* GP coloured values (carried from v1/v2 semantics) */
 .gp-value { font-family: var(--font-mono); font-weight: 600; }
-.gp-gold   { color: var(--gp-gold); }
-.gp-purple { color: var(--gp-purple); }
-.gp-green  { color: var(--gp-green); }
-.gp-yellow { color: var(--gp-yellow); }
-.gp-white  { color: var(--gp-white); }
+.gp-muted     { color: var(--gp-muted); }
+.gp-white     { color: var(--gp-white); }
+.gp-yellow    { color: var(--gp-yellow); }
+.gp-green     { color: var(--gp-green); }
+.gp-purple    { color: var(--gp-purple); }
+.gp-legendary { color: var(--gp-legendary); }
+.gp-gold      { color: var(--gp-gold); } /* legacy alias for legendary */
+
+/* GP badge component with icon and label */
+.gp-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	font-family: var(--font-mono);
+	font-weight: 600;
+	white-space: nowrap;
+}
+.gp-ico {
+	font-size: 0.85em;
+	opacity: 0.9;
+}
+.gp-label {
+	font-size: 0.85em;
+	opacity: 0.8;
+	margin-right: 2px;
+}
+.gp-text {
+	font-variant-numeric: tabular-nums;
+}
 
 /* Section-title small-caps gilt label used across panels */
 .gilt-label {

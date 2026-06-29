@@ -6,8 +6,8 @@
  * tile signature. This keeps hover tooltips, table scroll, and <details> open
  * state alive across fast polls, and keeps CPU low.
  * ========================================================================== */
-import { panel, metric, kvList, table, idChip } from "../components.js";
-import { icon, refreshIcons, itemIcon } from "../icons.js";
+import { panel, metric, kvList, table, idChip, gpValue } from "../components.js";
+import { icon, refreshIcons, itemIcon, npcIcon } from "../icons.js";
 import {
 	escapeHtml, formatGp, formatDuration, formatRelativeTime, selectedValue,
 	humanizeAction, decisionTone, compass, compassLong, regionId, formatFoodItems,
@@ -168,7 +168,7 @@ function targetCandidateTable(candidates, selected) {
 		const sel = c === selected;
 		const engaged = c.engagedWithLocalPlayer ? `<span class="cell-yes">self</span>` : c.engagedByOther ? `<span class="tone-warn">other</span>` : `<span class="cell-no">no</span>`;
 		const los = c.lineOfSightToLocalPlayer === true ? `<span class="cell-yes">yes</span>` : c.lineOfSightToLocalPlayer === false ? `<span class="cell-no">no</span>` : "—";
-		return { cls: sel ? "row-sel" : c.selectable ? "row-good" : "row-bad", cells: [`${sel ? icon("chevron-right") + " " : ""}${escapeHtml(c.name || "npc")}`, escapeHtml(c.type || "npc"), idChip(c.id) || "—", escapeHtml(selectedValue(c.distance, "—")), hpDisplay(c), engaged, los, c.selectable ? `<span class="cell-yes">yes</span>` : `<span class="cell-skip">no</span>`, `<span class="muted">${escapeHtml(arr(c.reasons).join(", ") || "—")}</span>`] };
+		return { cls: sel ? "row-sel" : c.selectable ? "row-good" : "row-bad", cells: [`${sel ? icon("chevron-right") + " " : ""}${npcIcon("sm")} ${escapeHtml(c.name || "npc")}`, escapeHtml(c.type || "npc"), idChip(c.id) || "—", escapeHtml(selectedValue(c.distance, "—")), hpDisplay(c), engaged, los, c.selectable ? `<span class="cell-yes">yes</span>` : `<span class="cell-skip">no</span>`, `<span class="muted">${escapeHtml(arr(c.reasons).join(", ") || "—")}</span>`] };
 	});
 	return table({ columns: [{ label: "Name" }, { label: "Type" }, { label: "ID" }, { label: "Dist" }, { label: "HP" }, { label: "Engaged" }, { label: "LOS" }, { label: "Sel" }, { label: "Reason" }], rows, empty: "No target candidates in range." });
 }
@@ -177,7 +177,7 @@ function lootCandidateTable(candidates) {
 		const take = c.highPriority || c.selectable;
 		const decision = c.highPriority ? `<span class="cell-prio">priority</span>` : c.selectable ? `<span class="cell-take">take</span>` : `<span class="cell-skip">skip</span>`;
 		const itemIconHtml = itemIcon(c.itemId, c.name, "sm");
-		return { cls: take ? "row-good" : "row-bad", cells: [`${itemIconHtml} ${escapeHtml(c.name || "item")} <small>${idChip(c.itemId)} ×${escapeHtml(c.quantity ?? 1)}</small>`, formatGp(num(c.gePriceEach)), formatGp(num(c.totalStackGeValue) ?? num(c.gePrice)), formatGp(num(c.haPriceEach)), formatGp(num(c.totalStackHaValue) ?? num(c.haPrice)), decision, `<span class="muted">${escapeHtml(arr(c.reasons).join(", ") || "—")}</span>`] };
+		return { cls: take ? "row-good" : "row-bad", cells: [`${itemIconHtml} ${escapeHtml(c.name || "item")} <small>${idChip(c.itemId)} ×${escapeHtml(c.quantity ?? 1)}</small>`, gpValue(num(c.gePriceEach)), gpValue(num(c.totalStackGeValue) ?? num(c.gePrice)), gpValue(num(c.haPriceEach)), gpValue(num(c.totalStackHaValue) ?? num(c.haPrice)), decision, `<span class="muted">${escapeHtml(arr(c.reasons).join(", ") || "—")}</span>`] };
 	});
 	return table({ columns: [{ label: "Item" }, { label: "GE each" }, { label: "GE stack" }, { label: "HA each" }, { label: "HA stack" }, { label: "Decision" }, { label: "Reason" }], rows, empty: "No loot candidates nearby." });
 }
@@ -188,7 +188,7 @@ function menuEntryTable(entries) {
 function highAlchTable(candidates) {
 	const rows = candidates.slice(0, 20).map((c) => {
 		const itemIconHtml = itemIcon(c.id, c.name, "sm");
-		return { cls: c.eligible ? "row-good" : "row-bad", cells: [`${itemIconHtml} ${escapeHtml(c.name || "item")} <small>${idChip(c.id)}</small>`, formatGp(num(c.geEach)), formatGp(num(c.haEach)), formatGp(num(c.deltaEach)), c.eligible ? `<span class="cell-take">alch</span>` : `<span class="cell-skip">skip</span>`] };
+		return { cls: c.eligible ? "row-good" : "row-bad", cells: [`${itemIconHtml} ${escapeHtml(c.name || "item")} <small>${idChip(c.id)}</small>`, gpValue(num(c.geEach)), gpValue(num(c.haEach)), gpValue(num(c.deltaEach)), c.eligible ? `<span class="cell-take">alch</span>` : `<span class="cell-skip">skip</span>`] };
 	});
 	return table({ columns: [{ label: "Item" }, { label: "GE" }, { label: "HA" }, { label: "Delta" }, { label: "Decision" }], rows, empty: "No high-alch candidates." });
 }
@@ -198,8 +198,8 @@ function inventoryOverview(inventory) {
 	return `<div class="inv-summary">
 		<div class="inv-stat"><div class="s-label">Slots used</div><div class="s-value">${escapeHtml(slots)}</div></div>
 		<div class="inv-stat"><div class="s-label">Free slots</div><div class="s-value">${escapeHtml(selectedValue(i.freeSlots, "—"))}</div></div>
-		<div class="inv-stat"><div class="s-label">Total GE</div><div class="s-value">${formatGp(num(i.gePrice))}</div></div>
-		<div class="inv-stat"><div class="s-label">Total HA</div><div class="s-value">${formatGp(num(i.haPrice))}</div></div>
+		<div class="inv-stat"><div class="s-label">Total GE</div><div class="s-value">${gpValue(num(i.gePrice))}</div></div>
+		<div class="inv-stat"><div class="s-label">Total HA</div><div class="s-value">${gpValue(num(i.haPrice))}</div></div>
 	</div>`;
 }
 function eventsPanel(events) {
@@ -290,7 +290,7 @@ export function renderMobFarmer(mobFarmer, player, events, tileGrid) {
 	changed |= setCellSig("mfc-pathing", gridSignature(player?.worldLocation, candidates, selected, status.pathing, tileGrid), () => pathingBody(status, player, candidates, selected, tileGrid));
 	changed |= setCell("mfc-survival", scalarRows({ ...obj(status.autoEat), ...obj(status.survivalDecision) }));
 	changed |= setCell("mfc-intermediate", scalarRows(status.intermediateDecision));
-	changed |= setCell("mfc-lootinv", scalarRows({ afterLootCombat: status.afterLootCombatMode, ...obj(status.lootDecision) }));
+	changed |= setCell("mfc-lootinv", scalarRows({ afterLootCombat: status.afterLootCombatMode, ...obj(status.lootDecision), dropPolicy: obj(status.dropPolicy) }));
 	changed |= setCell("mfc-highalch", highAlchTable(highAlch));
 	changed |= setCell("mfc-inventory", inventoryOverview(inventory));
 	changed |= setCell("mfc-events", eventsPanel(events));

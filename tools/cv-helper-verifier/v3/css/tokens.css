@@ -43,11 +43,12 @@
 	--purple:        #b98ce0;
 
 	/* ---- GP value tiers (match v1/v2 semantics) */
-	--gp-gold:       #f0cd76;
-	--gp-purple:     #b98ce0;
-	--gp-green:      #74c66f;
-	--gp-yellow:     #e0c84e;
-	--gp-white:      #d7ddc8;
+	--gp-muted:      #6f7a64;   /* < 1k GP */
+	--gp-white:      #d7ddc8;   /* 1k - <100k GP */
+	--gp-yellow:     #e0c84e;   /* 100k - <1m GP */
+	--gp-green:      #74c66f;   /* 1m - <100m GP */
+	--gp-purple:     #b98ce0;   /* 100m - <1b GP */
+	--gp-legendary:  #f0cd76;   /* >= 1b GP */
 
 	/* ---- Path grid */
 	--grid-line:     rgba(111, 130, 84, 0.16);

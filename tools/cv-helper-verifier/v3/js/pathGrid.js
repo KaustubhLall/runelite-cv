@@ -14,7 +14,7 @@ let CELLS = RADIUS * 2 + 1;
 let CELL = VIEW / CELLS;
 
 export function setGridRadius(r) {
-	RADIUS = Math.max(4, Math.min(20, Math.round(r)));
+	RADIUS = Math.max(4, Math.min(100, Math.round(r)));
 	CELLS = RADIUS * 2 + 1;
 	CELL = VIEW / CELLS;
 	return RADIUS;
@@ -183,6 +183,8 @@ function tileGridFills(tileGrid, player) {
 		//  - collision-blocked  : a real physical obstacle (rock/wall/tree) -- orange
 		//  - scene-blocked/no-route : off-loaded-scene or no path found -- muted grey
 		const viaDoor = t.reachableViaDoor === true;
+		const transitionCount = Number(t.transitionCount || 0);
+		const multiTransition = transitionCount > 1;
 		const isDoorBlocked = typeof t.blockedReason === "string" && t.blockedReason.startsWith("blocked-by-door");
 		const isObstacle = !viaDoor && !isDoorBlocked && t.blockedReason === "collision-blocked";
 		const fill = t.reachable ? "var(--good, #6f9a4a)"
@@ -191,7 +193,7 @@ function tileGridFills(tileGrid, player) {
 			: "var(--unreachable, #8d96a8)";
 		const op = t.reachable ? 0.07 : viaDoor ? 0.14 : isDoorBlocked ? 0.20 : isObstacle ? 0.16 : 0.08;
 		const scene = (t.sceneX !== undefined && t.sceneX !== null) ? `  scene ${t.sceneX},${t.sceneY}` : "";
-		const reasonLabel = viaDoor ? "reachable via door (pending)" : isDoorBlocked ? "blocked by door" : isObstacle ? "obstacle" : "unreachable";
+		const reasonLabel = viaDoor ? (multiTransition ? `multi-transition route (${transitionCount})` : "reachable via transition (pending)") : isDoorBlocked ? "manual action required" : isObstacle ? "obstacle" : "unreachable";
 		const door = t.blockingDoor;
 		const doorLine = door ? `\n${escapeHtml(door.name || "door")} (#${door.id}) · ${escapeHtml(door.requiredAction ? door.requiredAction + " required" : "")} · ${escapeHtml(door.allowlistStatus || "unknown")}${Array.isArray(door.actions) && door.actions.length ? ` · actions: ${escapeHtml(door.actions.join(", "))}` : ""}` : "";
 		const title = t.reachable
@@ -207,7 +209,8 @@ function tileGridFills(tileGrid, player) {
 				return `<line x1="${lx}" y1="${row * CELL + CELL}" x2="${lx + CELL}" y2="${row * CELL}" stroke="var(--door, #e0a82e)" stroke-width="1.5" opacity="0.5"/>`;
 			}).join("")}</g>`
 			: "";
-		out += `<g><title>${title}</title><rect x="${col * CELL + 0.5}" y="${row * CELL + 0.5}" width="${CELL - 1}" height="${CELL - 1}" fill="${fill}" fill-opacity="${op}"/>${hatch}</g>`;
+		const multiMark = multiTransition ? `<circle cx="${(col + .5) * CELL}" cy="${(row + .5) * CELL}" r="${Math.max(1.5, CELL * .14)}" fill="var(--gold-bright)"/>` : "";
+		out += `<g><title>${title}</title><rect x="${col * CELL + 0.5}" y="${row * CELL + 0.5}" width="${CELL - 1}" height="${CELL - 1}" fill="${fill}" fill-opacity="${op}"/>${hatch}${multiMark}</g>`;
 	}
 	return out;
 }

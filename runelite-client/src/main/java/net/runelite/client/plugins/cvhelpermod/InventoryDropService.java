@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 
 import javax.inject.Singleton;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -32,6 +33,9 @@ public class InventoryDropService
 
 	@Inject
 	private ItemSafetyService itemSafetyService;
+
+	@Inject
+	private ItemLookupUtil itemLookupUtil;
 
 	public enum DropOpportunity
 	{
@@ -69,6 +73,10 @@ public class InventoryDropService
 		public List<DropCandidate> protectedSkipped;
 		public String lastFailureReason;
 		public String lastActionAttempt;
+		public String configuredAllowlist;
+		public String configuredProtected;
+		public List<Map<String, Object>> configuredAllowlistItems;
+		public List<Map<String, Object>> configuredProtectedItems;
 
 		public DropPolicyStatus()
 		{
@@ -82,6 +90,10 @@ public class InventoryDropService
 			this.protectedSkipped = new ArrayList<>();
 			this.lastFailureReason = null;
 			this.lastActionAttempt = null;
+			this.configuredAllowlist = null;
+			this.configuredProtected = null;
+			this.configuredAllowlistItems = new ArrayList<>();
+			this.configuredProtectedItems = new ArrayList<>();
 		}
 
 		public Map<String, Object> toMap()
@@ -97,6 +109,10 @@ public class InventoryDropService
 			map.put("protectedSkipped", protectedSkipped.stream().map(DropCandidate::toMap).collect(Collectors.toList()));
 			map.put("lastFailureReason", lastFailureReason);
 			map.put("lastActionAttempt", lastActionAttempt);
+			map.put("configuredAllowlist", configuredAllowlist);
+			map.put("configuredProtected", configuredProtected);
+			map.put("configuredAllowlistItems", configuredAllowlistItems);
+			map.put("configuredProtectedItems", configuredProtectedItems);
 			return map;
 		}
 	}
@@ -108,6 +124,7 @@ public class InventoryDropService
 		public String itemName;
 		public int quantity;
 		public int geValue;
+		public long totalGeValue;
 		public boolean protectedItem;
 
 		public DropCandidate(int slot, int itemId, String itemName, int quantity, int geValue, boolean protectedItem)
@@ -117,6 +134,7 @@ public class InventoryDropService
 			this.itemName = itemName;
 			this.quantity = quantity;
 			this.geValue = geValue;
+			this.totalGeValue = (long) geValue * Math.max(1, quantity);
 			this.protectedItem = protectedItem;
 		}
 
@@ -128,6 +146,7 @@ public class InventoryDropService
 			map.put("itemName", itemName);
 			map.put("quantity", quantity);
 			map.put("geValue", geValue);
+			map.put("totalGeValue", totalGeValue);
 			map.put("protected", protectedItem);
 			return map;
 		}
@@ -148,6 +167,10 @@ public class InventoryDropService
 		status.mode = mode;
 		status.thresholdSlots = thresholdSlots;
 		status.opportunity = opportunity;
+		status.configuredAllowlist = dropAllowlist;
+		status.configuredProtected = protectedItems;
+		status.configuredAllowlistItems = parsePolicyItems(dropAllowlist);
+		status.configuredProtectedItems = parsePolicyItems(protectedItems);
 
 		if (!policyEnabled)
 		{
@@ -263,6 +286,7 @@ public class InventoryDropService
 
 		status.candidates = candidates;
 		status.protectedSkipped = protectedSkipped;
+		status.candidates.sort((left, right) -> Long.compare(left.totalGeValue, right.totalGeValue));
 
 		if (candidates.isEmpty())
 		{
@@ -321,5 +345,49 @@ public class InventoryDropService
 			log.warn("Failed to get GE value for item {}", itemId, e);
 			return Integer.MAX_VALUE;
 		}
+	}
+
+	private List<Map<String, Object>> parsePolicyItems(String policy)
+	{
+		List<Map<String, Object>> items = new ArrayList<>();
+		if (policy == null || policy.trim().isEmpty())
+		{
+			return items;
+		}
+
+		String[] tokens = policy.split("[|,;\\r\\n]+");
+		for (String token : tokens)
+		{
+			String trimmed = token.trim();
+			if (trimmed.isEmpty())
+			{
+				continue;
+			}
+
+			// Try to parse as item ID first (id:123 format or just number)
+			int itemId = -1;
+			if (trimmed.startsWith("id:"))
+			{
+				try
+				{
+					itemId = Integer.parseInt(trimmed.substring(3));
+				}
+				catch (NumberFormatException e)
+				{
+					log.debug("Failed to parse item ID from token: {}", trimmed);
+				}
+			}
+			else
+			{
+				// Try to find item by name
+				itemId = itemLookupUtil.findItemIdByName(trimmed);
+			}
+
+			Map<String, Object> itemMap = new HashMap<>();
+			itemMap.put("name", trimmed);
+			itemMap.put("id", itemId);
+			items.add(itemMap);
+		}
+		return items;
 	}
 }

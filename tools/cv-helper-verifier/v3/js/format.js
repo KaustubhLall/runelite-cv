@@ -51,18 +51,34 @@ export function formatRelativeTime(date) {
 	return `${day}d ${hour % 24}h ago`;
 }
 
+/** GP tier metadata: { id, label, colorClass, iconSize } */
+export function getGpTier(value) {
+	if (typeof value !== "number") return { id: "none", label: "—", colorClass: "gp-muted", iconSize: "sm" };
+	const abs = Math.abs(value);
+	if (abs >= 1_000_000_000) return { id: "legendary", label: "billion+", colorClass: "gp-legendary", iconSize: "lg" };
+	if (abs >= 100_000_000) return { id: "purple", label: "100m+", colorClass: "gp-purple", iconSize: "md" };
+	if (abs >= 1_000_000) return { id: "green", label: "1m+", colorClass: "gp-green", iconSize: "md" };
+	if (abs >= 1_000) return { id: "yellow", label: "1k+", colorClass: "gp-yellow", iconSize: "sm" };
+	if (abs > 0) return { id: "white", label: "< 1k", colorClass: "gp-white", iconSize: "sm" };
+	return { id: "muted", label: "0", colorClass: "gp-muted", iconSize: "sm" };
+}
+
+/** Compact GP value text (e.g., "1.23m", "456k", "78") */
+export function formatGpValue(value) {
+	if (typeof value !== "number") return "—";
+	const abs = Math.abs(value);
+	if (abs >= 1_000_000_000) return `${(value / 1e9).toFixed(1)}b`;
+	if (abs >= 100_000_000) return `${(value / 1e6).toFixed(0)}m`;
+	if (abs >= 1_000_000) return `${(value / 1e6).toFixed(1)}m`;
+	if (abs >= 1_000) return `${(value / 1e3).toFixed(0)}k`;
+	return `${Math.round(value)}`;
+}
+
 /** GP value coloured by magnitude tier; returns HTML span. */
 export function formatGp(value) {
 	if (typeof value !== "number") return "—";
-	const abs = Math.abs(value);
-	let text;
-	let cls;
-	if (abs >= 1_000_000_000) { text = `${(value / 1e9).toFixed(1)}b`; cls = "gp-gold"; }
-	else if (abs >= 100_000_000) { text = `${(value / 1e6).toFixed(0)}m`; cls = "gp-purple"; }
-	else if (abs >= 1_000_000) { text = `${(value / 1e6).toFixed(1)}m`; cls = "gp-green"; }
-	else if (abs >= 1_000) { text = `${(value / 1e3).toFixed(0)}k`; cls = "gp-yellow"; }
-	else { text = `${Math.round(value)}`; cls = "gp-white"; }
-	return `<span class="gp-value ${cls}">${text}</span>`;
+	const tier = getGpTier(value);
+	return `<span class="gp-value ${tier.colorClass}">${formatGpValue(value)}</span>`;
 }
 
 export function formatPoint(point) {
@@ -131,12 +147,43 @@ export function compactValue(value) {
 	return String(value);
 }
 
-/** Format pipe-separated food items as a compact list with HP placeholder. */
+/** Food item name to ID mapping for icon display. */
+const FOOD_ITEM_IDS = {
+	"shrimp": 315,
+	"trout": 333,
+	"salmon": 329,
+	"tuna": 361,
+	"lobster": 379,
+	"swordfish": 373,
+	"monkfish": 7946,
+	"shark": 385,
+	"manta ray": 391,
+	"anglerfish": 13441,
+	"cake": 1891,
+	"jug of wine": 1993,
+	"karambwan": 3142,
+	"meat": 2142,
+	"chicken": 2140,
+	"bread": 2309,
+	"pizza": 2293,
+	"pie": 2323,
+	"big bones": 532,
+	"ashes": 592,
+	"bones": 526,
+};
+
+/** Format pipe-separated food items as icons. */
 export function formatFoodItems(value) {
 	if (!value || typeof value !== "string") return "";
 	const items = value.split("|").map((s) => s.trim()).filter((s) => s);
 	if (!items.length) return "";
-	return items.map((item) => `${escapeHtml(item)} <span class="food-hp">❤ -</span>`).join(", ");
+	return items.map((item) => {
+		const itemId = FOOD_ITEM_IDS[item.toLowerCase()];
+		const iconHtml = itemId
+			? `<img src="asset-library/items/${itemId}.png" alt="${escapeHtml(item)}" class="item-icon sm" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';"/><span class="item-icon-fallback" style="display:none">?</span>`
+			: `<span class="item-icon-fallback sm">?</span>`;
+		return iconHtml;
+	}).join(", ");
 }
 
 /** Flatten an object into [label, value] rows for compact detail tables. */

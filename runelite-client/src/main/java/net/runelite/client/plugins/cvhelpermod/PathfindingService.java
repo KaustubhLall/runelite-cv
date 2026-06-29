@@ -35,8 +35,8 @@ import java.util.function.Predicate;
  * Verbatim port of the reference path-distance helpers; shared by the mob and skill farmers.
  * <p>
  * Closed doors/gates are real collision blocks here -- there is no silent "the client opens
- * doors while walking" assumption baked into the base kernel any more. A single door-hop
- * transition (capped at one per path) is allowed through {@link #classifyDoorBlock} when the
+ * doors while walking" assumption baked into the base kernel any more. A bounded transition
+ * chain is allowed through {@link #classifyDoorBlock} when each object and action is explicit,
  * door isn't denylisted and the relevant auto-open/auto-close config flag is enabled; the
  * winning path's {@code doorTransition} is returned to the caller so it can perform the actual
  * menu-action click and wait for the door to really open/close before treating the route as
@@ -45,7 +45,9 @@ import java.util.function.Predicate;
 @Singleton
 public class PathfindingService
 {
-	private static final int MAX_DOOR_HOPS = 1;
+	private static final int MAX_DOOR_HOPS = 4;
+	private static final Set<String> SAFE_TRANSITION_ACTIONS = new HashSet<>(Arrays.asList(
+		"Open", "Close", "Enter", "Pass", "Climb-over"));
 
 	@Inject
 	private Client client;
@@ -123,6 +125,8 @@ public class PathfindingService
 		int blockedByScene;
 		WorldPoint reachedPoint;
 		DoorBlock doorTransition;
+		List<DoorBlock> transitionRoute = new ArrayList<>();
+		Integer failedTransitionIndex;
 		/**
 		 * First door encountered along the search frontier that blocked a step AND wasn't
 		 * {@code allowed} (denylisted, unknown action, or the relevant auto flag disabled).
@@ -161,6 +165,7 @@ public class PathfindingService
 		{
 			CvHelperModPlugin.PathingResult result = CvHelperModPlugin.PathingResult.reachable(core.pathDistance, searchLimit, core.visited);
 			result.doorTransition = core.doorTransition == null ? null : core.doorTransition.toMap();
+			applyTransitionRoute(result, core);
 			return result;
 		}
 		CvHelperModPlugin.PathingResult unreachable = CvHelperModPlugin.PathingResult.unreachable(
@@ -198,6 +203,35 @@ public class PathfindingService
 		result.manualActionRequired = true;
 		result.manualActionReason = "door-" + block.status + ":" + block.id;
 		result.blockingDoor = block.toMap();
+	}
+
+	private List<Map<String, Object>> transitionMaps(List<DoorBlock> route)
+	{
+		List<Map<String, Object>> out = new ArrayList<>();
+		for (int index = 0; route != null && index < route.size(); index++)
+		{
+			Map<String, Object> step = route.get(index).toMap();
+			step.put("index", index);
+			step.put("remainingTransitions", route.size() - index - 1);
+			out.add(step);
+		}
+		return out;
+	}
+
+	private void applyTransitionRoute(CvHelperModPlugin.PathingResult result, CoreBfsResult core)
+	{
+		result.transitionRoute = transitionMaps(core.transitionRoute);
+		result.transitionCount = result.transitionRoute.size();
+		result.routeDepth = core.pathDistance;
+		result.failedTransitionIndex = core.failedTransitionIndex;
+	}
+
+	private void applyTransitionRoute(CvHelperModPlugin.InteractionPathingResult result, CoreBfsResult core)
+	{
+		result.transitionRoute = transitionMaps(core.transitionRoute);
+		result.transitionCount = result.transitionRoute.size();
+		result.routeDepth = core.pathDistance;
+		result.failedTransitionIndex = core.failedTransitionIndex;
 	}
 
 	public boolean isInsideFootprint(WorldArea footprint, WorldPoint point)
@@ -373,6 +407,7 @@ public class PathfindingService
 				blockedByCollision + blockedByScene + (walkableInteractionTiles - 1),
 				blockedByCollision, blockedByScene);
 			result.doorTransition = core.doorTransition == null ? null : core.doorTransition.toMap();
+			applyTransitionRoute(result, core);
 			return result;
 		}
 
@@ -436,6 +471,7 @@ public class PathfindingService
 		{
 			CvHelperModPlugin.PathingResult result = CvHelperModPlugin.PathingResult.reachable(core.pathDistance, searchLimit, core.visited);
 			result.doorTransition = core.doorTransition == null ? null : core.doorTransition.toMap();
+			applyTransitionRoute(result, core);
 			return result;
 		}
 		CvHelperModPlugin.PathingResult unreachable = CvHelperModPlugin.PathingResult.unreachable("no-route-within:" + searchLimit, searchLimit, core.visited);
@@ -476,7 +512,7 @@ public class PathfindingService
 
 		ArrayDeque<BfsNode> queue = new ArrayDeque<>();
 		Map<String, Integer> distances = new HashMap<>();
-		Map<String, DoorBlock> doorUsedAtState = new HashMap<>();
+		Map<String, List<DoorBlock>> transitionsAtState = new HashMap<>();
 		queue.add(new BfsNode(startPoint, 0));
 		distances.put(stateKey(startPoint, 0), 0);
 		int visited = 0;
@@ -496,7 +532,9 @@ public class PathfindingService
 				result.pathDistance = pathDistance;
 				result.visited = visited;
 				result.reachedPoint = current.point;
-				result.doorTransition = current.hops > 0 ? doorUsedAtState.get(stateKey(current.point, current.hops)) : null;
+				List<DoorBlock> route = transitionsAtState.getOrDefault(stateKey(current.point, current.hops), new ArrayList<>());
+				result.transitionRoute = new ArrayList<>(route);
+				result.doorTransition = route.isEmpty() ? null : route.get(0);
 				return result;
 			}
 			if (pathDistance >= searchLimit)
@@ -538,14 +576,12 @@ public class PathfindingService
 					continue;
 				}
 				distances.put(key, pathDistance + 1);
+				List<DoorBlock> route = new ArrayList<>(transitionsAtState.getOrDefault(stateKey(current.point, current.hops), new ArrayList<>()));
 				if (usedTransition != null)
 				{
-					doorUsedAtState.putIfAbsent(key, usedTransition);
+					route.add(usedTransition);
 				}
-				else if (nextHops > 0)
-				{
-					doorUsedAtState.putIfAbsent(key, doorUsedAtState.get(stateKey(current.point, current.hops)));
-				}
+				transitionsAtState.put(key, route);
 				queue.add(new BfsNode(next, nextHops));
 			}
 		}
@@ -555,6 +591,7 @@ public class PathfindingService
 		result.blockedByCollision = blockedByCollision;
 		result.blockedByScene = blockedByScene;
 		result.unresolvedDoorBlock = unresolvedDoorBlock;
+		result.failedTransitionIndex = unresolvedDoorBlock == null ? null : 0;
 		return result;
 	}
 
@@ -652,11 +689,23 @@ public class PathfindingService
 			? new ArrayList<>() : Arrays.asList(composition.getActions());
 		Integer state = doorStateFromId(doorId);
 		String requiredAction = state != null && state == 0 ? "Open" : state != null && state == 1 ? "Close" : null;
+		if (requiredAction == null)
+		{
+			for (String candidate : actions)
+			{
+				if (candidate != null && SAFE_TRANSITION_ACTIONS.contains(candidate))
+				{
+					requiredAction = candidate;
+					break;
+				}
+			}
+		}
 		boolean denylisted = isDoorDenylisted(doorId);
 		boolean allowlisted = isDoorAllowlisted(doorId);
 		boolean autoFlagEnabled = config != null && (
 			"Open".equals(requiredAction) ? config.mobFarmerDoorAutoOpenEnabled()
-				: "Close".equals(requiredAction) && config.mobFarmerDoorAutoCloseEnabled());
+				: "Close".equals(requiredAction) ? config.mobFarmerDoorAutoCloseEnabled()
+				: SAFE_TRANSITION_ACTIONS.contains(requiredAction) && config.mobFarmerDoorAutoOpenEnabled());
 		String status;
 		if (denylisted)
 		{
@@ -664,7 +713,7 @@ public class PathfindingService
 		}
 		else if (requiredAction == null)
 		{
-			status = "unknown-door-action";
+			status = "unknown-transition-action";
 		}
 		else if (!allowlisted)
 		{
@@ -672,7 +721,7 @@ public class PathfindingService
 		}
 		else if (!autoFlagEnabled)
 		{
-			status = "Open".equals(requiredAction) ? "auto-open-disabled" : "auto-close-disabled";
+			status = "Close".equals(requiredAction) ? "auto-close-disabled" : "auto-transition-disabled";
 		}
 		else
 		{
@@ -781,7 +830,7 @@ public class PathfindingService
 		}
 		for (String action : actions)
 		{
-			if (action != null && (action.equalsIgnoreCase("Open") || action.equalsIgnoreCase("Close")))
+			if (action != null && SAFE_TRANSITION_ACTIONS.stream().anyMatch(action::equalsIgnoreCase))
 			{
 				return true;
 			}
@@ -1063,12 +1112,12 @@ public class PathfindingService
 			return out;
 		}
 
-		int clampedRadius = Math.max(1, Math.min(30, radius));
+		int clampedRadius = Math.max(1, Math.min(100, radius));
 		int hardCap = ((clampedRadius * 2 + 1) * (clampedRadius * 2 + 1) + 50) * (MAX_DOOR_HOPS + 1);
 
 		ArrayDeque<BfsNode> queue = new ArrayDeque<>();
 		Map<String, Integer> distances = new HashMap<>();
-		Map<String, DoorBlock> doorUsedAtState = new HashMap<>();
+		Map<String, List<DoorBlock>> transitionsAtState = new HashMap<>();
 		Map<WorldPoint, String> blockedReasons = new HashMap<>();
 		Map<WorldPoint, Map<String, Object>> blockingDoors = new HashMap<>();
 		queue.add(new BfsNode(startPoint, 0));
@@ -1130,14 +1179,12 @@ public class PathfindingService
 					continue;
 				}
 				distances.put(key, pathDistance + 1);
+				List<DoorBlock> route = new ArrayList<>(transitionsAtState.getOrDefault(stateKey(current.point, current.hops), new ArrayList<>()));
 				if (usedTransition != null)
 				{
-					doorUsedAtState.putIfAbsent(key, usedTransition);
+					route.add(usedTransition);
 				}
-				else if (nextHops > 0)
-				{
-					doorUsedAtState.putIfAbsent(key, doorUsedAtState.get(stateKey(current.point, current.hops)));
-				}
+				transitionsAtState.put(key, route);
 				queue.add(new BfsNode(next, nextHops));
 			}
 		}
@@ -1148,7 +1195,17 @@ public class PathfindingService
 			{
 				WorldPoint point = new WorldPoint(startPoint.getX() + dx, startPoint.getY() + dy, startPoint.getPlane());
 				Integer distDirect = distances.get(stateKey(point, 0));
-				Integer distViaDoor = distances.get(stateKey(point, 1));
+				Integer distViaDoor = null;
+				int transitionCount = 0;
+				for (int hops = 1; hops <= MAX_DOOR_HOPS; hops++)
+				{
+					Integer distance = distances.get(stateKey(point, hops));
+					if (distance != null && (distViaDoor == null || distance < distViaDoor))
+					{
+						distViaDoor = distance;
+						transitionCount = hops;
+					}
+				}
 				boolean reachableDirect = distDirect != null;
 				boolean reachableViaDoor = !reachableDirect && distViaDoor != null;
 				LocalPoint localPoint = LocalPoint.fromWorld(worldView, point);
@@ -1167,14 +1224,17 @@ public class PathfindingService
 				// so the UI can render it as its own distinct state instead of plain "clear".
 				tile.put("reachable", reachableDirect);
 				tile.put("reachableViaDoor", reachableViaDoor);
+				tile.put("transitionCount", transitionCount);
+				tile.put("multiTransitionRoute", transitionCount > 1);
 				tile.put("pathDistance", reachableDirect ? distDirect : reachableViaDoor ? distViaDoor : null);
 				if (reachableViaDoor)
 				{
-					DoorBlock used = doorUsedAtState.get(stateKey(point, 1));
-					tile.put("blockedReason", "reachable-via-door");
-					if (used != null)
+					List<DoorBlock> route = transitionsAtState.getOrDefault(stateKey(point, transitionCount), new ArrayList<>());
+					tile.put("blockedReason", transitionCount > 1 ? "reachable-via-multiple-transitions" : "reachable-via-transition");
+					tile.put("transitionRoute", transitionMaps(route));
+					if (!route.isEmpty())
 					{
-						tile.put("blockingDoor", used.toMap());
+						tile.put("blockingDoor", route.get(0).toMap());
 					}
 				}
 				else if (!reachableDirect)
