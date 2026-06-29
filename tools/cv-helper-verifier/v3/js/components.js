@@ -92,3 +92,20 @@ export function gpValue(value, { label = "", showIcon = true, tooltip = true } =
 	const tooltipAttr = tooltip ? `title="${rawFormatted} GP"` : "";
 	return `<span class="gp-badge ${tier.colorClass}" ${tooltipAttr}>${iconHtml}${labelHtml}<span class="gp-text">${compact}</span></span>`;
 }
+
+/**
+ * Item value cell. Shows the TOTAL stack value by default (`total` = price × quantity); for real
+ * stacks (qty > 1) it appends the per-item value in brackets, each rendered with its own GP
+ * signature. `total` falls back to `each` when the stack total is missing. Use this anywhere an
+ * item-with-quantity value is shown so stacks never display the misleading single-item price.
+ */
+export function itemValue(total, each, quantity) {
+	const t = typeof total === "number" ? total : undefined;
+	const e = typeof each === "number" ? each : undefined;
+	const qty = typeof quantity === "number" ? quantity : 1;
+	const base = gpValue(t ?? e);
+	if (qty > 1 && e != null && (t == null || e !== t)) {
+		return `${base} <small class="muted">(${gpValue(e, { tooltip: true })}&nbsp;ea)</small>`;
+	}
+	return base;
+}

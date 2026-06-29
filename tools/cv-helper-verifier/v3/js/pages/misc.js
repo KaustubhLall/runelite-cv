@@ -1,7 +1,7 @@
 /* ============================================================================
  * pages/misc.js — Raw Data, Debug, Inventory pages.
  * ========================================================================== */
-import { panel, kvList, table, badge, gpValue } from "../components.js";
+import { panel, kvList, table, badge, gpValue, itemValue } from "../components.js";
 import { itemIcon } from "../icons.js";
 import { escapeHtml, formatGp, selectedValue } from "../format.js";
 
@@ -56,8 +56,8 @@ function itemsTable(items) {
 			cls: it.protected ? "row-sel" : "",
 			cells: [
 				`${itemIconHtml} ${escapeHtml(it.name || "item")} <small>×${escapeHtml(it.quantity ?? 1)}</small>`,
-				gpValue(num(it.gePriceEach) ?? num(it.gePrice)),
-				gpValue(num(it.haPriceEach) ?? num(it.haPrice)),
+				itemValue(it.gePrice, it.gePriceEach, it.quantity),
+				itemValue(it.haPrice, it.haPriceEach, it.quantity),
 				it.protected ? `<span class="cell-prio">protected</span>` : "—",
 			],
 		};
