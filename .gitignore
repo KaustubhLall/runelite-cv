@@ -43,3 +43,14 @@ bin/
 
 ### Local build logs ###
 compile.log
+
+### Generated CV Helper asset-library exports (large, regenerable game sprites/objects + debug
+### dumps). Kept on disk but never committed: ~56k files would swamp PR review and shipping game
+### assets is undesirable for a public repo.
+/cache/tools/
+/tools/asset-library/
+/tools/cv-helper-verifier/v3/asset-library/
+/tools/cv-helper-verifier/v3/scripts/*.class
+
+### Local agent/session config (not for a public repo)
+/.claude/
