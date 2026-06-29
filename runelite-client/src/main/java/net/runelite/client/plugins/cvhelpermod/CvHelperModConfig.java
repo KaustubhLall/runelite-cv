@@ -729,12 +729,12 @@ public interface CvHelperModConfig extends Config
 	@ConfigItem(
 		keyName = MOB_FARMER_COMBAT_STALL_TICKS,
 		name = "Combat stall recovery ticks",
-		description = "While engaged and in range, if no combat XP is gained for this many ticks the farmer treats combat as stuck and re-issues the attack (menu, then a direct click). 0 = auto (3x measured attack interval, min 8).",
+		description = "While engaged and in range, if no combat XP is gained for this many ticks the farmer treats combat as stuck and takes over the mouse with a ground/target click to break the freeze. Default 100 (~1 min) so the takeover stays rare and non-disruptive. 0 = auto (3x measured attack interval, min 8).",
 		section = mobFarmerSection
 	)
 	default int mobFarmerCombatStallTicks()
 	{
-		return 0;
+		return 100;
 	}
 
 	@ConfigItem(

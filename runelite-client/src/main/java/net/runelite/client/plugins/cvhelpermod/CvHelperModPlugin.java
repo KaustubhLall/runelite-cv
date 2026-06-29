@@ -410,6 +410,9 @@ public class CvHelperModPlugin extends Plugin
 	private volatile int mobFarmerDoorTransitionAttempts;
 	private static final long MOB_FARMER_DOOR_TRANSITION_CLICK_COOLDOWN_MS = 1200L;
 	private static final int MOB_FARMER_DOOR_TRANSITION_MAX_ATTEMPTS = 5;
+	// A selectable mob at or within this melee path distance counts as "in attack range" for the
+	// loot-stutter-step rule (0 = adjacent/can-swing-now, 1 = a single step the attack click makes).
+	private static final int MOB_FARMER_ATTACK_RANGE_PATH_DISTANCE = 1;
 	protected volatile String lastStableSidePanel = "inventory";
 	protected volatile String mobFarmerTarget = "cow";
 	protected volatile boolean mobFarmerLiveMode;
@@ -431,6 +434,10 @@ public class CvHelperModPlugin extends Plugin
 	protected volatile String activeMobFarmerCombatKey;
 	protected volatile int activeMobFarmerCombatUntilTick = -1;
 	protected volatile Map<String, Object> activeMobFarmerCombatTarget = new LinkedHashMap<>();
+	// Path distance to the nearest selectable attack target, refreshed each loop step. Read by the
+	// loot-travel policy so it can defer far loot while a mob is in attack range (stutter-step to
+	// attack instead of walking off to pick up bones). -1 = no selectable target.
+	protected volatile int mobFarmerNearestAttackTargetPathDistance = -1;
 	protected volatile int lastMobFarmerLoopStepTick = -1;
 	protected volatile String lastMobFarmerLoopStepSource = "none";
 	protected volatile String pendingMobFarmerDeathKey;
@@ -4906,7 +4913,7 @@ public class CvHelperModPlugin extends Plugin
 		schema.add(settingSchema("attackIntervalTicks", "Attack interval ticks", "number", "Fallback weapon cadence used for global attack scheduling and post-action re-attacks. Most standard weapons are 4 ticks.", null));
 		schema.add(settingSchema("confirmAttackBeforeInterrupt", "Confirm attack before interrupt", "boolean", "Wait for a combat XP drop (proof the swing landed) before burying/scattering or looting mid-combat, so the inventory click cannot cancel the attack.", null));
 		schema.add(settingSchema("attackConfirmTimeoutTicks", "Attack confirm timeout", "number", "If no combat XP drop is seen for this many ticks in combat (e.g. 0-damage splashes), allow the interrupt anyway. 0 = auto (2x attack interval).", null));
-		schema.add(settingSchema("combatStallTicks", "Combat stall recovery", "number", "Engaged + in range but no XP for this many ticks -> re-issue attack (menu, then direct click) to break a stuck-combat freeze. 0 = auto (3x measured interval, min 8).", null));
+		schema.add(settingSchema("combatStallTicks", "Combat stall recovery", "number", "Engaged + in range but no XP for this many ticks -> take over the mouse with a ground/target click to break a stuck-combat freeze. Default 100 (~1 min) keeps the takeover rare. 0 = auto (3x measured interval, min 8).", null));
 		schema.add(settingSchema("attackStyleSlot", "Attack style slot", "number", "Combat attack-style slot to keep selected (1-4, top to bottom in Combat Options) to control which stat is trained. 0 = leave as-is. Requires the combat tab opened once.", null));
 		schema.add(settingSchema("autoEatEnabled", "Auto-eat", "boolean", "Eat configured food before combat/loot when HP is below threshold.", null));
 		schema.add(settingSchema("eatHitpointPercent", "Eat below HP %", "number", "Auto-eat when current hitpoints are at or below this percent.", null));
@@ -5759,7 +5766,9 @@ public class CvHelperModPlugin extends Plugin
 		// next swing becomes imminent. For a 4-tick weapon this is ticksSinceDrop in [0,3).
 		int safeWindow = Math.max(1, interval - 1);
 		details.put("safeWindowTicks", safeWindow);
-		if (ticksSinceDrop >= 0 && ticksSinceDrop < safeWindow)
+		boolean dropMatchesEngagement = mobFarmerXpDropMatchesCurrentEngagement();
+		details.put("xpDropMatchesEngagement", dropMatchesEngagement);
+		if (ticksSinceDrop >= 0 && ticksSinceDrop < safeWindow && dropMatchesEngagement)
 		{
 			return finishAttackConfirm(details, "confirmed-attack-window", true);
 		}
@@ -5819,13 +5828,34 @@ public class CvHelperModPlugin extends Plugin
 	}
 
 	/**
+	 * True when the most recent combat XP drop belongs to the target we are currently engaging,
+	 * not a stale drop carried over from the previous kill. Burying/looting is only "concurrent
+	 * and safe" once we have actually landed a swing on the *current* target; doing it while
+	 * still walking into a freshly-selected target cancels the queued walk-to-attack (the exact
+	 * "fresh target, bury cancels the attack" symptom). We treat the last COMBAT command tick as
+	 * the start of the current engagement, so an XP drop at or after it proves the swing landed
+	 * on this target.
+	 */
+	private boolean mobFarmerXpDropMatchesCurrentEngagement()
+	{
+		if (lastMobFarmerCombatXpDropTick < 0)
+		{
+			return false;
+		}
+		Integer engageTick = lastMobFarmerActionTickForKind(MobFarmerActionKind.COMBAT);
+		return engageTick == null || lastMobFarmerCombatXpDropTick >= engageTick;
+	}
+
+	/**
 	 * True in the post-XP-drop window of an attack cycle, when an in-place inventory action
 	 * (bury/scatter) can run concurrently with the auto-attack without delaying the next swing.
 	 * Burying in place does not break a melee interaction, so we keep swinging tick-perfect.
+	 * Guarded by {@link #mobFarmerXpDropMatchesCurrentEngagement()} so a stale XP drop from the
+	 * previous kill can never open this window while we are still walking into a new target.
 	 */
 	private boolean mobFarmerInBurySafeWindow()
 	{
-		if (lastMobFarmerCombatXpDropTick < 0)
+		if (lastMobFarmerCombatXpDropTick < 0 || !mobFarmerXpDropMatchesCurrentEngagement())
 		{
 			return false;
 		}
@@ -5833,6 +5863,34 @@ public class CvHelperModPlugin extends Plugin
 		int sinceDrop = tick - lastMobFarmerCombatXpDropTick;
 		int interval = mobFarmerEffectiveAttackInterval();
 		return sinceDrop >= 0 && sinceDrop < Math.max(1, interval - 1);
+	}
+
+	/**
+	 * True when the NPC we are fighting has been taken over by another player (single-combat
+	 * steal) and we are no longer landing hits on it. The per-tick combat gate otherwise keeps
+	 * us in "continuing-target" until a slow timeout; detecting the steal lets target selection
+	 * retarget immediately. We require no combat XP for longer than one attack interval so brief
+	 * animation-frame nulls / shared multi targets we are still damaging do not trip it.
+	 */
+	private boolean mobFarmerTargetStolenByOther(Actor interacting, Player localPlayer)
+	{
+		if (!(interacting instanceof NPC) || isEffectivelyDead(interacting))
+		{
+			return false;
+		}
+		Actor npcInteracting = ((NPC) interacting).getInteracting();
+		if (!(npcInteracting instanceof Player) || npcInteracting == localPlayer)
+		{
+			return false;
+		}
+		// It is fighting another player. Only bail if our own hits have dried up.
+		if (mobFarmerXpDropMatchesCurrentEngagement() && mobFarmerInBurySafeWindow())
+		{
+			return false;
+		}
+		int tick = safeValue(client::getTickCount, 0);
+		int sinceDrop = lastMobFarmerCombatXpDropTick < 0 ? Integer.MAX_VALUE : tick - lastMobFarmerCombatXpDropTick;
+		return sinceDrop > mobFarmerEffectiveAttackInterval();
 	}
 
 	/**
@@ -6958,7 +7016,12 @@ public class CvHelperModPlugin extends Plugin
 		// aggressive target). Read-only; does not affect the attack decision below. The
 		// selection's pathfinding only runs for name-matching NPCs, so this is cheap.
 		lastEntities = collectEntities();
-		lastMobFarmerCandidates = selectMobFarmerTarget(localPlayer).reports;
+		MobFarmerSelection earlySelection = selectMobFarmerTarget(localPlayer);
+		lastMobFarmerCandidates = earlySelection.reports;
+		// Publish the nearest selectable target's path distance for the loot-travel policy so loot
+		// selection (every phase) can defer far loot while a mob is in attack range.
+		mobFarmerNearestAttackTargetPathDistance = earlySelection.target == null ? -1
+			: intValue(earlySelection.target.get("pathDistance"), intValue(earlySelection.target.get("distance"), -1));
 
 		lastMobFarmerInventoryStatus = inventoryPolicyStatus();
 		if (tryMobFarmerAutoEat(localPlayer, live, generation))
@@ -6983,6 +7046,20 @@ public class CvHelperModPlugin extends Plugin
 		{
 			return;
 		}
+		// Gate priority: opening a required gate/door to reach our target beats (re)issuing
+		// Attack. On a gated target, clicking Attack makes the client path the "open" way around
+		// the barrier, which fights our gate click and oscillates the player north/south along
+		// the wall. Open the gate first to break that loop. (Skip on timeout so an un-openable
+		// door can't wedge the whole loop -- normal selection still rejects unreachable targets.)
+		if (earlySelection.target != null && mobFarmerTargetHasPendingDoor(earlySelection.target)
+			&& tryHandleMobFarmerDoorTransition(localPlayer, earlySelection.target, live)
+			&& !"timeout".equals(lastMobFarmerDoorTransitionStatus.get("result")))
+		{
+			setMobFarmerDecision("gate-priority:" + targetLabelForMessage(earlySelection.target), earlySelection.target);
+			mobFarmerStatus.set("gate-priority:door-transition");
+			updatePanelStatus("Mob farmer prioritising gate to reach " + targetLabelForMessage(earlySelection.target));
+			return;
+		}
 		// Attack always wins. Two protected combat states short-circuit the loot/utility flow:
 		//  (1) Engaged with our target: keep swinging. We allow an in-place bury/scatter in the
 		//      post-XP safe window (concurrent with the auto-attack, never breaks it) and an
@@ -6993,7 +7070,8 @@ public class CvHelperModPlugin extends Plugin
 		// Genuine downtime (target dead/gone, no pending swing) falls through to the normal flow.
 		Actor combatGateInteracting = localPlayer.getInteracting();
 		boolean confirmAttacks = getMobFarmerConfirmAttackBeforeInterrupt();
-		if (confirmAttacks && mobFarmerEngagedWithTarget(combatGateInteracting))
+		if (confirmAttacks && mobFarmerEngagedWithTarget(combatGateInteracting)
+			&& !mobFarmerTargetStolenByOther(combatGateInteracting, localPlayer))
 		{
 			if (getMobFarmerLootEnabled() && mobFarmerLootHasCombatOverride(localPlayer))
 			{
@@ -7089,6 +7167,16 @@ public class CvHelperModPlugin extends Plugin
 			return;
 		}
 
+		if (interacting != null && !isEffectivelyDead(interacting) && mobFarmerTargetStolenByOther(interacting, localPlayer))
+		{
+			// Our mob got taken by another player in single combat and we are no longer landing
+			// hits. Drop it now so the selection pass below retargets immediately instead of
+			// idling in "continuing-target" until a timeout.
+			recordMobFarmerStabilization("target-stolen-retarget", actorSummary(interacting));
+			setMobFarmerDecision("target-stolen-retarget", actorSummary(interacting));
+			interacting = null;
+		}
+
 		if (interacting != null && !isEffectivelyDead(interacting))
 		{
 			if (interacting instanceof NPC && matchesAnyMobTarget((NPC) interacting, mobFarmerTarget))
@@ -7156,7 +7244,15 @@ public class CvHelperModPlugin extends Plugin
 		{
 			return;
 		}
-		if (mobFarmerMakeProgressActive() && tryMobFarmerLoot(localPlayer, live, generation, "make-progress-before-attack"))
+		// Attack always wins: if a valid target is already within attack range, swing now instead
+		// of committing to a loot-walk. This is the "next to a mob while walking to loot, but it
+		// never attacks" case -- the make-progress loot lease would otherwise keep walking past an
+		// in-range kill. Only when attack-before-loot is on (loot-first users keep looting).
+		boolean inRangeAttackReady = getMobFarmerAttackBeforeLoot()
+			&& earlySelection.target != null
+			&& !mobFarmerTargetHasPendingDoor(earlySelection.target)
+			&& mobFarmerTargetWithinAttackRange(earlySelection.target);
+		if (!inRangeAttackReady && mobFarmerMakeProgressActive() && tryMobFarmerLoot(localPlayer, live, generation, "make-progress-before-attack"))
 		{
 			return;
 		}
@@ -8133,6 +8229,20 @@ public class CvHelperModPlugin extends Plugin
 		{
 			candidate.reject("too-far-" + (candidate.highPriority ? "priority" : "normal") + ":" + distance + ">" + allowedRadius);
 			candidate.item.put("cadenceDecision", "skipped-radius");
+			return;
+		}
+		// Stutter-step: attack always wins over a loot-walk. If a selectable mob is within attack
+		// range and this loot is farther than that mob, defer it -- swing the in-range mob first and
+		// grab the loot once nothing is in range. This catches Ground-Items-highlighted bones, which
+		// are flagged high-priority and would otherwise bypass the cadence gate below. Genuine
+		// extreme-value loot on the combat-interrupt list is exempt and may still be grabbed.
+		int attackTargetPathDistance = mobFarmerNearestAttackTargetPathDistance;
+		boolean attackTargetInRange = attackTargetPathDistance >= 0 && attackTargetPathDistance <= MOB_FARMER_ATTACK_RANGE_PATH_DISTANCE;
+		candidate.item.put("attackTargetPathDistance", attackTargetPathDistance < 0 ? null : attackTargetPathDistance);
+		if (attackTargetInRange && distance > attackTargetPathDistance && !mobFarmerPriorityLootCanInterruptCombat(candidate.item))
+		{
+			candidate.reject("defer-for-in-range-attack:lootPd=" + distance + ">targetPd=" + attackTargetPathDistance);
+			candidate.item.put("cadenceDecision", "deferred-attack-in-range");
 			return;
 		}
 		// Spatial priority: order by reachable path distance (nearest first) when known,
@@ -11279,6 +11389,47 @@ public class CvHelperModPlugin extends Plugin
 	 * -- it does not trust the path being "theoretically" clear. Returns true if this tick
 	 * was consumed by door handling (caller should return without attacking).
 	 */
+	/**
+	 * True when the path to this target includes an unsatisfied door/gate transition. The
+	 * pathfinder only emits a {@code doorTransition}/{@code transitionRoute} entry for a crossing
+	 * that still needs an action (e.g. a closed door to Open), so a non-empty value means the
+	 * gate is genuinely pending. {@link #tryHandleMobFarmerDoorTransition} re-confirms before
+	 * clicking.
+	 */
+	private boolean mobFarmerTargetHasPendingDoor(Map<String, Object> target)
+	{
+		if (target == null)
+		{
+			return false;
+		}
+		Object route = target.get("transitionRoute");
+		if (route instanceof List && !((List<?>) route).isEmpty())
+		{
+			return true;
+		}
+		Object door = target.get("doorTransition");
+		return door instanceof Map && !((Map<?, ?>) door).isEmpty();
+	}
+
+	/**
+	 * True when the target is already within attack range (no real travel needed). Uses the
+	 * path distance to a melee tile (0 = adjacent now, 1 = a single step the attack click itself
+	 * makes), falling back to raw distance. Lets an in-range swing pre-empt a loot-walk.
+	 */
+	private boolean mobFarmerTargetWithinAttackRange(Map<String, Object> target)
+	{
+		if (target == null)
+		{
+			return false;
+		}
+		int pathDistance = intValue(target.get("pathDistance"), Integer.MAX_VALUE);
+		if (pathDistance == Integer.MAX_VALUE)
+		{
+			pathDistance = intValue(target.get("distance"), Integer.MAX_VALUE);
+		}
+		return pathDistance >= 0 && pathDistance <= 1;
+	}
+
 	private boolean tryHandleMobFarmerDoorTransition(Player localPlayer, Map<String, Object> target, boolean live)
 	{
 		List<Map<String, Object>> transitionRoute = new ArrayList<>();

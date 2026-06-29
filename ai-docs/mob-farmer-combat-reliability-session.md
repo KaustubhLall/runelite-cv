@@ -60,9 +60,9 @@ same tick. (Ranged/magic XP lags via projectile distance — melee-only guarante
   highlight does NOT bypass it.
 - `engagedMode=PREFER_FREE` — fight the nearest, prefer uncontested, don't walk across the field.
 
-**Open code follow-up (not yet shipped):** make `applyMobFarmerLootTravelPolicy`'s
-`combatActive` also true when a selectable target is merely *nearby* (not only while
-interacting) so far loot is rejected even between kills — would let `ANY` ownership stay safe.
+**Open code follow-up — SHIPPED (2026-06-28, see addendum below):** the loot-travel policy now
+defers loot that is farther than an in-range attack target, so far loot is rejected between
+kills too.
 
 ---
 
@@ -163,3 +163,36 @@ the client instance is degraded — a fresh relaunch did not clear it.
   measured from its XP-drop gaps rather than hard-coded.
 - **Loot/ownership/engaged defaults**: `OWN_ONLY` + `PREFER_FREE` are the sane defaults at busy
   F2P spots; consider making them the code defaults for the mob farmer.
+
+---
+
+## Addendum (2026-06-28 pm): five cadence fixes + loot stutter-step
+
+Branch `codex/mob-farmer-attack-cadence`. All changes are mob-farmer-scoped (mining/WC untouched).
+
+1. **Bury cancelled a fresh-target attack.** `mobFarmerInBurySafeWindow()` / the
+   `confirmed-attack-window` branch trusted a *stale* XP drop from the previous kill, so an
+   in-place bury fired while still walking into a new target and cancelled the queued
+   walk-to-attack. New `mobFarmerXpDropMatchesCurrentEngagement()` (XP-drop tick ≥ last COMBAT
+   command tick) gates both — no bury until a swing lands on the *current* target.
+2. **In-range attack beats a loot-walk** (`mobFarmerTargetWithinAttackRange`, make-progress path).
+3. **Fast retarget when a mob is stolen** (`mobFarmerTargetStolenByOther`): NPC now interacting
+   with another player + no combat XP for > one interval → drop it this tick.
+4. **Gate priority over attack**: if the target needs an unsatisfied door, open it *before* the
+   combat gate (`mobFarmerTargetHasPendingDoor`), else re-Attack made the client path the long way
+   and oscillate N/S along the barrier. Skips on door-timeout so it can't wedge the loop.
+5. **Idle/mouse-takeover reset relaxed**: `mobFarmerCombatStallTicks` default 0→100 (~1 min). NOTE:
+   a *stored* 0 in a profile overrides the code default (→ auto 3×interval=12). Had to POST
+   `combatStallTicks=100` to `/automation/mob-farmer/config` on account3 to actually relax it.
+
+**The big one — "walks away to bones, no stutter-step."** Worked out live: RuneLite Ground Items
+highlights own bones → farmer flags them `priority:ground-items-highlighted`, which (a) bypasses
+the value floor and (b) is `highPriority`, so `applyMobFarmerLootTravelPolicy`'s cadence-cost gate
+(only `!highPriority && combatActive`) never rejects them — and `combatActive` is false between
+kills anyway. Result: it walked 3-7 tiles to highlighted bones with a cow at pathDistance 0-1.
+**Fix:** in the travel policy, publish the nearest selectable target's path distance
+(`mobFarmerNearestAttackTargetPathDistance`, set each step from `earlySelection`) and reject any
+loot that is *farther than an in-range mob* (target pd ≤ 1) unless it's on the extreme-value
+`combatInterruptItems` list (`cadenceDecision=deferred-attack-in-range`). One chokepoint covers all
+loot phases. Underfoot bones (pd 0) still loot/bury normally. Verified live on `bus err`: 0 walk-
+away events vs 44 correct deferrals, combat XP still climbing, loot+bury still firing in downtime.
