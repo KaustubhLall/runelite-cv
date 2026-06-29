@@ -3928,6 +3928,16 @@ public class CvHelperModPlugin extends Plugin
 		updatePanelStatus("Mob farmer target: " + mobFarmerTarget);
 	}
 
+	String getMobFarmerTargetBlacklist()
+	{
+		return config.mobFarmerTargetBlacklist() == null ? "" : config.mobFarmerTargetBlacklist().trim();
+	}
+
+	void setMobFarmerTargetBlacklist(String items)
+	{
+		configManager.setConfiguration(CvHelperModConfig.GROUP, CvHelperModConfig.MOB_FARMER_TARGET_BLACKLIST, items == null ? "" : items.trim());
+	}
+
 	String getWoodcuttingFarmerTarget()
 	{
 		return woodcuttingFarmerTarget;
@@ -4832,6 +4842,7 @@ public class CvHelperModPlugin extends Plugin
 	{
 		Map<String, Object> settings = new LinkedHashMap<>();
 		settings.put("target", getMobFarmerTarget());
+		settings.put("targetBlacklist", getMobFarmerTargetBlacklist());
 		settings.put("recoveryLoopDelayMs", getMobFarmerRecoveryLoopDelayMs());
 		settings.put("autorunEnabled", getMobFarmerAutorunEnabled());
 		settings.put("autorunMinEnergy", getMobFarmerAutorunMinEnergy());
@@ -4907,6 +4918,7 @@ public class CvHelperModPlugin extends Plugin
 	{
 		List<Map<String, Object>> schema = new ArrayList<>();
 		schema.add(settingSchema("target", "Mob targets", "text", "Partial NPC name, id:<npc id>, or a list separated by |, comma, semicolon, or newlines.", null));
+		schema.add(settingSchema("targetBlacklist", "Never-attack mobs", "text", "NPCs to never attack even if they match the target (wins over the target list). Same format as Mob targets.", null));
 		schema.add(settingSchema("recoveryLoopDelayMs", "Recovery delay ms", "number", "Wall-clock delay for logged-out recovery and manual loop sleeps. Logged-in farming is game-tick driven.", null));
 		schema.add(settingSchema("autorunEnabled", "Auto-run on", "boolean", "Click the run orb when run is off and energy reaches the threshold. Never toggles run off.", null));
 		schema.add(settingSchema("autorunMinEnergy", "Run energy %", "number", "Minimum run energy percent required before auto-run toggles on.", null));
@@ -5041,6 +5053,7 @@ public class CvHelperModPlugin extends Plugin
 		List<String> errors = new ArrayList<>();
 		List<Runnable> updates = new ArrayList<>();
 		applyStringSetting(settings, "target", updates, this::setMobFarmerTarget);
+		applyStringSetting(settings, "targetBlacklist", updates, this::setMobFarmerTargetBlacklist);
 		applyIntSetting(settings, "recoveryLoopDelayMs", updates, this::setMobFarmerRecoveryLoopDelayMs, errors);
 		applyBooleanSetting(settings, "autorunEnabled", updates, this::setMobFarmerAutorunEnabled, errors);
 		applyIntSetting(settings, "autorunMinEnergy", updates, this::setMobFarmerAutorunMinEnergy, errors);
@@ -11724,6 +11737,14 @@ public class CvHelperModPlugin extends Plugin
 		int distance = entity.get("distance") instanceof Number ? ((Number) entity.get("distance")).intValue() : Integer.MAX_VALUE;
 		candidate.score = distance;
 
+		// Never-attack list wins over the target list: reject a blacklisted NPC even if it also
+		// matches the target (e.g. "spider" targeted, "deadly red spider" blacklisted).
+		String targetBlacklist = getMobFarmerTargetBlacklist();
+		if (!targetBlacklist.isEmpty() && matchesAnyMobTarget(npc, targetBlacklist))
+		{
+			candidate.reject("blacklisted");
+			return candidate;
+		}
 		if (!matchesAnyMobTarget(npc, mobFarmerTarget))
 		{
 			candidate.reject("target-mismatch");
