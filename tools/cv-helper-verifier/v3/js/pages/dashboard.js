@@ -3,13 +3,54 @@
  * Faithful-enough subset of the reference dashboard; deeper widgets (captures,
  * full warnings) are intentionally staged for a later pass.
  * ========================================================================== */
-import { panel, kvList, badge, gpValue } from "../components.js";
+import { panel, kvList, badge, gpValue, table } from "../components.js";
 import { icon } from "../icons.js";
 import { escapeHtml, formatGp, formatRelativeTime, selectedValue } from "../format.js";
 
 const root = () => document.querySelector("#dashboard-page");
 const obj = (v) => (v && typeof v === "object" ? v : {});
 const num = (v) => (typeof v === "number" ? v : undefined);
+
+const SKILL_ORDER = [
+	"attack", "hitpoints", "mining", "strength", "agility", "smithing", "defence", "herblore", "fishing",
+	"ranged", "thieving", "cooking", "prayer", "crafting", "firemaking", "magic", "fletching", "woodcutting",
+	"runecraft", "slayer", "farming", "construction", "hunter",
+];
+
+const SKILL_ICONS = {
+	agility: "footprints",
+	attack: "swords",
+	construction: "hammer",
+	cooking: "flame",
+	crafting: "gem",
+	defence: "shield",
+	farming: "sprout",
+	firemaking: "flame-kindling",
+	fishing: "fish",
+	fletching: "bow-arrow",
+	herblore: "flask-conical",
+	hitpoints: "heart",
+	hunter: "radar",
+	magic: "wand-2",
+	mining: "pickaxe",
+	prayer: "sparkles",
+	ranged: "crosshair",
+	runecraft: "circle-dot",
+	slayer: "skull",
+	smithing: "anvil",
+	strength: "dumbbell",
+	thieving: "key-round",
+	woodcutting: "trees",
+};
+
+let latestStatsExport = null;
+
+document.addEventListener("click", (event) => {
+	const target = event.target instanceof Element ? event.target : null;
+	const button = target && target.closest("[data-dashboard-export-stats]");
+	if (!button) return;
+	exportLatestStats(button);
+});
 
 function countCard(iconName, label, value) {
 	return `<div class="count-card"><span class="cc-ico">${icon(iconName)}</span><div class="cc-body"><span class="cc-value">${escapeHtml(String(value ?? "—"))}</span><span class="cc-label">${escapeHtml(label)}</span></div></div>`;
@@ -66,6 +107,171 @@ function sceneDiagnostics(status) {
 		])}</div>`;
 	}).filter(Boolean).join("");
 	return blocks || `<p class="empty compact">Open a skill farmer page to populate scene diagnostics.</p>`;
+}
+
+function normalizeSkillKey(value) {
+	return String(value || "")
+		.replace(/_/g, " ")
+		.replace(/([a-z])([A-Z])/g, "$1 $2")
+		.trim()
+		.toLowerCase()
+		.replace(/\s+/g, " ");
+}
+
+function skillDisplayName(value) {
+	const key = normalizeSkillKey(value);
+	if (!key) return "Unknown";
+	return key.split(" ").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
+}
+
+function numberFrom(...values) {
+	for (const value of values) {
+		if (typeof value === "number" && Number.isFinite(value)) return value;
+		if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) return Number(value);
+	}
+	return undefined;
+}
+
+function compactNumber(value) {
+	return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString() : "—";
+}
+
+function xpForLevel(level) {
+	let points = 0;
+	for (let i = 1; i < level; i += 1) {
+		points += Math.floor(i + 300 * Math.pow(2, i / 7));
+	}
+	return Math.floor(points / 4);
+}
+
+function normalizeSkillSnapshot(rawKey, rawValue) {
+	const value = obj(rawValue);
+	const key = normalizeSkillKey(value.skill || value.name || rawKey);
+	if (!key || key === "overall" || key === "total") return null;
+	const realLevel = numberFrom(value.real, value.realLevel, value.base, value.baseLevel, value.level, value.staticLevel);
+	const currentLevel = numberFrom(value.current, value.currentLevel, value.boosted, value.boostedLevel, value.modifiedLevel, value.level);
+	const xp = numberFrom(value.xp, value.experience, value.currentXp, value.skillXp);
+	let xpToNext = numberFrom(value.xpToNext, value.xpToNextLevel, value.remainingXp);
+	let progressPercent = numberFrom(value.progressPercent, value.progress, value.percentToNextLevel);
+	if (xp !== undefined && realLevel !== undefined && realLevel > 0 && realLevel < 99) {
+		const currentLevelXp = xpForLevel(realLevel);
+		const nextLevelXp = xpForLevel(realLevel + 1);
+		xpToNext = xpToNext ?? Math.max(0, nextLevelXp - xp);
+		progressPercent = progressPercent ?? ((xp - currentLevelXp) / Math.max(1, nextLevelXp - currentLevelXp)) * 100;
+	}
+	if (progressPercent !== undefined) progressPercent = Math.max(0, Math.min(100, progressPercent));
+	return {
+		key,
+		name: skillDisplayName(key),
+		iconName: SKILL_ICONS[key.replace(/\s+/g, "")] || SKILL_ICONS[key] || "circle-dot",
+		realLevel,
+		currentLevel,
+		xp,
+		xpToNext,
+		progressPercent,
+	};
+}
+
+function normalizeSkills(status, player) {
+	const source = obj(player.skills || status.skills || obj(status.player).skills);
+	if (!Object.keys(source).length) return [];
+	let entries;
+	if (Array.isArray(source)) {
+		entries = source.map((value, index) => normalizeSkillSnapshot(value.skill || value.name || index, value));
+	} else {
+		entries = Object.entries(source).map(([key, value]) => normalizeSkillSnapshot(key, value));
+	}
+	return entries.filter(Boolean).sort((a, b) => {
+		const ia = SKILL_ORDER.indexOf(a.key);
+		const ib = SKILL_ORDER.indexOf(b.key);
+		if (ia !== -1 || ib !== -1) return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+		return a.name.localeCompare(b.name);
+	});
+}
+
+function statsSummary(skills) {
+	return {
+		totalLevel: skills.reduce((sum, skill) => sum + (skill.realLevel || 0), 0),
+		totalXp: skills.reduce((sum, skill) => sum + (skill.xp || 0), 0),
+		maxedSkills: skills.filter((skill) => (skill.realLevel || 0) >= 99).length,
+	};
+}
+
+function renderSkillProgress(skill) {
+	if (typeof skill.progressPercent !== "number") return "—";
+	const label = `${Math.round(skill.progressPercent)}%`;
+	return `<span title="${escapeHtml(label)} to next level">${escapeHtml(label)}</span><div class="m-bar"><i style="width:${skill.progressPercent}%"></i></div>`;
+}
+
+function renderStatsPanel(status, player, loggedIn) {
+	const skills = normalizeSkills(status, player);
+	if (!loggedIn) {
+		latestStatsExport = null;
+		return panel({ title: "Player Stats", iconName: "bar-chart-3", body: `<p class="empty compact">Log in to show the current account's full skill snapshot.</p>` });
+	}
+	if (!skills.length) {
+		latestStatsExport = null;
+		return panel({ title: "Player Stats", iconName: "bar-chart-3", body: `<p class="empty compact">No skill snapshot was found in the current /status payload.</p>` });
+	}
+	const summary = statsSummary(skills);
+	latestStatsExport = {
+		exportedAt: new Date().toISOString(),
+		player: player.localPlayer || null,
+		world: player.world ?? null,
+		gameState: player.gameState || null,
+		totalLevel: summary.totalLevel,
+		totalXp: summary.totalXp,
+		skills,
+	};
+	const rows = skills.map((skill) => ({ cells: [
+		`<span class="skill-name"><span class="kv-ico">${icon(skill.iconName)}</span>${escapeHtml(skill.name)}</span>`,
+		escapeHtml(selectedValue(skill.currentLevel, "—")),
+		escapeHtml(selectedValue(skill.realLevel, "—")),
+		escapeHtml(compactNumber(skill.xp)),
+		escapeHtml(compactNumber(skill.xpToNext)),
+		renderSkillProgress(skill),
+	] }));
+	const summaryHtml = `<div class="count-grid" style="margin-bottom:12px">
+		${countCard("bar-chart-3", "Total level", summary.totalLevel)}
+		${countCard("sparkles", "Total XP", compactNumber(summary.totalXp))}
+		${countCard("award", "99s", summary.maxedSkills)}
+		${countCard("user", "Player", player.localPlayer || "—")}
+	</div>`;
+	const actions = `<button class="btn sm" type="button" data-dashboard-export-stats><i data-lucide="download"></i> Export JSON</button>`;
+	return panel({
+		title: "Player Stats",
+		iconName: "bar-chart-3",
+		extra: actions,
+		body: summaryHtml + table({
+			columns: [
+				{ label: "Skill" },
+				{ label: "Current" },
+				{ label: "Base" },
+				{ label: "XP" },
+				{ label: "To next" },
+				{ label: "Progress" },
+			],
+			rows,
+			empty: "No skill data.",
+		}),
+	});
+}
+
+function exportLatestStats(button) {
+	if (!latestStatsExport) return;
+	const filenamePlayer = String(latestStatsExport.player || "player").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-|-$/g, "") || "player";
+	const blob = new Blob([JSON.stringify(latestStatsExport, null, 2)], { type: "application/json" });
+	const url = URL.createObjectURL(blob);
+	const link = document.createElement("a");
+	link.href = url;
+	link.download = `cv-helper-${filenamePlayer}-stats.json`;
+	document.body.appendChild(link);
+	link.click();
+	link.remove();
+	URL.revokeObjectURL(url);
+	const original = button.innerHTML;
+	button.innerHTML = `${icon("check")} Exported`;
+	window.setTimeout(() => { button.innerHTML = original; }, 1400);
 }
 
 export function renderDashboard(status, mobFarmer, events, counts) {
@@ -141,6 +347,10 @@ export function renderDashboard(status, mobFarmer, events, counts) {
 			${panel({ title: "Warnings", iconName: "alert-triangle", body: warnings.length
 				? `<div class="kv">${warnings.map((w) => `<div class="kv-row"><span class="kv-ico tone-bad">${icon("alert-triangle")}</span><span class="kv-k">${escapeHtml(w)}</span></div>`).join("")}</div>`
 				: `<div class="all-nominal">${icon("check-circle")} <span>All systems nominal — no verifier warnings.</span></div>` })}
+		</div>
+
+		<div style="margin-top:var(--gap)">
+			${renderStatsPanel(status, player, loggedIn)}
 		</div>
 
 		<div class="grid cols-3" style="margin-top:var(--gap)">
