@@ -688,12 +688,19 @@ class CvHelperModPanel extends PluginPanel
 		JLabel help = new JLabel("<html>Farmer loop: survival guard, optional intermediate inventory actions, loot processing, then guarded attack selection. Use mob targets like goblin|spider or id:1234. Loot failures are diagnosed in /automation/mob-farmer/status.</html>");
 		help.setForeground(Color.LIGHT_GRAY);
 
-		for (JComponent component : new JComponent[]{
+		for (JComponent quick : new JComponent[]{
 			help,
 			label("Mob target"),
 			target,
 			label("Never-attack mobs"),
-			targetBlacklist,
+			targetBlacklist
+		})
+		{
+			stretch(quick);
+			body.add(quick);
+		}
+
+		body.add(collapsibleGroup("Targeting",
 			label("Already-engaged mobs"),
 			engagedMode,
 			label("Undesired attacker"),
@@ -702,8 +709,9 @@ class CvHelperModPanel extends PluginPanel
 			label("Max target distance"),
 			maxDistance,
 			label("Attack interaction"),
-			attackInteraction,
-			label("Survival"),
+			attackInteraction));
+
+		body.add(collapsibleGroup("Survival & Login",
 			autoEatEnabled,
 			label("Eat below HP %"),
 			eatThreshold,
@@ -718,8 +726,9 @@ class CvHelperModPanel extends PluginPanel
 			autoResumeAfterLogin,
 			label("Preferred login world"),
 			preferredLoginWorld,
-			label("<html>Idle handling: use RuneLite's Logout Timer plugin/settings for longer idle windows. CV Helper only recovers after logout.</html>"),
-			label("Loot"),
+			label("<html>Idle handling: use RuneLite's Logout Timer plugin/settings for longer idle windows. CV Helper only recovers after logout.</html>")));
+
+		body.add(collapsibleGroup("Loot & Drop",
 			lootEnabled,
 			lootDuringCombat,
 			attackBeforeLoot,
@@ -754,7 +763,10 @@ class CvHelperModPanel extends PluginPanel
 			label("Ground Items lists"),
 			groundItemsMode,
 			respectGroundItemsHidden,
-			label("High Alchemy"),
+			label("Protected inventory"),
+			neverDrop));
+
+		body.add(collapsibleGroup("High Alchemy",
 			highAlchEnabled,
 			label("Min HA value"),
 			highAlchMinHa,
@@ -765,15 +777,16 @@ class CvHelperModPanel extends PluginPanel
 			label("Alch allowlist"),
 			highAlchItems,
 			label("Never alch"),
-			highAlchBlacklist,
-			label("Intermediate actions"),
+			highAlchBlacklist));
+
+		body.add(collapsibleGroup("Intermediate actions",
 			intermediateActions,
 			label("Intermediate items"),
 			intermediateItems,
 			label("Item -> action mappings"),
-			intermediateMappingsPane,
-			label("Protected inventory"),
-			neverDrop,
+			intermediateMappingsPane));
+
+		for (JComponent action : new JComponent[]{
 			saveGuards,
 			saveTarget,
 			dryStep,
@@ -783,8 +796,8 @@ class CvHelperModPanel extends PluginPanel
 			stop
 		})
 		{
-			stretch(component);
-			body.add(component);
+			stretch(action);
+			body.add(action);
 		}
 
 		JToggleButton expand = new JToggleButton("Expand");
@@ -1057,6 +1070,46 @@ class CvHelperModPanel extends PluginPanel
 		Dimension preferred = component.getPreferredSize();
 		component.setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(24, preferred.height)));
 		component.setPreferredSize(new Dimension(Math.max(160, preferred.width), Math.max(24, preferred.height)));
+	}
+
+	/**
+	 * A labeled, collapsed-by-default sub-group: a full-width header button that toggles a vertical
+	 * body of stretched components. Lets a dense section (e.g. Mob farmer) be broken into navigable
+	 * groups instead of one long flat scroll. Pattern mirrors the top-level section toggles.
+	 */
+	private JPanel collapsibleGroup(String title, JComponent... components)
+	{
+		JPanel group = new JPanel(new BorderLayout(0, 2));
+		group.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		group.setBorder(new EmptyBorder(2, 0, 2, 0));
+
+		JPanel inner = new JPanel();
+		inner.setLayout(new BoxLayout(inner, BoxLayout.Y_AXIS));
+		inner.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		for (JComponent component : components)
+		{
+			stretch(component);
+			inner.add(component);
+		}
+		inner.setVisible(false);
+
+		JToggleButton toggle = new JToggleButton("▸  " + title);
+		toggle.setSelected(true);
+		toggle.setHorizontalAlignment(SwingConstants.LEFT);
+		toggle.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		toggle.setForeground(Color.LIGHT_GRAY);
+		toggle.addActionListener(e ->
+		{
+			boolean collapsed = toggle.isSelected();
+			toggle.setText((collapsed ? "▸  " : "▾  ") + title);
+			inner.setVisible(!collapsed);
+			group.revalidate();
+		});
+
+		group.add(toggle, BorderLayout.NORTH);
+		group.add(inner, BorderLayout.CENTER);
+		setCompact(group);
+		return group;
 	}
 
 	void updateStatus(String message)
