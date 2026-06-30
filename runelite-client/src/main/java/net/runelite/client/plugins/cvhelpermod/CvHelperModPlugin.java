@@ -11358,44 +11358,6 @@ public class CvHelperModPlugin extends Plugin
 		return result.get();
 	}
 
-	// ── Fishing farmer (scaffold — not yet implemented) ──────────────────────────
-
-	private void runFishingFarmerTick()
-	{
-		// TODO: implement fishing farmer step (OSR-XX)
-	}
-
-	private void reportFishingFarmerNeedsLogin(boolean live)
-	{
-		Map<String, Object> status = new LinkedHashMap<>(lastFishingFarmerStatus);
-		status.put("skill", "fishing");
-		status.put("running", fishingFarmerRunning.get());
-		status.put("currentAction", "needs-login");
-		status.put("updatedAt", Instant.now().toString());
-		lastFishingFarmerStatus = status;
-	}
-
-	private Map<String, Object> getFishingFarmerStatus()
-	{
-		Map<String, Object> status = new LinkedHashMap<>(lastFishingFarmerStatus);
-		status.put("skill", "fishing");
-		status.put("running", fishingFarmerRunning.get());
-		status.put("live", fishingFarmerLiveMode);
-		status.put("target", fishingFarmerTarget);
-		return status;
-	}
-
-	private void handleFishingFarmerRequest(HttpExchange exchange, String action) throws IOException
-	{
-		Map<String, Object> body = new LinkedHashMap<>();
-		body.put("error", "not-implemented");
-		body.put("skill", "fishing");
-		body.put("action", action);
-		writeJson(exchange, 501, body);
-	}
-
-	// ─────────────────────────────────────────────────────────────────────────────
-
 	private Map<String, Object> inventoryPolicyStatus()
 	{
 		Map<String, Object> inventory = containerValue("inventory", InventoryID.INVENTORY);
@@ -16123,5 +16085,432 @@ public class CvHelperModPlugin extends Plugin
 			}
 		}
 		return droppable;
+	}
+
+	// ── Fishing farmer ───────────────────────────────────────────────────────────
+
+	private void runFishingFarmerTick()
+	{
+		if (fishingFarmerRunning.get())
+		{
+			runFishingFarmerStep(fishingFarmerLiveMode, "game-tick");
+		}
+	}
+
+	private void runFishingFarmerStep(boolean live, String source)
+	{
+		if (client.getGameState() != GameState.LOGGED_IN || client.getLocalPlayer() == null)
+		{
+			reportFishingFarmerNeedsLogin(live);
+			return;
+		}
+		Map<String, Object> status = getFishingFarmerStatus();
+		status.put("source", source);
+		status.put("live", live);
+
+		// Spot-moved detection: fishing spots physically relocate every ~20-50 ticks.
+		if (lastSelectedFishingSpot != null && !fishingSpotStillValid(lastSelectedFishingSpot))
+		{
+			int tick = client.getTickCount();
+			long clickedTick = lastSelectedFishingSpot.get("selectedTick") instanceof Number
+				? ((Number) lastSelectedFishingSpot.get("selectedTick")).longValue() : tick;
+			int graceTicks = config.fishingSpotMovedGraceTicks();
+			if ((tick - clickedTick) <= graceTicks)
+			{
+				status.put("currentAction", "spot-moved-grace");
+				status.put("graceTick", clickedTick + graceTicks);
+				setFishingFarmerStatus(status);
+				return;
+			}
+			markFishingSpotCompleted("spot-moved");
+			lastSelectedFishingSpot = null;
+		}
+
+		if (isActivelyFishing())
+		{
+			status.put("currentAction", "fishing");
+			status.put("animating", true);
+			setFishingFarmerStatus(status);
+			return;
+		}
+
+		String targetText = fishingFarmerTarget;
+		String action = config.fishingFarmerAction();
+		List<Map<String, Object>> candidates = collectFishingSpotNpcs(targetText, action);
+		status.put("candidateCount", candidates.size());
+		if (candidates.isEmpty())
+		{
+			status.put("currentAction", "no-candidates");
+			status.put("targetText", targetText);
+			setFishingFarmerStatus(status);
+			return;
+		}
+
+		Map<String, Object> target = candidates.get(0);
+		status.put("currentAction", live ? "fishing-click" : "dry-fishing-click");
+		status.put("targetIndex", target.get("index"));
+		status.put("targetName", target.get("name"));
+		status.put("targetLocation", target.get("worldLocation"));
+		lastSelectedFishingSpot = new LinkedHashMap<>(target);
+		lastSelectedFishingSpot.put("selectedTick", (long) client.getTickCount());
+		setFishingFarmerStatus(status);
+		if (live)
+		{
+			int actionIndex = target.get("actionIndex") instanceof Number
+				? ((Number) target.get("actionIndex")).intValue() : 0;
+			invokeFishingSpotNpc(target, actionIndex);
+			lastFishingSpotClickTime = System.currentTimeMillis();
+		}
+	}
+
+	private boolean isActivelyFishing()
+	{
+		Player localPlayer = client.getLocalPlayer();
+		if (localPlayer == null)
+		{
+			return false;
+		}
+		int animationId = localPlayer.getAnimation();
+		for (int id : FISHING_ANIMATION_IDS)
+		{
+			if (animationId == id)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private List<Map<String, Object>> collectFishingSpotNpcs(String targetText, String action)
+	{
+		Player localPlayer = client.getLocalPlayer();
+		if (localPlayer == null)
+		{
+			return new ArrayList<>();
+		}
+		List<Map<String, Object>> candidates = new ArrayList<>();
+		int maxDist = fishingFarmerScanRadius;
+		int maxCandidates = fishingFarmerMaxCandidates;
+		for (NPC npc : client.getNpcs())
+		{
+			if (npc == null || npc.getName() == null)
+			{
+				continue;
+			}
+			if (!matchesTargetText(npc.getName(), npc.getId(), targetText))
+			{
+				continue;
+			}
+			WorldPoint npcLoc = npc.getWorldLocation();
+			if (npcLoc == null)
+			{
+				continue;
+			}
+			int dist = localPlayer.getWorldLocation().distanceTo(npcLoc);
+			if (dist > maxDist)
+			{
+				continue;
+			}
+			int actionIndex = findFishingActionIndexForNpc(npc, action);
+			if (actionIndex < 0)
+			{
+				continue;
+			}
+			PathingResult pathing = pathfinding.mobFarmerPathDistanceToMelee(localPlayer, npc, maxDist);
+			if (!pathing.reachable)
+			{
+				continue;
+			}
+			Map<String, Object> entry = new LinkedHashMap<>();
+			entry.put("index", npc.getIndex());
+			entry.put("id", npc.getId());
+			entry.put("name", npc.getName());
+			entry.put("worldLocation", pointValue(npcLoc));
+			entry.put("distance", dist);
+			entry.put("pathDistance", pathing.pathDistance);
+			entry.put("actionIndex", actionIndex);
+			candidates.add(entry);
+			if (candidates.size() >= maxCandidates)
+			{
+				break;
+			}
+		}
+		candidates.sort((a, b) ->
+		{
+			int da = a.get("pathDistance") instanceof Number ? ((Number) a.get("pathDistance")).intValue() : Integer.MAX_VALUE;
+			int db = b.get("pathDistance") instanceof Number ? ((Number) b.get("pathDistance")).intValue() : Integer.MAX_VALUE;
+			return Integer.compare(da, db);
+		});
+		return candidates;
+	}
+
+	private int findFishingActionIndexForNpc(NPC npc, String action)
+	{
+		NPCComposition composition = npc.getTransformedComposition();
+		if (composition == null)
+		{
+			composition = npc.getComposition();
+		}
+		if (composition == null || composition.getActions() == null)
+		{
+			return -1;
+		}
+		String[] actions = composition.getActions();
+		for (int i = 0; i < actions.length; i++)
+		{
+			if (actions[i] != null && actions[i].equalsIgnoreCase(action))
+			{
+				return i;
+			}
+		}
+		// Fallback: return the first non-null action if the requested action is not found.
+		for (int i = 0; i < actions.length; i++)
+		{
+			if (actions[i] != null)
+			{
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	private boolean fishingSpotStillValid(Map<String, Object> lastSpot)
+	{
+		if (lastSpot == null)
+		{
+			return false;
+		}
+		int index = lastSpot.get("index") instanceof Number ? ((Number) lastSpot.get("index")).intValue() : -1;
+		Map<?, ?> storedLoc = lastSpot.get("worldLocation") instanceof Map ? (Map<?, ?>) lastSpot.get("worldLocation") : null;
+		if (index < 0 || storedLoc == null)
+		{
+			return false;
+		}
+		int storedX = storedLoc.get("x") instanceof Number ? ((Number) storedLoc.get("x")).intValue() : -1;
+		int storedY = storedLoc.get("y") instanceof Number ? ((Number) storedLoc.get("y")).intValue() : -1;
+		for (NPC npc : client.getNpcs())
+		{
+			if (npc != null && npc.getIndex() == index)
+			{
+				WorldPoint loc = npc.getWorldLocation();
+				// Same index, same tile: spot is still valid.
+				return loc != null && loc.getX() == storedX && loc.getY() == storedY;
+			}
+		}
+		// Index not found: spot despawned.
+		return false;
+	}
+
+	private void markFishingSpotCompleted(String reason)
+	{
+		lastCompletedFishingSpot = lastSelectedFishingSpot;
+		fishingCompletionReason = reason;
+		lastFishingInvalidationTick = client.getTickCount();
+	}
+
+	private Map<String, Object> getFishingFarmerStatus()
+	{
+		Map<String, Object> status = new LinkedHashMap<>(lastFishingFarmerStatus);
+		status.put("skill", "fishing");
+		status.put("running", fishingFarmerRunning.get());
+		status.put("live", fishingFarmerLiveMode);
+		status.put("target", fishingFarmerTarget);
+		status.put("scanRadius", fishingFarmerScanRadius);
+		status.put("maxCandidates", fishingFarmerMaxCandidates);
+		status.put("lastInvalidationTick", lastFishingInvalidationTick);
+		status.put("lastClickMs", lastFishingSpotClickTime);
+		return status;
+	}
+
+	private void setFishingFarmerStatus(Map<String, Object> status)
+	{
+		status.put("updatedAt", Instant.now().toString());
+		lastFishingFarmerStatus = status;
+	}
+
+	private void reportFishingFarmerNeedsLogin(boolean live)
+	{
+		Map<String, Object> status = getFishingFarmerStatus();
+		boolean recoveryActive = live && tryGenericLoginRecovery();
+		status.put("currentAction", recoveryActive ? "login-recovery-active" : "needs-login");
+		status.put("lastFailureReason", recoveryActive ? null : "not-logged-in");
+		status.put("loginRecoveryActive", recoveryActive);
+		setFishingFarmerStatus(status);
+	}
+
+	private void invokeFishingSpotNpc(Map<String, Object> target, int actionIndex)
+	{
+		if (!actionInProgress.compareAndSet(false, true))
+		{
+			return;
+		}
+		try
+		{
+			int index = intValue(target.get("index"), -1);
+			MenuAction menuAction = npcMenuActionForIndex(actionIndex);
+			if (index < 0 || menuAction == null)
+			{
+				return;
+			}
+			String npcName = String.valueOf(target.getOrDefault("name", ""));
+			String action = config.fishingFarmerAction();
+			primeMobFarmerCanvasMouse();
+			client.menuAction(0, 0, menuAction, index, -1, action, npcName);
+		}
+		finally
+		{
+			actionInProgress.set(false);
+		}
+	}
+
+	void startFishingFarmer(boolean live)
+	{
+		fishingFarmerRunning.set(true);
+		fishingFarmerLiveMode = live;
+		Map<String, Object> status = getFishingFarmerStatus();
+		status.put("currentAction", "started");
+		setFishingFarmerStatus(status);
+		updateAntiIdleState();
+		if (live)
+		{
+			ensureSkillFarmerRecoveryLoop();
+		}
+	}
+
+	void stopFishingFarmer()
+	{
+		fishingFarmerRunning.set(false);
+		fishingFarmerLiveMode = false;
+		Map<String, Object> status = getFishingFarmerStatus();
+		status.put("currentAction", "stopped");
+		setFishingFarmerStatus(status);
+		updateAntiIdleState();
+	}
+
+	private void handleFishingFarmerRequest(HttpExchange exchange, String action) throws IOException
+	{
+		try
+		{
+			if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod()))
+			{
+				writeResponse(exchange, 204, "");
+				return;
+			}
+			if ("status".equals(action))
+			{
+				writeJson(exchange, 200, getFishingFarmerStatusOnClientThread());
+				return;
+			}
+			if ("step".equals(action))
+			{
+				writeJson(exchange, 202, runFishingFarmerActionOnClientThread("step", Boolean.parseBoolean(queryParam(exchange, "live"))));
+				return;
+			}
+			if ("start".equals(action))
+			{
+				writeJson(exchange, 202, runFishingFarmerActionOnClientThread("start", Boolean.parseBoolean(queryParam(exchange, "live"))));
+				return;
+			}
+			if ("stop".equals(action))
+			{
+				writeJson(exchange, 202, runFishingFarmerActionOnClientThread("stop", false));
+				return;
+			}
+			writeResponse(exchange, 404, "{\"error\":\"unknown-fishing-action\"}");
+		}
+		catch (RuntimeException e)
+		{
+			log.warn("CV Helper fishing {} request failed", action, e);
+			Map<String, Object> error = new LinkedHashMap<>();
+			error.put("error", "fishing-request-failed");
+			error.put("action", action);
+			error.put("message", e.getMessage());
+			writeJson(exchange, 500, error);
+		}
+		catch (InterruptedException e)
+		{
+			Thread.currentThread().interrupt();
+			writeResponse(exchange, 503, "{\"error\":\"interrupted\"}");
+		}
+	}
+
+	private Map<String, Object> runFishingFarmerActionOnClientThread(String action, boolean live) throws InterruptedException
+	{
+		CountDownLatch latch = new CountDownLatch(1);
+		AtomicReference<Map<String, Object>> result = new AtomicReference<>();
+		clientThread.invokeLater(() ->
+		{
+			try
+			{
+				if ("step".equals(action))
+				{
+					runFishingFarmerStep(live, "http-step");
+				}
+				else if ("start".equals(action))
+				{
+					startFishingFarmer(live);
+				}
+				else if ("stop".equals(action))
+				{
+					stopFishingFarmer();
+				}
+				result.set(getFishingFarmerStatus());
+			}
+			catch (RuntimeException e)
+			{
+				log.warn("CV Helper fishing action failed: {}", action, e);
+				Map<String, Object> error = new LinkedHashMap<>();
+				error.put("action", action);
+				error.put("error", "client-thread-error");
+				error.put("message", e.getMessage());
+				result.set(error);
+			}
+			finally
+			{
+				latch.countDown();
+			}
+		});
+		if (!latch.await(1500, TimeUnit.MILLISECONDS))
+		{
+			Map<String, Object> timeout = new LinkedHashMap<>();
+			timeout.put("action", action);
+			timeout.put("error", "client-thread-timeout");
+			return timeout;
+		}
+		return result.get();
+	}
+
+	private Map<String, Object> getFishingFarmerStatusOnClientThread() throws InterruptedException
+	{
+		CountDownLatch latch = new CountDownLatch(1);
+		AtomicReference<Map<String, Object>> result = new AtomicReference<>();
+		clientThread.invokeLater(() ->
+		{
+			try
+			{
+				result.set(getFishingFarmerStatus());
+			}
+			catch (RuntimeException e)
+			{
+				log.warn("CV Helper fishing status failed", e);
+				Map<String, Object> error = new LinkedHashMap<>();
+				error.put("skill", "fishing");
+				error.put("error", "client-thread-error");
+				error.put("message", e.getMessage());
+				result.set(error);
+			}
+			finally
+			{
+				latch.countDown();
+			}
+		});
+		if (!latch.await(1500, TimeUnit.MILLISECONDS))
+		{
+			Map<String, Object> timeout = new LinkedHashMap<>();
+			timeout.put("skill", "fishing");
+			timeout.put("error", "client-thread-timeout");
+			return timeout;
+		}
+		return result.get();
 	}
 }

@@ -33,8 +33,10 @@ public interface CvHelperModConfig extends Config
 	String FIREMAKING_LOG_TYPE = "firemakingLogType";
 	String FISHING_SECTION = "fishingSection";
 	String FISHING_FARMER_TARGET = "fishingFarmerTarget";
+	String FISHING_FARMER_ACTION = "fishingFarmerAction";
 	String FISHING_SCAN_RADIUS = "fishingScanRadius";
 	String FISHING_MAX_CANDIDATES = "fishingMaxCandidates";
+	String FISHING_SPOT_MOVED_GRACE_TICKS = "fishingSpotMovedGraceTicks";
 	String CHAT_RESPONDER_SECTION = "chatResponderSection";
 	String CHAT_RESPONDER_ENABLED = "chatResponderEnabled";
 	String CHAT_RESPONDER_MIN_MESSAGES = "chatResponderMinMessages";
@@ -277,6 +279,17 @@ public interface CvHelperModConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = FISHING_FARMER_ACTION,
+		name = "Fishing action",
+		description = "Menu action to use on the fishing spot NPC, e.g. 'Lure', 'Bait', 'Small Net', 'Cage', 'Harpoon', 'Net'.",
+		section = fishingSection
+	)
+	default String fishingFarmerAction()
+	{
+		return "Lure";
+	}
+
+	@ConfigItem(
 		keyName = FISHING_SCAN_RADIUS,
 		name = "Fishing scan radius (tiles)",
 		description = "Maximum distance in tiles to search for fishing spots.",
@@ -298,6 +311,18 @@ public interface CvHelperModConfig extends Config
 	default int fishingMaxCandidates()
 	{
 		return 10;
+	}
+
+	@ConfigItem(
+		keyName = FISHING_SPOT_MOVED_GRACE_TICKS,
+		name = "Spot-moved grace ticks",
+		description = "Ticks to wait after a spot moves before re-targeting. Prevents immediate re-targeting when the spot briefly relocates.",
+		section = fishingSection
+	)
+	@Range(min = 0, max = 10)
+	default int fishingSpotMovedGraceTicks()
+	{
+		return 3;
 	}
 
 	@ConfigSection(
