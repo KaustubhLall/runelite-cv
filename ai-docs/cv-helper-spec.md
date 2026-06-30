@@ -446,7 +446,21 @@ The mob-farmer verifier panel shows status, controls, runtime details, configura
 
 The v3 Actions page groups all 22 slots into the number, QWERT, home, bottom, and special-key rows. Cards show enabled/configured state, surface, target, best available target/item icon, and last result; one selected-slot editor exposes all existing guards and executor settings without expanding every slot. The page edits through the canonical config endpoint and uses the dedicated run/reset endpoints without creating a second executor.
 
-The standalone minimap and embedded farmer grids share one persisted 4-100 tile visual/fetch radius. Transition overlays distinguish direct reachability, a pending transition, multi-transition routes, manual-action-required blockers, and failed steps.
+The standalone minimap and embedded farmer grids share one persisted 4-100 tile visual/fetch radius. Transition overlays distinguish direct reachability, a pending transition, multi-transition routes, manual-action-required blockers, and failed steps. A failed step is drawn as a red rotated square on the exact door tile a route could not get through (from a candidate's `failedTransitionIndex` + `blockingDoor`); a successful multi-door route to the selected target is drawn as numbered amber door glyphs along the chain.
+
+### Repeatable door / multi-door dry-test scenario
+
+Multi-door pathing can be exercised without combat and without auto-clicking anything live, using the standalone Minimap page's `scene` lens plus a farmer lens:
+
+1. Launch a fresh client, log in, and stand next to a room with one or more doors. Reliable spots: **Lumbridge Castle** ground floor (two interior doors in series toward the kitchen/dining room give a genuine 2-hop route), the **Al Kharid mine** gate just south of the rocks, or any cow/sheep pen with a gate. Walk so the door(s) sit between you and the far side of the room.
+2. Open the WebHelper Minimap page (`serve.ps1`), raise the radius until the far room is in view, and read `/pathing/grid?radius=N` straight off the grid:
+   - tiles on your side render green (`reachable`),
+   - tiles reachable only after a permitted door render hatched amber (`reachableViaDoor`), with a gold dot when `transitionCount > 1` (multi-transition),
+   - a door CV Helper may not act on (denylisted, or its auto-open/auto-close flag off) renders solid amber (`blocked-by-door` = manual action required).
+3. To see the `mob`/`mining`/`woodcutting` lens path + transition route, set that farmer's target to something on the far side of the door(s) and **keep the farmer stopped** (the grid stays live while stopped). The selected target shows its `transitionRoute` (numbered amber door glyphs) and, if the chain breaks, a red **Failed step** marker on the offending door.
+4. To dry-run the live open/close decision without it acting, start the mob farmer in **dry** mode (no `?live=true`); `/automation/mob-farmer/status.doorTransition` reports `dry-pending` with the door, required action, route depth, and transition count instead of clicking.
+
+Switch the farmer to live (`start?live=true`) only when you want it to actually issue the `Open`/`Close`/`Enter`/`Pass`/`Climb-over` menu action; it re-verifies the door's real state before treating the route as walkable, spaces retries, and gives up after a capped number of attempts rather than spamming a stuck door.
 
 ## Debugging In Game
 

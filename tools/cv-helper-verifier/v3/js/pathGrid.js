@@ -31,7 +31,13 @@ export function gridSignature(player, candidates = [], selected = null, pathing 
 	const sel = selected?.worldLocation ? `${selected.worldLocation.x},${selected.worldLocation.y}` : "";
 	const doors = Array.isArray(pathing?.doors) ? pathing.doors.map((d) => `${d.x},${d.y},${d.open ? 1 : 0}`).join("|") : "";
 	const grid = tileGrid?.player ? `${tileGrid.radius}:${tileGrid.player.x},${tileGrid.player.y}:${tileGrid.tiles?.length ?? 0}` : "";
-	return `${RADIUS}:${player.x},${player.y}:${sel}:${cs}:${doors}:${grid}`;
+	// Failed transition steps + the selected target's multi-door route are overlays the grid
+	// draws (see drawFailedTransitions / drawTransitionRoute), so changes to them must bust the
+	// hover-skip signature too — otherwise a newly-broken route wouldn't repaint.
+	const fails = failedTransitionDoors(candidates, selected).map((d) => `${d.tile.x},${d.tile.y}`).join("|");
+	const route = Array.isArray(selected?.transitionRoute)
+		? selected.transitionRoute.map((s) => (s.worldTile ? `${s.worldTile.x},${s.worldTile.y}` : "")).join(">") : "";
+	return `${RADIUS}:${player.x},${player.y}:${sel}:${cs}:${doors}:${grid}:${fails}:${route}`;
 }
 
 function cellCenter(col, row) { return [(col + 0.5) * CELL, (row + 0.5) * CELL]; }
@@ -153,6 +159,75 @@ function drawDoors(doors, player) {
 			: `<rect x="${cx - s}" y="${cy - s * 0.55}" width="${s * 2}" height="${s * 1.1}" rx="1" fill="var(--door)" opacity="0.85"/>`;
 		return `<g><title>${escapeHtml(open ? "Open door" : "Closed door")} (${d.x}, ${d.y})</title>${glyph}</g>`;
 	}).join("");
+}
+
+/**
+ * Door tiles where a transition route broke, deduped by tile. A candidate/selected target
+ * carries `failedTransitionIndex` (the hop the kernel couldn't get through) plus either a
+ * `transitionRoute` (use the step at that index) or, when nothing was reachable, a flat
+ * `blockingDoor`. This is the data source behind the legend's "Failed step" swatch, which up
+ * to now had a swatch + CSS but no renderer.
+ */
+function failedTransitionDoors(candidates = [], selected = null) {
+	const out = new Map();
+	const consider = (c) => {
+		if (!c || c.failedTransitionIndex === undefined || c.failedTransitionIndex === null) return;
+		const route = Array.isArray(c.transitionRoute) ? c.transitionRoute : [];
+		const step = route[c.failedTransitionIndex];
+		const door = step && step.worldTile ? step : c.blockingDoor;
+		const tile = door && door.worldTile;
+		if (!tile || tile.x === undefined) return;
+		const key = `${tile.x},${tile.y}`;
+		if (!out.has(key)) out.set(key, { tile, door, owner: c });
+	};
+	consider(selected);
+	for (const c of candidates) consider(c);
+	return [...out.values()];
+}
+
+/* Red rotated square (matches .lg-failed-transition) on every door tile where a route failed. */
+function drawFailedTransitions(candidates, selected, player) {
+	if (!player) return "";
+	return failedTransitionDoors(candidates, selected).map(({ tile, door, owner }) => {
+		const { col, row, offGrid } = project(tile.x - player.x, tile.y - player.y);
+		if (offGrid) return "";
+		const [cx, cy] = cellCenter(col, row);
+		const s = CELL * 0.3;
+		const name = (door && door.name) || "door";
+		const id = door && door.id !== undefined ? ` (#${door.id})` : "";
+		const action = door && door.requiredAction ? `\n${door.requiredAction} required` : "";
+		const status = door && door.allowlistStatus ? ` · ${door.allowlistStatus}` : "";
+		const reason = owner && owner.manualActionReason ? `\n${owner.manualActionReason}` : "";
+		const idx = owner && owner.failedTransitionIndex != null ? owner.failedTransitionIndex : 0;
+		const title = escapeHtml(`Failed transition step #${idx}: ${name}${id}${action}${status}${reason}`);
+		return `<g><title>${title}</title>`
+			+ `<rect x="${cx - s}" y="${cy - s}" width="${s * 2}" height="${s * 2}" transform="rotate(45 ${cx} ${cy})" fill="var(--bad, #c0563a)" fill-opacity="0.18" stroke="var(--bad, #c0563a)" stroke-width="2"/>`
+			+ `<path d="M ${cx - s * 0.5} ${cy - s * 0.5} L ${cx + s * 0.5} ${cy + s * 0.5} M ${cx + s * 0.5} ${cy - s * 0.5} L ${cx - s * 0.5} ${cy + s * 0.5}" stroke="var(--bad,#c0563a)" stroke-width="1.6"/></g>`;
+	}).join("");
+}
+
+/**
+ * The ordered door chain of a SUCCESSFUL multi-transition route to the selected target. Renders
+ * each hop as a numbered amber door glyph so a route crossing >1 door reads as the real sequence
+ * of doors, not just a single gold tile dot. Single-hop routes are already covered by drawDoors.
+ */
+function drawTransitionRoute(selected, player) {
+	const route = Array.isArray(selected?.transitionRoute) ? selected.transitionRoute : [];
+	if (route.length < 2 || !player) return "";
+	let out = "";
+	route.forEach((step, i) => {
+		const tile = step && step.worldTile;
+		if (!tile || tile.x === undefined) return;
+		const { col, row, offGrid } = project(tile.x - player.x, tile.y - player.y);
+		if (offGrid) return;
+		const [cx, cy] = cellCenter(col, row);
+		const s = CELL * 0.27;
+		const title = escapeHtml(`Transition ${i + 1}/${route.length}: ${step.name || "door"}${step.requiredAction ? ` · ${step.requiredAction}` : ""}${step.allowlistStatus ? ` · ${step.allowlistStatus}` : ""}`);
+		out += `<g><title>${title}</title>`
+			+ `<rect x="${cx - s}" y="${cy - s * 0.62}" width="${s * 2}" height="${s * 1.24}" rx="1" fill="var(--door)" fill-opacity="0.12" stroke="var(--door)" stroke-width="1.6"/>`
+			+ `<text x="${cx}" y="${cy + s * 0.42}" text-anchor="middle" font-size="${Math.max(6, CELL * 0.34)}" fill="var(--door)">${i + 1}</text></g>`;
+	});
+	return out;
 }
 
 /**
@@ -294,8 +369,10 @@ export function buildPathGrid(player, candidates = [], selected = null, pathing 
 			${centerMarks(candidates, player)}
 			${targetLine(player, selected)}
 			${drawRoute(pathing?.route, player)}
+			${drawTransitionRoute(selected, player)}
 			${markers}
 			${drawDoors(pathing?.doors, player)}
+			${drawFailedTransitions(candidates, selected, player)}
 			${playerMarker(player)}
 		</svg>`;
 }
