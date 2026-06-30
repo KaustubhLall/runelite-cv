@@ -44,232 +44,675 @@ class CvHelperModPanel extends PluginPanel
 	private final JLabel status = new JLabel("Ready");
 	private final JLabel serverStatus = new JLabel("Server: starting");
 	private final JLabel loginRecoveryStatus = new JLabel("Login: unknown");
-	// Each collapsible section registers a filter here; the top-level search box broadcasts the
-	// query to all of them so one search drives every section (auto-expand matches, collapse rest).
-	private final java.util.List<java.util.function.Consumer<String>> sectionFilters = new java.util.ArrayList<>();
+
+	// Quest-Helper-style navigation: a swappable body, a back stack of screen renderers, and the
+	// metadata-driven page list from SettingsCatalog.
+	private final java.util.List<SettingsPage> pages;
+	private final JPanel body = new JPanel(new BorderLayout());
+	private final java.util.Deque<Runnable> history = new java.util.ArrayDeque<>();
+	private Runnable currentRender;
 
 	CvHelperModPanel(CvHelperModPlugin plugin)
 	{
+		// wrap=false: we manage our own scroll around the body so the header/footer stay fixed
+		// (and to avoid a scroll-pane nested inside PluginPanel's default scroll wrapper).
+		super(false);
 		this.plugin = plugin;
+		this.pages = buildPages();
 
 		setLayout(new BorderLayout());
-		setBorder(new EmptyBorder(10, 10, 10, 10));
+		setBorder(new EmptyBorder(8, 8, 8, 8));
+
+		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		add(buildHeader(), BorderLayout.NORTH);
+		add(body, BorderLayout.CENTER);
+		add(buildFooter(), BorderLayout.SOUTH);
+
+		navigate(this::renderHome);
+		refreshStatus();
+	}
+
+	private java.util.List<SettingsPage> buildPages()
+	{
+		java.util.List<SettingsPage> list = new java.util.ArrayList<>(new SettingsCatalog(plugin, this).build());
+		list.add(buildDebugToolsPage());
+		return list;
+	}
+
+	private JComponent buildHeader()
+	{
+		JPanel header = new JPanel(new BorderLayout());
+		header.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		header.setBorder(new EmptyBorder(0, 0, 6, 0));
 
 		JLabel title = new JLabel("CV Helper");
 		title.setForeground(Color.WHITE);
-
-		JPanel header = new JPanel(new BorderLayout());
-		header.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		title.setFont(FontManager.getRunescapeBoldFont());
 		header.add(title, BorderLayout.WEST);
 
-		JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-		buttons.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		JPanel btns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+		btns.setBackground(ColorScheme.DARK_GRAY_COLOR);
 
-		JButton captureButton = new JButton("Capture screenshot");
-		captureButton.addActionListener(e -> plugin.captureScreenshot());
-
-		JButton screenButton = new JButton("Capture screen");
-		screenButton.addActionListener(e -> plugin.captureScreen());
-
-		JButton minimapButton = new JButton("Capture minimap");
-		minimapButton.addActionListener(e -> plugin.captureMinimap());
-
-		JButton refreshButton = new JButton("Refresh status");
-		refreshButton.addActionListener(e -> refreshStatus());
-
-		JButton loginButton = new JButton("Click login");
-		loginButton.addActionListener(e -> plugin.clickLoginScreen());
-
-		JButton prayerButton = new JButton("Prayer targets");
-		prayerButton.addActionListener(e -> plugin.refreshPrayerTargets());
-
-		JButton debugButton = new JButton("Debug overlay");
-		debugButton.addActionListener(e -> plugin.debugOverlayState());
-
-		JButton printBoundsButton = new JButton("Print overlay bounds");
-		printBoundsButton.addActionListener(e -> plugin.printOverlayCoordinates());
-
-		JButton panicButton = new JButton("PANIC STOP");
-		panicButton.setForeground(Color.RED);
-		panicButton.addActionListener(e -> plugin.panicStop());
-
-		JButton copyPortButton = new JButton("Copy port");
-		copyPortButton.setToolTipText("Copy this client's HTTP server port to the clipboard (for the WebHelper / scripts).");
-		copyPortButton.addActionListener(e ->
+		JButton home = new JButton("Home");
+		home.setToolTipText("Back to the home screen");
+		home.addActionListener(e ->
 		{
-			int port = plugin.getLocalPort();
-			String text = port > 0 ? String.valueOf(port) : "";
-			java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(text), null);
-			updateStatus(port > 0 ? "Copied port " + port : "Server port not available yet");
+			history.clear();
+			currentRender = null;
+			navigate(this::renderHome);
 		});
 
-		buttons.add(panicButton);
-		buttons.add(copyPortButton);
-		buttons.add(captureButton);
-		buttons.add(screenButton);
-		buttons.add(minimapButton);
-		buttons.add(refreshButton);
-		buttons.add(loginButton);
-		buttons.add(prayerButton);
-		buttons.add(debugButton);
-		buttons.add(printBoundsButton);
+		JButton copyPort = new JButton("Copy port");
+		copyPort.setToolTipText("Copy this client's HTTP server port to the clipboard.");
+		copyPort.addActionListener(e -> copyPort());
 
-		JPanel toggles = new JPanel(new GridLayout(0, 1, 0, 4));
-		toggles.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		toggles.setBorder(BorderFactory.createTitledBorder("Overlays"));
+		JButton panic = new JButton("PANIC");
+		panic.setForeground(Color.RED);
+		panic.setToolTipText("Stop all automation immediately.");
+		panic.addActionListener(e -> plugin.panicStop());
 
-		JCheckBox hoverOverlay = new JCheckBox("Mouse coordinates", plugin.getConfig().showHoverOverlay());
-		JCheckBox widgetInfo = new JCheckBox("Widget info labels", plugin.getConfig().showWidgetInfo());
-		JCheckBox prayerTargets = new JCheckBox("Prayer target boxes", plugin.getConfig().showPrayerTargets());
-		JCheckBox spellTargets = new JCheckBox("Spell target boxes", plugin.getConfig().showSpellTargets());
-		JCheckBox minimapTargets = new JCheckBox("Minimap/orb boxes", plugin.getConfig().showMinimapTargets());
-		JCheckBox inventoryTargets = new JCheckBox("Inventory slot boxes", plugin.getConfig().showInventoryTargets());
-		JCheckBox equipmentTargets = new JCheckBox("Equipment slot boxes", plugin.getConfig().showEquipmentTargets());
-		JCheckBox panelTargets = new JCheckBox("Panel tab boxes", plugin.getConfig().showPanelTargets());
-		JCheckBox combatTargets = new JCheckBox("Combat option boxes", plugin.getConfig().showCombatTargets());
-		JCheckBox entityTargets = new JCheckBox("Nearby entity boxes", plugin.getConfig().showEntityTargets());
-		JCheckBox skillFarmerTargets = new JCheckBox("Skilling target boxes", plugin.getConfig().showSkillFarmerTargets());
-		JCheckBox targetLabels = new JCheckBox("Target labels", plugin.getConfig().showTargetLabels());
-		JCheckBox localExport = new JCheckBox("Localhost export", plugin.getConfig().enableLocalExport());
+		btns.add(home);
+		btns.add(copyPort);
+		btns.add(panic);
+		header.add(btns, BorderLayout.EAST);
+		return header;
+	}
 
-		hoverOverlay.addActionListener(e -> plugin.setShowHoverOverlay(hoverOverlay.isSelected()));
-		widgetInfo.addActionListener(e -> plugin.setShowWidgetInfo(widgetInfo.isSelected()));
-		prayerTargets.addActionListener(e -> plugin.setShowPrayerTargets(prayerTargets.isSelected()));
-		spellTargets.addActionListener(e -> plugin.setShowSpellTargets(spellTargets.isSelected()));
-		minimapTargets.addActionListener(e -> plugin.setShowMinimapTargets(minimapTargets.isSelected()));
-		inventoryTargets.addActionListener(e -> plugin.setShowInventoryTargets(inventoryTargets.isSelected()));
-		equipmentTargets.addActionListener(e -> plugin.setShowEquipmentTargets(equipmentTargets.isSelected()));
-		panelTargets.addActionListener(e -> plugin.setShowPanelTargets(panelTargets.isSelected()));
-		combatTargets.addActionListener(e -> plugin.setShowCombatTargets(combatTargets.isSelected()));
-		entityTargets.addActionListener(e -> plugin.setShowEntityTargets(entityTargets.isSelected()));
-		skillFarmerTargets.addActionListener(e -> plugin.setShowSkillFarmerTargets(skillFarmerTargets.isSelected()));
-		targetLabels.addActionListener(e -> plugin.setShowTargetLabels(targetLabels.isSelected()));
-		localExport.addActionListener(e -> plugin.setLocalExportEnabled(localExport.isSelected()));
+	private JComponent buildFooter()
+	{
+		serverStatus.setForeground(Color.LIGHT_GRAY);
+		serverStatus.setFont(FontManager.getRunescapeSmallFont());
+		status.setForeground(Color.LIGHT_GRAY);
+		status.setFont(FontManager.getRunescapeSmallFont());
+		status.setToolTipText("Latest plugin status");
 
-		for (JCheckBox checkbox : new JCheckBox[]{hoverOverlay, widgetInfo, prayerTargets, spellTargets, minimapTargets, inventoryTargets, equipmentTargets, panelTargets, combatTargets, entityTargets, skillFarmerTargets, targetLabels, localExport})
-		{
-			styleCheckbox(checkbox);
-			toggles.add(checkbox);
-		}
-
-		JPanel prayerSection = createNestedSection("Prayer toggles", plugin.getPrayerNames(), true, true);
-		JPanel spellSection = createNestedSection("Spellbook toggles", plugin.getSpellbookNames(), false, true);
-		JPanel actionSection = createActionSection();
-		JPanel mobFarmerSection = createMobFarmerSection();
-		JPanel woodcuttingSection = createWoodcuttingSection();
-		JPanel miningSection = createMiningSection();
-
-		// Join every section to the one top-level search box. Prayer/Spellbook self-register inside
-		// createNestedSection; Mob farmer registers its own row filter and gets expand/collapse here.
-		registerSectionFilterFor(actionSection, "Action hotkeys");
-		registerSectionFilterFor(mobFarmerSection, "Mob farmer");
-		registerSectionFilterFor(woodcuttingSection, "Woodcutting farmer");
-		registerSectionFilterFor(miningSection, "Mining farmer");
-		// The always-visible Overlays checkboxes also filter to matches while searching.
-		sectionFilters.add(query ->
-		{
-			for (Component c : toggles.getComponents())
-			{
-				if (c instanceof JCheckBox)
-				{
-					String t = ((JCheckBox) c).getText().toLowerCase();
-					c.setVisible(query.isEmpty() || "overlays".contains(query) || t.contains(query));
-				}
-			}
-			toggles.revalidate();
-			toggles.repaint();
-		});
-
-		JPanel serverSettings = new JPanel(new BorderLayout(0, 4));
-		serverSettings.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		serverSettings.setBorder(BorderFactory.createTitledBorder("Server"));
-
-		JTextField webhookUrl = new JTextField(plugin.getConfig().webhookUrl());
-		webhookUrl.setToolTipText("Optional Python webhook URL, for example http://127.0.0.1:8000/runelite-events");
-
-		JButton saveWebhook = new JButton("Save webhook");
-		saveWebhook.addActionListener(e ->
-		{
-			plugin.setWebhookUrl(webhookUrl.getText().trim());
-			updateStatus("Webhook saved");
-		});
-
-		serverSettings.add(webhookUrl, BorderLayout.CENTER);
-		serverSettings.add(saveWebhook, BorderLayout.SOUTH);
-
-		JLabel playerStatus = new JLabel("Player export: pending");
-		playerStatus.setForeground(Color.LIGHT_GRAY);
-		playerStatus.setBorder(new EmptyBorder(0, 0, 0, 0));
-		JButton refreshPlayer = new JButton("Refresh player export");
-		refreshPlayer.addActionListener(e ->
-		{
-			playerStatus.setText(plugin.getPlayerStatus().toString());
-			updateStatus("Player export refreshed");
-		});
-
-		JPanel playerPanel = new JPanel(new BorderLayout(0, 4));
-		playerPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		playerPanel.setBorder(BorderFactory.createTitledBorder("Player Status"));
-		playerPanel.add(playerStatus, BorderLayout.CENTER);
-		playerPanel.add(refreshPlayer, BorderLayout.SOUTH);
-
-		JPanel loginRecoveryPanel = new JPanel(new BorderLayout(0, 4));
-		loginRecoveryPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		loginRecoveryPanel.setBorder(BorderFactory.createTitledBorder("Login Recovery"));
-		loginRecoveryStatus.setForeground(Color.LIGHT_GRAY);
-		JButton refreshLoginRecovery = new JButton("Refresh login status");
-		refreshLoginRecovery.addActionListener(e ->
-		{
-			loginRecoveryStatus.setText(plugin.getLoginRecoveryStatusText());
-			updateStatus("Login recovery status refreshed");
-		});
-		loginRecoveryPanel.add(loginRecoveryStatus, BorderLayout.CENTER);
-		loginRecoveryPanel.add(refreshLoginRecovery, BorderLayout.SOUTH);
-
-		JPanel center = new JPanel(new BorderLayout(0, 4));
-		center.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		JPanel topStack = new JPanel();
-		topStack.setLayout(new BoxLayout(topStack, BoxLayout.Y_AXIS));
-		topStack.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		topStack.add(createQuickStartSection());
-		topStack.add(buildSearchField());
-		setCompact(toggles);
-		topStack.add(toggles);
-		center.add(topStack, BorderLayout.NORTH);
-		JPanel lower = new JPanel();
-		lower.setLayout(new BoxLayout(lower, BoxLayout.Y_AXIS));
-		lower.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		lower.add(prayerSection);
-		lower.add(spellSection);
-		lower.add(actionSection);
-		lower.add(mobFarmerSection);
-		lower.add(woodcuttingSection);
-		lower.add(miningSection);
-		lower.add(serverSettings);
-		lower.add(playerPanel);
-		lower.add(loginRecoveryPanel);
-		center.add(lower, BorderLayout.SOUTH);
-
-		JPanel content = new JPanel(new BorderLayout(0, 8));
-		content.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		content.add(buttons, BorderLayout.NORTH);
-		content.add(center, BorderLayout.CENTER);
-
-		JPanel footer = new JPanel(new GridLayout(0, 1, 0, 4));
+		JPanel footer = new JPanel(new GridLayout(0, 1, 0, 2));
 		footer.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		footer.setBorder(new EmptyBorder(6, 0, 0, 0));
 		footer.add(serverStatus);
 		footer.add(status);
-		content.add(footer, BorderLayout.SOUTH);
+		return footer;
+	}
 
-		status.setForeground(Color.LIGHT_GRAY);
-		status.setBorder(new EmptyBorder(8, 0, 0, 0));
-		status.setToolTipText("Latest plugin status");
-		status.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
-		serverStatus.setForeground(Color.LIGHT_GRAY);
+	void copyPort()
+	{
+		int port = plugin.getLocalPort();
+		String text = port > 0 ? String.valueOf(port) : "";
+		java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(text), null);
+		updateStatus(port > 0 ? "Copied port " + port : "Server port not available yet");
+	}
 
-		add(header, BorderLayout.NORTH);
-		add(content, BorderLayout.CENTER);
-		refreshStatus();
+	// ---------------------------------------------------------------- navigation
+
+	private void navigate(Runnable render)
+	{
+		if (currentRender != null)
+		{
+			history.push(currentRender);
+		}
+		currentRender = render;
+		render.run();
+	}
+
+	private void back()
+	{
+		if (!history.isEmpty())
+		{
+			currentRender = history.pop();
+			currentRender.run();
+		}
+	}
+
+	/** Re-run the current screen renderer (e.g. after a value changes elsewhere). */
+	void refreshCurrentPage()
+	{
+		if (currentRender != null)
+		{
+			currentRender.run();
+		}
+	}
+
+	private void setBody(JComponent view)
+	{
+		body.removeAll();
+		JPanel holder = new JPanel(new BorderLayout());
+		holder.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		holder.add(view, BorderLayout.NORTH);
+		JScrollPane scroll = new JScrollPane(holder,
+			JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+		scroll.setBorder(null);
+		scroll.getVerticalScrollBar().setUnitIncrement(16);
+		scroll.getViewport().setBackground(ColorScheme.DARK_GRAY_COLOR);
+		body.add(scroll, BorderLayout.CENTER);
+		body.revalidate();
+		body.repaint();
+	}
+
+	// ---------------------------------------------------------------- home screen
+
+	private void renderHome()
+	{
+		JPanel home = vbox();
+
+		JTextField search = new JTextField();
+		search.setToolTipText("Search every setting, e.g. loot, prayer, alch, hotkey");
+		stretch(search);
+		home.add(labeledRow("Search settings", search, null));
+
+		stretchAdd(home, createQuickStartSection());
+
+		JPanel blocksHost = vbox();
+		home.add(blocksHost);
+
+		Runnable rebuild = () ->
+		{
+			blocksHost.removeAll();
+			String q = search.getText().trim().toLowerCase();
+			for (String category : SettingsPage.CATEGORIES)
+			{
+				java.util.List<SettingsPage> inCategory = new java.util.ArrayList<>();
+				for (SettingsPage page : pages)
+				{
+					if (category.equals(page.category) && (q.isEmpty() || page.searchText().contains(q)))
+					{
+						inCategory.add(page);
+					}
+				}
+				if (inCategory.isEmpty())
+				{
+					continue;
+				}
+				blocksHost.add(categoryHeader(category));
+				for (SettingsPage page : inCategory)
+				{
+					blocksHost.add(buildBlock(page));
+				}
+			}
+			blocksHost.revalidate();
+			blocksHost.repaint();
+		};
+		search.getDocument().addDocumentListener(simpleDocListener(rebuild));
+		rebuild.run();
+
+		setBody(home);
+	}
+
+	private JComponent buildBlock(SettingsPage page)
+	{
+		JPanel block = new JPanel(new BorderLayout(6, 0));
+		block.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		block.setBorder(new EmptyBorder(6, 8, 6, 8));
+
+		JPanel text = new JPanel();
+		text.setLayout(new BoxLayout(text, BoxLayout.Y_AXIS));
+		text.setOpaque(false);
+		JLabel titleLabel = new JLabel(page.title);
+		titleLabel.setForeground(Color.WHITE);
+		titleLabel.setFont(FontManager.getRunescapeBoldFont());
+		text.add(titleLabel);
+		if (page.summary != null && !page.summary.isEmpty())
+		{
+			JLabel summaryLabel = new JLabel(page.summary);
+			summaryLabel.setForeground(Color.LIGHT_GRAY);
+			summaryLabel.setFont(FontManager.getRunescapeSmallFont());
+			text.add(summaryLabel);
+		}
+		block.add(text, BorderLayout.CENTER);
+
+		JLabel chevron = new JLabel("›");
+		chevron.setForeground(Color.LIGHT_GRAY);
+		block.add(chevron, BorderLayout.EAST);
+
+		block.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+		block.addMouseListener(new java.awt.event.MouseAdapter()
+		{
+			@Override
+			public void mousePressed(java.awt.event.MouseEvent e)
+			{
+				navigate(() -> renderPage(page));
+			}
+
+			@Override
+			public void mouseEntered(java.awt.event.MouseEvent e)
+			{
+				block.setBackground(ColorScheme.MEDIUM_GRAY_COLOR);
+			}
+
+			@Override
+			public void mouseExited(java.awt.event.MouseEvent e)
+			{
+				block.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+			}
+		});
+		stretch(block);
+		return block;
+	}
+
+	private JComponent categoryHeader(String name)
+	{
+		JLabel label = new JLabel(name.toUpperCase());
+		label.setForeground(ColorScheme.BRAND_ORANGE);
+		label.setFont(FontManager.getRunescapeSmallFont());
+		label.setBorder(new EmptyBorder(8, 2, 2, 2));
+		stretch(label);
+		return label;
+	}
+
+	// ---------------------------------------------------------------- detail page
+
+	private void renderPage(SettingsPage page)
+	{
+		JPanel view = vbox();
+		view.add(backBar(page.title));
+		if (page.help != null && !page.help.isEmpty())
+		{
+			view.add(helpLabel(page.help));
+		}
+
+		if (page.customBody != null)
+		{
+			JComponent custom = page.customBody.get();
+			stretchAdd(view, custom);
+		}
+		else
+		{
+			String currentGroup = null;
+			for (SettingField field : page.fields)
+			{
+				if (field.group != null && !field.group.equals(currentGroup))
+				{
+					currentGroup = field.group;
+					view.add(groupHeader(currentGroup));
+				}
+				view.add(renderField(field));
+			}
+		}
+		setBody(view);
+	}
+
+	private JComponent backBar(String title)
+	{
+		JPanel bar = new JPanel(new BorderLayout(6, 0));
+		bar.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		bar.setBorder(new EmptyBorder(0, 0, 6, 0));
+		JButton back = new JButton("‹ Back");
+		back.addActionListener(e -> back());
+		bar.add(back, BorderLayout.WEST);
+		JLabel titleLabel = new JLabel(title);
+		titleLabel.setForeground(Color.WHITE);
+		titleLabel.setFont(FontManager.getRunescapeBoldFont());
+		bar.add(titleLabel, BorderLayout.CENTER);
+		stretch(bar);
+		return bar;
+	}
+
+	private JComponent groupHeader(String name)
+	{
+		JLabel label = new JLabel(name);
+		label.setForeground(ColorScheme.BRAND_ORANGE);
+		label.setFont(FontManager.getRunescapeSmallFont());
+		label.setBorder(new EmptyBorder(10, 2, 2, 2));
+		stretch(label);
+		return label;
+	}
+
+	private JComponent helpLabel(String text)
+	{
+		JLabel label = new JLabel("<html><div style='width:210px'>" + escapeHtml(text) + "</div></html>");
+		label.setForeground(Color.LIGHT_GRAY);
+		label.setFont(FontManager.getRunescapeSmallFont());
+		label.setBorder(new EmptyBorder(0, 2, 4, 2));
+		stretch(label);
+		return label;
+	}
+
+	// ---------------------------------------------------------------- field rendering
+
+	private JComponent renderField(SettingField field)
+	{
+		switch (field.kind)
+		{
+			case TOGGLE:
+				return renderToggle(field);
+			case TEXT:
+				return renderText(field);
+			case INT:
+				return renderInt(field);
+			case CHOICE:
+				return renderChoice(field);
+			case LIST:
+				return renderList(field);
+			case HOTKEY:
+				return renderHotkey(field);
+			case ACTION:
+				return renderAction(field);
+			case INFO:
+				return helpLabel(field.help != null ? field.help : field.label);
+			case CUSTOM:
+			{
+				JComponent component = field.custom.get();
+				JPanel wrap = vbox();
+				stretchAdd(wrap, component);
+				return wrap;
+			}
+			case PAGE_LINK:
+				return buildBlock(field.linkTarget);
+			default:
+				return new JPanel();
+		}
+	}
+
+	private JComponent renderToggle(SettingField field)
+	{
+		JCheckBox checkbox = new JCheckBox(field.label, field.getBool.getAsBoolean());
+		styleCheckbox(checkbox);
+		checkbox.addActionListener(e -> field.setBool.accept(checkbox.isSelected()));
+		return fieldRow(checkbox, field.help);
+	}
+
+	private JComponent renderText(SettingField field)
+	{
+		JTextField input = new JTextField(field.getText.get());
+		commitOnChange(input, () -> field.setText.accept(input.getText().trim()));
+		return labeledRow(field.label, input, field.help);
+	}
+
+	private JComponent renderInt(SettingField field)
+	{
+		JTextField input = new JTextField(String.valueOf(field.getInt.getAsInt()));
+		commitOnChange(input, () ->
+		{
+			int value = parseIntOr(input.getText().trim(), field.getInt.getAsInt());
+			if (field.bounded)
+			{
+				value = Math.max(field.min, Math.min(field.max, value));
+			}
+			field.setInt.accept(value);
+			input.setText(String.valueOf(value));
+		});
+		StringBuilder label = new StringBuilder(field.label);
+		if (field.units != null && !field.units.isEmpty())
+		{
+			label.append(" (").append(field.units).append(')');
+		}
+		if (field.bounded)
+		{
+			label.append("  [").append(field.min).append('–').append(field.max).append(']');
+		}
+		return labeledRow(label.toString(), input, field.help);
+	}
+
+	private JComponent renderChoice(SettingField field)
+	{
+		String current = field.getChoice.get();
+		if (field.choices != null && field.choices.size() <= 3)
+		{
+			JPanel segment = new JPanel(new GridLayout(1, field.choices.size(), 2, 0));
+			segment.setBackground(ColorScheme.DARK_GRAY_COLOR);
+			javax.swing.ButtonGroup group = new javax.swing.ButtonGroup();
+			for (SettingField.Choice choice : field.choices)
+			{
+				JToggleButton button = new JToggleButton(choice.label);
+				button.setSelected(choice.value.equals(current));
+				button.addActionListener(e -> field.setChoice.accept(choice.value));
+				group.add(button);
+				segment.add(button);
+			}
+			return labeledRow(field.label, segment, field.help);
+		}
+
+		String currentLabel = current;
+		if (field.choices != null)
+		{
+			for (SettingField.Choice choice : field.choices)
+			{
+				if (choice.value.equals(current))
+				{
+					currentLabel = choice.label;
+				}
+			}
+		}
+		JButton row = new JButton(field.label + ":  " + currentLabel + "    ›");
+		row.setHorizontalAlignment(SwingConstants.LEFT);
+		row.addActionListener(e -> navigate(() -> renderChoiceSelect(field)));
+		return fieldRow(row, field.help);
+	}
+
+	private void renderChoiceSelect(SettingField field)
+	{
+		JPanel view = vbox();
+		view.add(backBar(field.label));
+		if (field.help != null && !field.help.isEmpty())
+		{
+			view.add(helpLabel(field.help));
+		}
+		String current = field.getChoice.get();
+		for (SettingField.Choice choice : field.choices)
+		{
+			view.add(optionRow(choice.label, choice.help, choice.value.equals(current), () ->
+			{
+				field.setChoice.accept(choice.value);
+				back();
+			}));
+		}
+		setBody(view);
+	}
+
+	private JComponent optionRow(String label, String help, boolean selected, Runnable onPick)
+	{
+		JPanel row = new JPanel(new BorderLayout(6, 0));
+		row.setBackground(selected ? ColorScheme.MEDIUM_GRAY_COLOR : ColorScheme.DARKER_GRAY_COLOR);
+		row.setBorder(new EmptyBorder(6, 8, 6, 8));
+
+		JPanel text = new JPanel();
+		text.setLayout(new BoxLayout(text, BoxLayout.Y_AXIS));
+		text.setOpaque(false);
+		JLabel title = new JLabel((selected ? "✓ " : "") + label);
+		title.setForeground(Color.WHITE);
+		text.add(title);
+		if (help != null && !help.isEmpty())
+		{
+			JLabel helpLabel = new JLabel("<html><div style='width:190px'>" + escapeHtml(help) + "</div></html>");
+			helpLabel.setForeground(Color.LIGHT_GRAY);
+			helpLabel.setFont(FontManager.getRunescapeSmallFont());
+			text.add(helpLabel);
+		}
+		row.add(text, BorderLayout.CENTER);
+		row.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+		row.addMouseListener(new java.awt.event.MouseAdapter()
+		{
+			@Override
+			public void mousePressed(java.awt.event.MouseEvent e)
+			{
+				onPick.run();
+			}
+		});
+		stretch(row);
+		return row;
+	}
+
+	private JComponent renderList(SettingField field)
+	{
+		ListEditorField editor = new ListEditorField(field.getText.get());
+		editor.setOnChange(() -> field.setText.accept(editor.getValue()));
+		return labeledRow(field.label, editor, field.help);
+	}
+
+	private JComponent renderHotkey(SettingField field)
+	{
+		KeyCaptureButton button = new KeyCaptureButton(field.getKey.get(), field.setKey);
+		return labeledRow(field.label, button, field.help);
+	}
+
+	private JComponent renderAction(SettingField field)
+	{
+		JButton button = new JButton(field.label);
+		if (field.help != null && !field.help.isEmpty())
+		{
+			button.setToolTipText(field.help);
+		}
+		button.addActionListener(e -> field.action.run());
+		return fieldRow(button, null);
+	}
+
+	// ---------------------------------------------------------------- field layout helpers
+
+	private JComponent fieldRow(JComponent control, String help)
+	{
+		JPanel row = vbox();
+		row.setBorder(new EmptyBorder(2, 0, 4, 0));
+		stretchAdd(row, control);
+		if (help != null && !help.isEmpty())
+		{
+			row.add(helpLabel(help));
+		}
+		stretch(row);
+		return row;
+	}
+
+	private JComponent labeledRow(String labelText, JComponent control, String help)
+	{
+		JPanel row = vbox();
+		row.setBorder(new EmptyBorder(2, 0, 4, 0));
+		if (labelText != null && !labelText.isEmpty())
+		{
+			row.add(label(labelText));
+		}
+		stretchAdd(row, control);
+		if (help != null && !help.isEmpty())
+		{
+			row.add(helpLabel(help));
+		}
+		stretch(row);
+		return row;
+	}
+
+	private JPanel vbox()
+	{
+		JPanel panel = new JPanel();
+		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		return panel;
+	}
+
+	private void stretchAdd(JPanel parent, JComponent component)
+	{
+		stretch(component);
+		parent.add(component);
+	}
+
+	private void commitOnChange(JTextField input, Runnable commit)
+	{
+		input.addActionListener(e -> commit.run());
+		input.addFocusListener(new java.awt.event.FocusAdapter()
+		{
+			@Override
+			public void focusLost(java.awt.event.FocusEvent e)
+			{
+				commit.run();
+			}
+		});
+	}
+
+	private int parseIntOr(String value, int fallback)
+	{
+		try
+		{
+			return Integer.parseInt(value.trim());
+		}
+		catch (NumberFormatException e)
+		{
+			return fallback;
+		}
+	}
+
+	private static String escapeHtml(String text)
+	{
+		if (text == null)
+		{
+			return "";
+		}
+		return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+	}
+
+	private javax.swing.event.DocumentListener simpleDocListener(Runnable onChange)
+	{
+		return new javax.swing.event.DocumentListener()
+		{
+			@Override
+			public void insertUpdate(javax.swing.event.DocumentEvent e)
+			{
+				onChange.run();
+			}
+
+			@Override
+			public void removeUpdate(javax.swing.event.DocumentEvent e)
+			{
+				onChange.run();
+			}
+
+			@Override
+			public void changedUpdate(javax.swing.event.DocumentEvent e)
+			{
+				onChange.run();
+			}
+		};
+	}
+
+	private SettingsPage buildDebugToolsPage()
+	{
+		SettingsPage page = new SettingsPage("tools", "Status & tools", "Captures, debug, player/login status",
+			"Manual screen captures, overlay debug helpers and player/login status readouts.", SettingsPage.CAT_SYSTEM);
+		page.body(() ->
+		{
+			JPanel box = vbox();
+
+			JLabel playerStatus = new JLabel("Player export: pending");
+			playerStatus.setForeground(Color.LIGHT_GRAY);
+			JButton refreshPlayer = new JButton("Refresh player export");
+			refreshPlayer.addActionListener(e ->
+			{
+				playerStatus.setText(plugin.getPlayerStatus().toString());
+				updateStatus("Player export refreshed");
+			});
+			loginRecoveryStatus.setForeground(Color.LIGHT_GRAY);
+			JButton refreshLogin = new JButton("Refresh login status");
+			refreshLogin.addActionListener(e ->
+			{
+				loginRecoveryStatus.setText(plugin.getLoginRecoveryStatusText());
+				updateStatus("Login recovery status refreshed");
+			});
+
+			for (JComponent component : new JComponent[]{
+				groupHeader("Status"),
+				playerStatus,
+				refreshPlayer,
+				loginRecoveryStatus,
+				refreshLogin,
+				groupHeader("Captures"),
+				toolButton("Capture screenshot", plugin::captureScreenshot),
+				toolButton("Capture screen", plugin::captureScreen),
+				toolButton("Capture minimap", plugin::captureMinimap),
+				groupHeader("Debug"),
+				toolButton("Click login", plugin::clickLoginScreen),
+				toolButton("Prayer targets", plugin::refreshPrayerTargets),
+				toolButton("Debug overlay", plugin::debugOverlayState),
+				toolButton("Print overlay bounds", plugin::printOverlayCoordinates),
+				toolButton("Refresh status", this::refreshStatus)
+			})
+			{
+				stretchAdd(box, component);
+			}
+			return box;
+		});
+		return page;
+	}
+
+	private JButton toolButton(String label, Runnable action)
+	{
+		JButton button = new JButton(label);
+		button.addActionListener(e -> action.run());
+		return button;
 	}
 
 	/**
@@ -399,99 +842,7 @@ class CvHelperModPanel extends PluginPanel
 		return section;
 	}
 
-	private JPanel createNestedSection(String title, List<String> entries, boolean prayers, boolean collapsed)
-	{
-		JPanel section = new JPanel(new BorderLayout(0, 2));
-		section.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		section.setBorder(BorderFactory.createTitledBorder(title));
-
-		JPanel list = new JPanel(new GridLayout(0, 1, 0, 0));
-		list.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		for (String entry : entries)
-		{
-			JCheckBox box = new JCheckBox(entry, true);
-			styleCheckbox(box);
-			box.addActionListener(e ->
-			{
-				if (prayers)
-				{
-					plugin.setPrayerEnabled(entry, box.isSelected());
-				}
-				else
-				{
-					plugin.setSpellEnabled(entry, box.isSelected());
-				}
-			});
-			list.add(box);
-		}
-
-		JToggleButton expand = new JToggleButton(collapsed ? "Expand" : "Collapse");
-		list.setVisible(!collapsed);
-		expand.setSelected(collapsed);
-		expand.addActionListener(e ->
-		{
-			boolean isCollapsed = expand.isSelected();
-			expand.setText(isCollapsed ? "Expand" : "Collapse");
-			list.setVisible(!isCollapsed);
-			section.revalidate();
-		});
-		expand.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		expand.setForeground(Color.LIGHT_GRAY);
-
-		section.add(expand, BorderLayout.NORTH);
-		section.add(list, BorderLayout.CENTER);
-		registerSectionFilter(title, expand, list);
-		setCompact(section);
-		return section;
-	}
-
-	private JPanel createActionSection()
-	{
-		JPanel section = new JPanel(new BorderLayout(0, 4));
-		section.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		section.setBorder(BorderFactory.createTitledBorder("Action hotkeys"));
-
-		JPanel body = new JPanel();
-		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
-		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
-
-		JLabel help = new JLabel("<html>Compact cards use the same targets as the verifier. Fallback list: <b>Bind | Ice Barrage</b>. Memory sequence: <b>food -> brew</b>.</html>");
-		help.setForeground(Color.LIGHT_GRAY);
-		help.setBorder(new EmptyBorder(0, 0, 6, 0));
-		stretch(help);
-		body.add(help);
-
-		for (int slot = 1; slot <= plugin.getActionSlotCount(); slot++)
-		{
-			body.add(createActionSlot(slot));
-			if (slot < plugin.getActionSlotCount())
-			{
-				JSeparator separator = new JSeparator(SwingConstants.HORIZONTAL);
-				stretch(separator);
-				body.add(separator);
-			}
-		}
-
-		JToggleButton expand = new JToggleButton("Expand");
-		body.setVisible(false);
-		expand.setSelected(true);
-		expand.addActionListener(e ->
-		{
-			boolean isCollapsed = expand.isSelected();
-			expand.setText(isCollapsed ? "Expand" : "Collapse");
-			body.setVisible(!isCollapsed);
-			section.revalidate();
-		});
-		expand.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		expand.setForeground(Color.LIGHT_GRAY);
-
-		section.add(expand, BorderLayout.NORTH);
-		section.add(body, BorderLayout.CENTER);
-		setCompact(section);
-		return section;
-	}
-
-	private JPanel createActionSlot(int slot)
+	JPanel createActionSlot(int slot)
 	{
 		JPanel panel = new JPanel(new BorderLayout(0, 4));
 		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -640,532 +991,6 @@ class CvHelperModPanel extends PluginPanel
 		return panel;
 	}
 
-	private JPanel createMobFarmerSection()
-	{
-		JPanel section = new JPanel(new BorderLayout(0, 4));
-		section.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		section.setBorder(BorderFactory.createTitledBorder("Mob farmer"));
-
-		JPanel body = new JPanel();
-		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
-		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
-
-		JTextField target = new JTextField(plugin.getMobFarmerTarget());
-		target.setToolTipText("Partial name or id:<npc id>, for example cow or id:2790");
-		ListEditorField targetBlacklist = new ListEditorField(plugin.getMobFarmerTargetBlacklist());
-		targetBlacklist.setToolTipText("NPCs to never attack even if they match the target (wins over the target). Same format, e.g. deadly red spider|id:1234");
-		JComboBox<CvHelperMobEngagedMode> engagedMode = new JComboBox<>(CvHelperMobEngagedMode.values());
-		engagedMode.setSelectedItem(plugin.getMobFarmerEngagedMode());
-		engagedMode.addActionListener(e -> plugin.setMobFarmerEngagedMode((CvHelperMobEngagedMode) engagedMode.getSelectedItem()));
-		JComboBox<CvHelperMobAggroResponse> aggroResponse = new JComboBox<>(CvHelperMobAggroResponse.values());
-		aggroResponse.setSelectedItem(plugin.getMobFarmerAggroResponse());
-		aggroResponse.addActionListener(e -> plugin.setMobFarmerAggroResponse((CvHelperMobAggroResponse) aggroResponse.getSelectedItem()));
-		JCheckBox requireLineOfSight = new JCheckBox("Require line of sight", plugin.getMobFarmerRequireLineOfSight());
-		styleCheckbox(requireLineOfSight);
-		requireLineOfSight.addActionListener(e -> plugin.setMobFarmerRequireLineOfSight(requireLineOfSight.isSelected()));
-		JTextField maxDistance = new JTextField(String.valueOf(plugin.getMobFarmerMaxDistance()));
-		maxDistance.setToolTipText("0 disables the distance guard.");
-		JComboBox<CvHelperMobInteractionMode> attackInteraction = new JComboBox<>(CvHelperMobInteractionMode.values());
-		attackInteraction.setSelectedItem(plugin.getMobFarmerAttackInteractionMode());
-		attackInteraction.addActionListener(e -> plugin.setMobFarmerAttackInteractionMode((CvHelperMobInteractionMode) attackInteraction.getSelectedItem()));
-
-		JCheckBox autoEatEnabled = new JCheckBox("Auto-eat", plugin.getMobFarmerAutoEatEnabled());
-		styleCheckbox(autoEatEnabled);
-		autoEatEnabled.addActionListener(e -> plugin.setMobFarmerAutoEatEnabled(autoEatEnabled.isSelected()));
-		JTextField eatThreshold = new JTextField(String.valueOf(plugin.getMobFarmerEatHitpointPercent()));
-		eatThreshold.setToolTipText("Eat when HP percent is at or below this value.");
-		ListEditorField foodItems = new ListEditorField(plugin.getMobFarmerFoodItems());
-		foodItems.setToolTipText("Food names or id:<item id>, separated by |, comma, semicolon, or newlines.");
-		JCheckBox stopIfNoFood = new JCheckBox("Stop if no food", plugin.getMobFarmerStopIfNoFood());
-		styleCheckbox(stopIfNoFood);
-		stopIfNoFood.addActionListener(e -> plugin.setMobFarmerStopIfNoFood(stopIfNoFood.isSelected()));
-		JCheckBox survivalPreempts = new JCheckBox("Survival preempts actions", plugin.getMobFarmerSurvivalPreemptsActions());
-		styleCheckbox(survivalPreempts);
-		survivalPreempts.setToolTipText("When HP is low, auto-eat takes priority over loot and combat.");
-		survivalPreempts.addActionListener(e -> plugin.setMobFarmerSurvivalPreemptsActions(survivalPreempts.isSelected()));
-		JCheckBox loginRecovery = new JCheckBox("Recover after logout", plugin.getMobFarmerLoginRecoveryEnabled());
-		styleCheckbox(loginRecovery);
-		loginRecovery.setToolTipText("Clicks RuneLite's visible login widget after a normal logout; it does not generate anti-idle input.");
-		loginRecovery.addActionListener(e -> plugin.setMobFarmerLoginRecoveryEnabled(loginRecovery.isSelected()));
-		JCheckBox loginRecoveryF2p = new JCheckBox("F2P-world recovery only", plugin.getMobFarmerLoginRecoveryF2pOnly());
-		styleCheckbox(loginRecoveryF2p);
-		loginRecoveryF2p.setToolTipText("Blocks autonomous login recovery on member, PvP, Deadman, seasonal, or minigame/special worlds.");
-		loginRecoveryF2p.addActionListener(e -> plugin.setMobFarmerLoginRecoveryF2pOnly(loginRecoveryF2p.isSelected()));
-		JCheckBox disconnectRecovery = new JCheckBox("Inactivity disconnect recovery", plugin.getMobFarmerLoginDisconnectRecoveryEnabled());
-		styleCheckbox(disconnectRecovery);
-		disconnectRecovery.setToolTipText("Handles RuneLite CONNECTION_LOST with a guarded Enter press. This is not anti-idle input.");
-		disconnectRecovery.addActionListener(e -> plugin.setMobFarmerLoginDisconnectRecoveryEnabled(disconnectRecovery.isSelected()));
-		JCheckBox autoResumeAfterLogin = new JCheckBox("Auto-resume after login", plugin.getMobFarmerAutoResumeAfterLogin());
-		styleCheckbox(autoResumeAfterLogin);
-		autoResumeAfterLogin.setToolTipText("Keep the farmer loop alive through logout/disconnect so it resumes after login.");
-		autoResumeAfterLogin.addActionListener(e -> plugin.setMobFarmerAutoResumeAfterLogin(autoResumeAfterLogin.isSelected()));
-		JTextField preferredLoginWorld = new JTextField(String.valueOf(plugin.getMobFarmerPreferredLoginWorld()));
-		preferredLoginWorld.setToolTipText("Preferred local dev login world for status/reporting; current world is still validated before clicking.");
-
-		JCheckBox lootEnabled = new JCheckBox("Loot pickup", plugin.getMobFarmerLootEnabled());
-		styleCheckbox(lootEnabled);
-		lootEnabled.addActionListener(e -> plugin.setMobFarmerLootEnabled(lootEnabled.isSelected()));
-		JCheckBox lootDuringCombat = new JCheckBox("Loot during combat", plugin.getMobFarmerLootDuringCombat());
-		styleCheckbox(lootDuringCombat);
-		lootDuringCombat.addActionListener(e -> plugin.setMobFarmerLootDuringCombat(lootDuringCombat.isSelected()));
-		JCheckBox attackBeforeLoot = new JCheckBox("Attack before loot", plugin.getMobFarmerAttackBeforeLoot());
-		styleCheckbox(attackBeforeLoot);
-		attackBeforeLoot.addActionListener(e -> plugin.setMobFarmerAttackBeforeLoot(attackBeforeLoot.isSelected()));
-		JTextField lootMinValue = new JTextField(String.valueOf(plugin.getMobFarmerLootMinValueGe()));
-		lootMinValue.setToolTipText("Minimum total GE value for items not in the always-loot list.");
-		JTextField highPriorityLootValue = new JTextField(String.valueOf(plugin.getMobFarmerHighPriorityLootValueGe()));
-		highPriorityLootValue.setToolTipText("Loot at or above this GE value can override attack-before-loot.");
-		JTextField urgentLootTicks = new JTextField(String.valueOf(plugin.getMobFarmerLootUrgentDespawnTicks()));
-		urgentLootTicks.setToolTipText("Loot with this many ticks left becomes high priority; 0 disables despawn urgency.");
-		JTextField cleanupPileCount = new JTextField(String.valueOf(plugin.getMobFarmerLootCleanupPileCount()));
-		cleanupPileCount.setToolTipText("If this many selectable loot piles are present, cleanup can override combat; 0 disables pile pressure.");
-		JTextField lootRadius = new JTextField(String.valueOf(plugin.getMobFarmerLootRadius()));
-		lootRadius.setToolTipText("0 disables the loot radius guard.");
-		ListEditorField lootItems = new ListEditorField(plugin.getMobFarmerLootItems());
-		lootItems.setToolTipText("Items to always loot even below the value threshold.");
-		ListEditorField lootBlacklist = new ListEditorField(plugin.getMobFarmerLootBlacklist());
-		lootBlacklist.setToolTipText("Items to never loot.");
-		JTextField lootMinSingleGe = new JTextField(String.valueOf(plugin.getMobFarmerLootMinSingleGe()));
-		lootMinSingleGe.setToolTipText("Minimum GE value per individual item before unlisted loot is eligible.");
-		JTextField lootMinStackGe = new JTextField(String.valueOf(plugin.getMobFarmerLootMinStackGe()));
-		lootMinStackGe.setToolTipText("Minimum total stack GE value before unlisted loot is eligible.");
-		JTextField lootMinStackQuantity = new JTextField(String.valueOf(plugin.getMobFarmerLootMinStackQuantity()));
-		lootMinStackQuantity.setToolTipText("Minimum quantity for stackable unlisted items.");
-		JTextField lootAlwaysStackGe = new JTextField(String.valueOf(plugin.getMobFarmerLootAlwaysStackGe()));
-		lootAlwaysStackGe.setToolTipText("Treat stacks at or above this GE value as high-priority loot.");
-		JTextField lootNeverStackBelowGe = new JTextField(String.valueOf(plugin.getMobFarmerLootNeverStackBelowGe()));
-		lootNeverStackBelowGe.setToolTipText("Reject unlisted stacks below this GE value even if broad rules allow them.");
-		JCheckBox highAlchEnabled = new JCheckBox("High Alch policy", plugin.getMobFarmerHighAlchEnabled());
-		styleCheckbox(highAlchEnabled);
-		highAlchEnabled.setToolTipText("Evaluate safe High Alchemy candidates while farming.");
-		highAlchEnabled.addActionListener(e -> plugin.setMobFarmerHighAlchEnabled(highAlchEnabled.isSelected()));
-		JTextField highAlchMinHa = new JTextField(String.valueOf(plugin.getMobFarmerHighAlchMinHa()));
-		highAlchMinHa.setToolTipText("Minimum single-item HA value for candidate reporting.");
-		JTextField highAlchMinDelta = new JTextField(String.valueOf(plugin.getMobFarmerHighAlchMinDelta()));
-		highAlchMinDelta.setToolTipText("Require HA value minus GE value to be at least this amount.");
-		JTextField highAlchMaxLoss = new JTextField(String.valueOf(plugin.getMobFarmerHighAlchMaxLoss()));
-		highAlchMaxLoss.setToolTipText("Maximum acceptable GE-to-HA loss per item when inventory space matters.");
-		JTextField highAlchItems = new JTextField(plugin.getMobFarmerHighAlchItems());
-		highAlchItems.setToolTipText("If non-empty, only these item names or id:<item id> are eligible for High Alchemy.");
-		JTextField highAlchBlacklist = new JTextField(plugin.getMobFarmerHighAlchBlacklist());
-		highAlchBlacklist.setToolTipText("Items that must never be high-alched.");
-		JComboBox<CvHelperLootOwnershipMode> lootOwnership = new JComboBox<>(CvHelperLootOwnershipMode.values());
-		lootOwnership.setSelectedItem(plugin.getMobFarmerLootOwnershipMode());
-		lootOwnership.addActionListener(e -> plugin.setMobFarmerLootOwnershipMode((CvHelperLootOwnershipMode) lootOwnership.getSelectedItem()));
-		JComboBox<CvHelperMobInteractionMode> lootInteraction = new JComboBox<>(CvHelperMobInteractionMode.values());
-		lootInteraction.setSelectedItem(plugin.getMobFarmerLootInteractionMode());
-		lootInteraction.addActionListener(e -> plugin.setMobFarmerLootInteractionMode((CvHelperMobInteractionMode) lootInteraction.getSelectedItem()));
-		JComboBox<CvHelperGroundItemsMode> groundItemsMode = new JComboBox<>(CvHelperGroundItemsMode.values());
-		groundItemsMode.setSelectedItem(plugin.getMobFarmerGroundItemsMode());
-		groundItemsMode.addActionListener(e -> plugin.setMobFarmerGroundItemsMode((CvHelperGroundItemsMode) groundItemsMode.getSelectedItem()));
-		JCheckBox respectGroundItemsHidden = new JCheckBox("Respect hidden Ground Items", plugin.getMobFarmerRespectGroundItemsHidden());
-		styleCheckbox(respectGroundItemsHidden);
-		respectGroundItemsHidden.addActionListener(e -> plugin.setMobFarmerRespectGroundItemsHidden(respectGroundItemsHidden.isSelected()));
-		JCheckBox intermediateActions = new JCheckBox("Use intermediate actions", plugin.getMobFarmerIntermediateActionsEnabled());
-		styleCheckbox(intermediateActions);
-		intermediateActions.addActionListener(e -> plugin.setMobFarmerIntermediateActionsEnabled(intermediateActions.isSelected()));
-		JTextField intermediateItems = new JTextField(plugin.getMobFarmerIntermediateItems());
-		intermediateItems.setToolTipText("Items to use during farming, such as bones or ashes.");
-		JTextArea intermediateMappings = new JTextArea(plugin.getMobFarmerIntermediateActionMappings(), 3, 18);
-		intermediateMappings.setLineWrap(true);
-		intermediateMappings.setWrapStyleWord(true);
-		intermediateMappings.setToolTipText("Examples: bones -> Bury; big bones -> Bury; ashes -> Scatter|Bury");
-		JScrollPane intermediateMappingsPane = new JScrollPane(intermediateMappings);
-		intermediateMappingsPane.setPreferredSize(new Dimension(0, 76));
-		JTextField neverDrop = new JTextField(plugin.getMobFarmerNeverDropItems());
-		neverDrop.setToolTipText("Inventory items that future drop processing must never drop.");
-
-		JButton saveGuards = new JButton("Save farmer guards");
-		saveGuards.addActionListener(e ->
-		{
-			plugin.setMobFarmerTarget(target.getText());
-			plugin.setMobFarmerTargetBlacklist(targetBlacklist.getValue());
-			plugin.setMobFarmerEngagedMode((CvHelperMobEngagedMode) engagedMode.getSelectedItem());
-			plugin.setMobFarmerAggroResponse((CvHelperMobAggroResponse) aggroResponse.getSelectedItem());
-			plugin.setMobFarmerRequireLineOfSight(requireLineOfSight.isSelected());
-			plugin.setMobFarmerMaxDistance(parseNonNegativeInt(maxDistance.getText(), plugin.getMobFarmerMaxDistance()));
-			plugin.setMobFarmerAttackInteractionMode((CvHelperMobInteractionMode) attackInteraction.getSelectedItem());
-			plugin.setMobFarmerAutoEatEnabled(autoEatEnabled.isSelected());
-			plugin.setMobFarmerEatHitpointPercent(parseNonNegativeInt(eatThreshold.getText(), plugin.getMobFarmerEatHitpointPercent()));
-			plugin.setMobFarmerFoodItems(foodItems.getValue());
-			plugin.setMobFarmerStopIfNoFood(stopIfNoFood.isSelected());
-			plugin.setMobFarmerSurvivalPreemptsActions(survivalPreempts.isSelected());
-			plugin.setMobFarmerLoginRecoveryEnabled(loginRecovery.isSelected());
-			plugin.setMobFarmerLoginRecoveryF2pOnly(loginRecoveryF2p.isSelected());
-			plugin.setMobFarmerLoginDisconnectRecoveryEnabled(disconnectRecovery.isSelected());
-			plugin.setMobFarmerAutoResumeAfterLogin(autoResumeAfterLogin.isSelected());
-			plugin.setMobFarmerPreferredLoginWorld(parseNonNegativeInt(preferredLoginWorld.getText(), plugin.getMobFarmerPreferredLoginWorld()));
-			plugin.setMobFarmerLootEnabled(lootEnabled.isSelected());
-			plugin.setMobFarmerLootDuringCombat(lootDuringCombat.isSelected());
-			plugin.setMobFarmerAttackBeforeLoot(attackBeforeLoot.isSelected());
-			plugin.setMobFarmerLootMinValueGe(parseNonNegativeInt(lootMinValue.getText(), plugin.getMobFarmerLootMinValueGe()));
-			plugin.setMobFarmerHighPriorityLootValueGe(parseNonNegativeInt(highPriorityLootValue.getText(), plugin.getMobFarmerHighPriorityLootValueGe()));
-			plugin.setMobFarmerLootUrgentDespawnTicks(parseNonNegativeInt(urgentLootTicks.getText(), plugin.getMobFarmerLootUrgentDespawnTicks()));
-			plugin.setMobFarmerLootCleanupPileCount(parseNonNegativeInt(cleanupPileCount.getText(), plugin.getMobFarmerLootCleanupPileCount()));
-			plugin.setMobFarmerLootRadius(parseNonNegativeInt(lootRadius.getText(), plugin.getMobFarmerLootRadius()));
-			plugin.setMobFarmerLootItems(lootItems.getValue());
-			plugin.setMobFarmerLootBlacklist(lootBlacklist.getValue());
-			plugin.setMobFarmerLootMinSingleGe(parseNonNegativeInt(lootMinSingleGe.getText(), plugin.getMobFarmerLootMinSingleGe()));
-			plugin.setMobFarmerLootMinStackGe(parseNonNegativeInt(lootMinStackGe.getText(), plugin.getMobFarmerLootMinStackGe()));
-			plugin.setMobFarmerLootMinStackQuantity(parseNonNegativeInt(lootMinStackQuantity.getText(), plugin.getMobFarmerLootMinStackQuantity()));
-			plugin.setMobFarmerLootAlwaysStackGe(parseNonNegativeInt(lootAlwaysStackGe.getText(), plugin.getMobFarmerLootAlwaysStackGe()));
-			plugin.setMobFarmerLootNeverStackBelowGe(parseNonNegativeInt(lootNeverStackBelowGe.getText(), plugin.getMobFarmerLootNeverStackBelowGe()));
-			plugin.setMobFarmerHighAlchEnabled(highAlchEnabled.isSelected());
-			plugin.setMobFarmerHighAlchMinHa(parseNonNegativeInt(highAlchMinHa.getText(), plugin.getMobFarmerHighAlchMinHa()));
-			plugin.setMobFarmerHighAlchMinDelta(parseNonNegativeInt(highAlchMinDelta.getText(), plugin.getMobFarmerHighAlchMinDelta()));
-			plugin.setMobFarmerHighAlchMaxLoss(parseNonNegativeInt(highAlchMaxLoss.getText(), plugin.getMobFarmerHighAlchMaxLoss()));
-			plugin.setMobFarmerHighAlchItems(highAlchItems.getText());
-			plugin.setMobFarmerHighAlchBlacklist(highAlchBlacklist.getText());
-			plugin.setMobFarmerLootOwnershipMode((CvHelperLootOwnershipMode) lootOwnership.getSelectedItem());
-			plugin.setMobFarmerLootInteractionMode((CvHelperMobInteractionMode) lootInteraction.getSelectedItem());
-			plugin.setMobFarmerGroundItemsMode((CvHelperGroundItemsMode) groundItemsMode.getSelectedItem());
-			plugin.setMobFarmerRespectGroundItemsHidden(respectGroundItemsHidden.isSelected());
-			plugin.setMobFarmerIntermediateActionsEnabled(intermediateActions.isSelected());
-			plugin.setMobFarmerIntermediateItems(intermediateItems.getText());
-			plugin.setMobFarmerIntermediateActionMappings(intermediateMappings.getText());
-			plugin.setMobFarmerNeverDropItems(neverDrop.getText());
-			updateStatus("Mob farmer guards saved");
-		});
-		JButton saveTarget = new JButton("Save mob target");
-		saveTarget.addActionListener(e -> plugin.setMobFarmerTarget(target.getText()));
-		JButton dryStep = new JButton("Dry step");
-		dryStep.addActionListener(e ->
-		{
-			plugin.setMobFarmerTarget(target.getText());
-			plugin.runMobFarmerStep(false);
-		});
-		JButton liveStep = new JButton("Live attack step");
-		liveStep.addActionListener(e ->
-		{
-			plugin.setMobFarmerTarget(target.getText());
-			plugin.runMobFarmerStep(true);
-		});
-		JButton startDry = new JButton("Start dry loop");
-		startDry.addActionListener(e ->
-		{
-			plugin.setMobFarmerTarget(target.getText());
-			plugin.startMobFarmer(false);
-		});
-		JButton startLive = new JButton("Start live loop");
-		startLive.addActionListener(e ->
-		{
-			plugin.setMobFarmerTarget(target.getText());
-			plugin.startMobFarmer(true);
-		});
-		JButton stop = new JButton("Stop loop");
-		stop.addActionListener(e -> plugin.stopMobFarmer());
-
-		JLabel help = new JLabel("<html>Farmer loop: survival guard, optional intermediate inventory actions, loot processing, then guarded attack selection. Use mob targets like goblin|spider or id:1234. Loot failures are diagnosed in /automation/mob-farmer/status.</html>");
-		help.setForeground(Color.LIGHT_GRAY);
-
-		stretch(help);
-		body.add(help);
-
-		JPanel rowsHost = new JPanel();
-		rowsHost.setLayout(new BoxLayout(rowsHost, BoxLayout.Y_AXIS));
-		rowsHost.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		java.util.List<java.util.Map.Entry<String, JComponent>> searchRows = new java.util.ArrayList<>();
-
-		java.util.function.BiConsumer<String, JComponent> addField = (lbl, ctrl) ->
-		{
-			JComponent rowComp;
-			if (lbl == null)
-			{
-				rowComp = ctrl;
-			}
-			else
-			{
-				JPanel row = new JPanel(new BorderLayout(0, 1));
-				row.setBackground(ColorScheme.DARK_GRAY_COLOR);
-				row.add(label(lbl), BorderLayout.NORTH);
-				row.add(ctrl, BorderLayout.CENTER);
-				rowComp = row;
-			}
-			stretch(rowComp);
-			String key = lbl != null ? lbl
-				: ctrl instanceof javax.swing.AbstractButton ? ((javax.swing.AbstractButton) ctrl).getText()
-				: ctrl instanceof JLabel ? ((JLabel) ctrl).getText()
-				: "";
-			key = key == null ? "" : key.replaceAll("<[^>]*>", " ").toLowerCase();
-			searchRows.add(new java.util.AbstractMap.SimpleEntry<>(key, rowComp));
-			rowsHost.add(rowComp);
-		};
-
-		addField.accept("Mob target", target);
-		addField.accept("Never-attack mobs", targetBlacklist);
-		addField.accept("Already-engaged mobs", engagedMode);
-		addField.accept("Undesired attacker", aggroResponse);
-		addField.accept(null, requireLineOfSight);
-		addField.accept("Max target distance", maxDistance);
-		addField.accept("Attack interaction", attackInteraction);
-		addField.accept(null, autoEatEnabled);
-		addField.accept("Eat below HP %", eatThreshold);
-		addField.accept("Food items", foodItems);
-		addField.accept(null, stopIfNoFood);
-		addField.accept(null, survivalPreempts);
-		addField.accept(null, loginRecovery);
-		addField.accept(null, loginRecoveryF2p);
-		addField.accept(null, disconnectRecovery);
-		addField.accept(null, autoResumeAfterLogin);
-		addField.accept("Preferred login world", preferredLoginWorld);
-		addField.accept(null, label("<html>Idle handling: use RuneLite's Logout Timer plugin/settings for longer idle windows. CV Helper only recovers after logout.</html>"));
-		addField.accept(null, lootEnabled);
-		addField.accept(null, lootDuringCombat);
-		addField.accept(null, attackBeforeLoot);
-		addField.accept("Loot min GE value", lootMinValue);
-		addField.accept("Loot per-item GE", lootMinSingleGe);
-		addField.accept("Loot stack GE", lootMinStackGe);
-		addField.accept("Loot stack qty", lootMinStackQuantity);
-		addField.accept("Always loot stack GE", lootAlwaysStackGe);
-		addField.accept("Never loot below GE", lootNeverStackBelowGe);
-		addField.accept("High-priority GE value", highPriorityLootValue);
-		addField.accept("Urgent loot ticks", urgentLootTicks);
-		addField.accept("Cleanup pile count", cleanupPileCount);
-		addField.accept("Loot radius", lootRadius);
-		addField.accept("Always-loot items", lootItems);
-		addField.accept("Never-loot items", lootBlacklist);
-		addField.accept("Loot ownership", lootOwnership);
-		addField.accept("Loot interaction", lootInteraction);
-		addField.accept("Ground Items lists", groundItemsMode);
-		addField.accept(null, respectGroundItemsHidden);
-		addField.accept("Protected inventory", neverDrop);
-		addField.accept(null, highAlchEnabled);
-		addField.accept("Min HA value", highAlchMinHa);
-		addField.accept("Min HA delta", highAlchMinDelta);
-		addField.accept("Max HA loss", highAlchMaxLoss);
-		addField.accept("Alch allowlist", highAlchItems);
-		addField.accept("Never alch", highAlchBlacklist);
-		addField.accept(null, intermediateActions);
-		addField.accept("Intermediate items", intermediateItems);
-		addField.accept("Item -> action mappings", intermediateMappingsPane);
-
-		// The one top-level search box drives row visibility here; the section's own expand/collapse is
-		// handled by the generic section filter registered for it in the constructor.
-		sectionFilters.add(query ->
-		{
-			for (java.util.Map.Entry<String, JComponent> r : searchRows)
-			{
-				r.getValue().setVisible(query.isEmpty() || r.getKey().contains(query));
-			}
-			rowsHost.revalidate();
-			rowsHost.repaint();
-		});
-
-		rowsHost.setAlignmentX(Component.LEFT_ALIGNMENT);
-		rowsHost.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
-		body.add(rowsHost);
-
-		for (JComponent action : new JComponent[]{
-			saveGuards,
-			saveTarget,
-			dryStep,
-			liveStep,
-			startDry,
-			startLive,
-			stop
-		})
-		{
-			stretch(action);
-			body.add(action);
-		}
-
-		JToggleButton expand = new JToggleButton("Expand");
-		body.setVisible(false);
-		expand.setSelected(true);
-		expand.addActionListener(e ->
-		{
-			boolean isCollapsed = expand.isSelected();
-			expand.setText(isCollapsed ? "Expand" : "Collapse");
-			body.setVisible(!isCollapsed);
-			section.revalidate();
-		});
-		expand.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		expand.setForeground(Color.LIGHT_GRAY);
-
-		section.add(expand, BorderLayout.NORTH);
-		section.add(body, BorderLayout.CENTER);
-		setCompact(section);
-		return section;
-	}
-
-	private JPanel createWoodcuttingSection()
-	{
-		JPanel section = new JPanel(new BorderLayout(0, 4));
-		section.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		section.setBorder(BorderFactory.createTitledBorder("Woodcutting farmer"));
-
-		JPanel body = new JPanel();
-		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
-		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
-
-		JTextField target = new JTextField(plugin.getWoodcuttingFarmerTarget());
-		target.setToolTipText("Partial name or id:<object id>, for example oak|tree|willow|maple");
-
-		JLabel statusLabel = new JLabel("Status: " + (plugin.getWoodcuttingFarmerRunning() ? "Running" : "Stopped"));
-		statusLabel.setForeground(Color.LIGHT_GRAY);
-
-		JButton dryStep = new JButton("Dry step");
-		dryStep.addActionListener(e ->
-		{
-			plugin.setWoodcuttingFarmerTarget(target.getText());
-			plugin.runWoodcuttingFarmerStep(false);
-		});
-		JButton liveStep = new JButton("Live chop step");
-		liveStep.addActionListener(e ->
-		{
-			plugin.setWoodcuttingFarmerTarget(target.getText());
-			plugin.runWoodcuttingFarmerStep(true);
-		});
-		JButton startDry = new JButton("Start dry loop");
-		startDry.addActionListener(e ->
-		{
-			plugin.setWoodcuttingFarmerTarget(target.getText());
-			plugin.startWoodcuttingFarmer(false);
-		});
-		JButton startLive = new JButton("Start live loop");
-		startLive.addActionListener(e ->
-		{
-			plugin.setWoodcuttingFarmerTarget(target.getText());
-			plugin.startWoodcuttingFarmer(true);
-		});
-		JButton stop = new JButton("Stop loop");
-		stop.addActionListener(e -> plugin.stopWoodcuttingFarmer());
-
-		JButton refreshStatus = new JButton("Refresh status");
-		refreshStatus.addActionListener(e ->
-		{
-			statusLabel.setText("Status: " + (plugin.getWoodcuttingFarmerRunning() ? "Running" : "Stopped"));
-			updateStatus("Woodcutting status refreshed");
-		});
-
-		JLabel help = new JLabel("<html>Woodcutting farmer: selects nearest reachable tree, chops until inventory full or tree depleted. Drop policy is enabled by default - configure in RuneLite plugin config (woodcutter section) or WebHelper.</html>");
-		help.setForeground(Color.LIGHT_GRAY);
-
-		for (JComponent component : new JComponent[]{
-			help,
-			label("Target trees"),
-			target,
-			statusLabel,
-			dryStep,
-			liveStep,
-			startDry,
-			startLive,
-			stop,
-			refreshStatus
-		})
-		{
-			stretch(component);
-			body.add(component);
-		}
-
-		JToggleButton expand = new JToggleButton("Expand");
-		body.setVisible(false);
-		expand.setSelected(true);
-		expand.addActionListener(e ->
-		{
-			boolean isCollapsed = expand.isSelected();
-			expand.setText(isCollapsed ? "Expand" : "Collapse");
-			body.setVisible(!isCollapsed);
-			section.revalidate();
-		});
-		expand.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		expand.setForeground(Color.LIGHT_GRAY);
-
-		section.add(expand, BorderLayout.NORTH);
-		section.add(body, BorderLayout.CENTER);
-		setCompact(section);
-		return section;
-	}
-
-	private JPanel createMiningSection()
-	{
-		JPanel section = new JPanel(new BorderLayout(0, 4));
-		section.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		section.setBorder(BorderFactory.createTitledBorder("Mining farmer"));
-
-		JPanel body = new JPanel();
-		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
-		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
-
-		JTextField target = new JTextField(plugin.getMiningFarmerTarget());
-		target.setToolTipText("Partial name or id:<object id>, for example iron rocks|iron ore rocks|rocks");
-
-		JLabel statusLabel = new JLabel("Status: " + (plugin.getMiningFarmerRunning() ? "Running" : "Stopped"));
-		statusLabel.setForeground(Color.LIGHT_GRAY);
-
-		JButton dryStep = new JButton("Dry step");
-		dryStep.addActionListener(e ->
-		{
-			plugin.setMiningFarmerTarget(target.getText());
-			plugin.runMiningFarmerStep(false);
-		});
-		JButton liveStep = new JButton("Live mine step");
-		liveStep.addActionListener(e ->
-		{
-			plugin.setMiningFarmerTarget(target.getText());
-			plugin.runMiningFarmerStep(true);
-		});
-		JButton startDry = new JButton("Start dry loop");
-		startDry.addActionListener(e ->
-		{
-			plugin.setMiningFarmerTarget(target.getText());
-			plugin.startMiningFarmer(false);
-		});
-		JButton startLive = new JButton("Start live loop");
-		startLive.addActionListener(e ->
-		{
-			plugin.setMiningFarmerTarget(target.getText());
-			plugin.startMiningFarmer(true);
-		});
-		JButton stop = new JButton("Stop loop");
-		stop.addActionListener(e -> plugin.stopMiningFarmer());
-
-		JButton refreshStatus = new JButton("Refresh status");
-		refreshStatus.addActionListener(e ->
-		{
-			statusLabel.setText("Status: " + (plugin.getMiningFarmerRunning() ? "Running" : "Stopped"));
-			updateStatus("Mining status refreshed");
-		});
-
-		JLabel help = new JLabel("<html>Mining farmer: selects nearest reachable rock, mines until inventory full or rock depleted. Drop policy is enabled by default - configure in RuneLite plugin config (woodcutter section) or WebHelper.</html>");
-		help.setForeground(Color.LIGHT_GRAY);
-
-		for (JComponent component : new JComponent[]{
-			help,
-			label("Target rocks"),
-			target,
-			statusLabel,
-			dryStep,
-			liveStep,
-			startDry,
-			startLive,
-			stop,
-			refreshStatus
-		})
-		{
-			stretch(component);
-			body.add(component);
-		}
-
-		JToggleButton expand = new JToggleButton("Expand");
-		body.setVisible(false);
-		expand.setSelected(true);
-		expand.addActionListener(e ->
-		{
-			boolean isCollapsed = expand.isSelected();
-			expand.setText(isCollapsed ? "Expand" : "Collapse");
-			body.setVisible(!isCollapsed);
-			section.revalidate();
-		});
-		expand.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		expand.setForeground(Color.LIGHT_GRAY);
-
-		section.add(expand, BorderLayout.NORTH);
-		section.add(body, BorderLayout.CENTER);
-		setCompact(section);
-		return section;
-	}
-
 	private int parseNonNegativeInt(String value, int fallback)
 	{
 		try
@@ -1233,121 +1058,6 @@ class CvHelperModPanel extends PluginPanel
 		component.setMaximumSize(new Dimension(Integer.MAX_VALUE, Short.MAX_VALUE));
 	}
 
-	/**
-	 * The one visible, top-level search box (Quest-Helper style). Typing here broadcasts the query to
-	 * every registered {@link #sectionFilters} entry, so a single search drives the whole panel:
-	 * matching sections auto-expand (and Mob farmer additionally filters its rows), the rest collapse.
-	 */
-	private JComponent buildSearchField()
-	{
-		JPanel wrap = new JPanel(new BorderLayout(0, 2));
-		wrap.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		wrap.setBorder(BorderFactory.createTitledBorder("Search settings"));
-
-		JTextField field = new JTextField();
-		field.setToolTipText("Search every section at once, e.g. prayer, loot, food, alch, rocks, login");
-		field.getDocument().addDocumentListener(new javax.swing.event.DocumentListener()
-		{
-			private void apply()
-			{
-				String q = field.getText().trim().toLowerCase();
-				for (java.util.function.Consumer<String> filter : sectionFilters)
-				{
-					filter.accept(q);
-				}
-				revalidate();
-				repaint();
-			}
-
-			public void insertUpdate(javax.swing.event.DocumentEvent e)
-			{
-				apply();
-			}
-
-			public void removeUpdate(javax.swing.event.DocumentEvent e)
-			{
-				apply();
-			}
-
-			public void changedUpdate(javax.swing.event.DocumentEvent e)
-			{
-				apply();
-			}
-		});
-
-		wrap.add(field, BorderLayout.CENTER);
-		setCompact(wrap);
-		return wrap;
-	}
-
-	/**
-	 * Registers a collapsible section so the top-level search box can drive it: when the query matches
-	 * the section title or any descendant label/control text, the section auto-expands; otherwise it
-	 * returns to its collapsed default. Empty query restores the collapsed default.
-	 */
-	private void registerSectionFilter(String title, JToggleButton toggle, JComponent body)
-	{
-		String key = title.toLowerCase();
-		sectionFilters.add(query ->
-		{
-			boolean expand = !query.isEmpty() && (key.contains(query) || containsTextMatch(body, query));
-			setSectionExpanded(toggle, body, expand);
-		});
-	}
-
-	/**
-	 * Constructor-side convenience: pulls the expand toggle (NORTH) and body (CENTER) out of an
-	 * already-built section panel and registers a generic search filter for it. Lets sections that
-	 * don't self-register (Action hotkeys, Mob/Woodcutting/Mining) join the global search.
-	 */
-	private void registerSectionFilterFor(JPanel section, String title)
-	{
-		if (!(section.getLayout() instanceof BorderLayout))
-		{
-			return;
-		}
-		BorderLayout layout = (BorderLayout) section.getLayout();
-		Component north = layout.getLayoutComponent(BorderLayout.NORTH);
-		Component center = layout.getLayoutComponent(BorderLayout.CENTER);
-		if (north instanceof JToggleButton && center instanceof JComponent)
-		{
-			registerSectionFilter(title, (JToggleButton) north, (JComponent) center);
-		}
-	}
-
-	private void setSectionExpanded(JToggleButton toggle, JComponent body, boolean expanded)
-	{
-		toggle.setSelected(!expanded);
-		toggle.setText(expanded ? "Collapse" : "Expand");
-		body.setVisible(expanded);
-		body.revalidate();
-	}
-
-	private boolean containsTextMatch(java.awt.Container container, String query)
-	{
-		for (Component child : container.getComponents())
-		{
-			String text = null;
-			if (child instanceof JLabel)
-			{
-				text = ((JLabel) child).getText();
-			}
-			else if (child instanceof javax.swing.AbstractButton)
-			{
-				text = ((javax.swing.AbstractButton) child).getText();
-			}
-			if (text != null && text.replaceAll("<[^>]*>", " ").toLowerCase().contains(query))
-			{
-				return true;
-			}
-			if (child instanceof java.awt.Container && containsTextMatch((java.awt.Container) child, query))
-			{
-				return true;
-			}
-		}
-		return false;
-	}
-
 	private void stretch(JComponent component)
 	{
 		component.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -1373,6 +1083,20 @@ class CvHelperModPanel extends PluginPanel
 	private final class ListEditorField extends JPanel
 	{
 		private final JPanel rowsPanel = new JPanel();
+		private Runnable onChange;
+
+		void setOnChange(Runnable onChange)
+		{
+			this.onChange = onChange;
+		}
+
+		private void fireChange()
+		{
+			if (onChange != null)
+			{
+				onChange.run();
+			}
+		}
 
 		private ListEditorField(String initial)
 		{
@@ -1412,6 +1136,7 @@ class CvHelperModPanel extends PluginPanel
 			row.setBackground(ColorScheme.DARK_GRAY_COLOR);
 			row.setAlignmentX(LEFT_ALIGNMENT);
 			JTextField field = new JTextField(text);
+			field.getDocument().addDocumentListener(simpleDocListener(this::fireChange));
 			JButton remove = new JButton("−");
 			remove.setForeground(Color.RED);
 			remove.addActionListener(e ->
@@ -1419,6 +1144,7 @@ class CvHelperModPanel extends PluginPanel
 				rowsPanel.remove(row);
 				ListEditorField.this.revalidate();
 				ListEditorField.this.repaint();
+				fireChange();
 			});
 			row.add(field, BorderLayout.CENTER);
 			row.add(remove, BorderLayout.EAST);
