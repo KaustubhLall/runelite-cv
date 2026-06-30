@@ -29,6 +29,12 @@ public interface CvHelperModConfig extends Config
 	String MOB_FARMER_SECTION = "mobFarmerSection";
 	String MINER_SECTION = "minerSection";
 	String WOODCUTTER_SECTION = "woodcutterSection";
+	String FIREMAKING_SECTION = "firemakingSection";
+	String FIREMAKING_LOG_TYPE = "firemakingLogType";
+	String FISHING_SECTION = "fishingSection";
+	String FISHING_FARMER_TARGET = "fishingFarmerTarget";
+	String FISHING_SCAN_RADIUS = "fishingScanRadius";
+	String FISHING_MAX_CANDIDATES = "fishingMaxCandidates";
 	String CHAT_RESPONDER_SECTION = "chatResponderSection";
 	String CHAT_RESPONDER_ENABLED = "chatResponderEnabled";
 	String CHAT_RESPONDER_MIN_MESSAGES = "chatResponderMinMessages";
@@ -233,6 +239,66 @@ public interface CvHelperModConfig extends Config
 		position = 115
 	)
 	String woodcutterSection = WOODCUTTER_SECTION;
+
+	@ConfigSection(
+		name = "Firemaker",
+		description = "Firemaking automation: burns logs from inventory using a tinderbox. Stops automatically when inventory is empty or tinderbox is missing.",
+		position = 117
+	)
+	String firemakingSection = FIREMAKING_SECTION;
+
+	@ConfigItem(
+		keyName = FIREMAKING_LOG_TYPE,
+		name = "Log type",
+		description = "Log type to burn. Must match the logs in your inventory.",
+		section = firemakingSection
+	)
+	default CvHelperFiremakingLogType firemakingLogType()
+	{
+		return CvHelperFiremakingLogType.LOGS;
+	}
+
+	@ConfigSection(
+		name = "Fisher",
+		description = "Fishing automation (scaffold — not yet implemented).",
+		position = 118
+	)
+	String fishingSection = FISHING_SECTION;
+
+	@ConfigItem(
+		keyName = FISHING_FARMER_TARGET,
+		name = "Fishing target",
+		description = "Fishing spot NPC name, e.g. 'fishing spot' or 'rod fishing spot'.",
+		section = fishingSection
+	)
+	default String fishingFarmerTarget()
+	{
+		return "fishing spot";
+	}
+
+	@ConfigItem(
+		keyName = FISHING_SCAN_RADIUS,
+		name = "Fishing scan radius (tiles)",
+		description = "Maximum distance in tiles to search for fishing spots.",
+		section = fishingSection
+	)
+	@Range(min = 1, max = 64)
+	default int fishingScanRadius()
+	{
+		return 5;
+	}
+
+	@ConfigItem(
+		keyName = FISHING_MAX_CANDIDATES,
+		name = "Fishing max candidates",
+		description = "Maximum number of fishing spot candidates to evaluate.",
+		section = fishingSection
+	)
+	@Range(min = 1, max = 300)
+	default int fishingMaxCandidates()
+	{
+		return 10;
+	}
 
 	@ConfigSection(
 		name = "Chat responder",

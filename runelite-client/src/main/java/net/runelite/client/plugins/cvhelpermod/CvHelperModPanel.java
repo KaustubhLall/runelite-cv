@@ -158,6 +158,7 @@ class CvHelperModPanel extends PluginPanel
 		JPanel mobFarmerSection = createMobFarmerSection();
 		JPanel woodcuttingSection = createWoodcuttingSection();
 		JPanel miningSection = createMiningSection();
+		JPanel firemakingSection = createFiremakingSection();
 
 		// Join every section to the one top-level search box. Prayer/Spellbook self-register inside
 		// createNestedSection; Mob farmer registers its own row filter and gets expand/collapse here.
@@ -165,6 +166,7 @@ class CvHelperModPanel extends PluginPanel
 		registerSectionFilterFor(mobFarmerSection, "Mob farmer");
 		registerSectionFilterFor(woodcuttingSection, "Woodcutting farmer");
 		registerSectionFilterFor(miningSection, "Mining farmer");
+		registerSectionFilterFor(firemakingSection, "Firemaking farmer");
 		// The always-visible Overlays checkboxes also filter to matches while searching.
 		sectionFilters.add(query ->
 		{
@@ -245,6 +247,7 @@ class CvHelperModPanel extends PluginPanel
 		lower.add(mobFarmerSection);
 		lower.add(woodcuttingSection);
 		lower.add(miningSection);
+		lower.add(firemakingSection);
 		lower.add(serverSettings);
 		lower.add(playerPanel);
 		lower.add(loginRecoveryPanel);
@@ -1134,6 +1137,78 @@ class CvHelperModPanel extends PluginPanel
 			help,
 			label("Target rocks"),
 			target,
+			statusLabel,
+			dryStep,
+			liveStep,
+			startDry,
+			startLive,
+			stop,
+			refreshStatus
+		})
+		{
+			stretch(component);
+			body.add(component);
+		}
+
+		JToggleButton expand = new JToggleButton("Expand");
+		body.setVisible(false);
+		expand.setSelected(true);
+		expand.addActionListener(e ->
+		{
+			boolean isCollapsed = expand.isSelected();
+			expand.setText(isCollapsed ? "Expand" : "Collapse");
+			body.setVisible(!isCollapsed);
+			section.revalidate();
+		});
+		expand.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		expand.setForeground(Color.LIGHT_GRAY);
+
+		section.add(expand, BorderLayout.NORTH);
+		section.add(body, BorderLayout.CENTER);
+		setCompact(section);
+		return section;
+	}
+
+	private JPanel createFiremakingSection()
+	{
+		JPanel section = new JPanel(new BorderLayout(0, 4));
+		section.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		section.setBorder(BorderFactory.createTitledBorder("Firemaking farmer"));
+
+		JPanel body = new JPanel();
+		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
+		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
+
+		JLabel statusLabel = new JLabel("Status: " + (plugin.getFiremakingFarmerRunning() ? "Running" : "Stopped"));
+		statusLabel.setForeground(Color.LIGHT_GRAY);
+
+		JButton dryStep = new JButton("Dry step");
+		dryStep.addActionListener(e -> plugin.runFiremakingFarmerStep(false));
+
+		JButton liveStep = new JButton("Live light step");
+		liveStep.addActionListener(e -> plugin.runFiremakingFarmerStep(true));
+
+		JButton startDry = new JButton("Start dry loop");
+		startDry.addActionListener(e -> plugin.startFiremakingFarmer(false));
+
+		JButton startLive = new JButton("Start live loop");
+		startLive.addActionListener(e -> plugin.startFiremakingFarmer(true));
+
+		JButton stop = new JButton("Stop loop");
+		stop.addActionListener(e -> plugin.stopFiremakingFarmer());
+
+		JButton refreshStatus = new JButton("Refresh status");
+		refreshStatus.addActionListener(e ->
+		{
+			statusLabel.setText("Status: " + (plugin.getFiremakingFarmerRunning() ? "Running" : "Stopped"));
+			updateStatus("Firemaking status refreshed");
+		});
+
+		JLabel help = new JLabel("<html>Firemaking farmer: uses tinderbox on logs in inventory until empty. Log type is set in the RuneLite plugin config (Firemaker section). Stops automatically if tinderbox or logs are missing.</html>");
+		help.setForeground(Color.LIGHT_GRAY);
+
+		for (JComponent component : new JComponent[]{
+			help,
 			statusLabel,
 			dryStep,
 			liveStep,
