@@ -254,6 +254,10 @@ public class CvHelperModPlugin extends Plugin
 		8346,
 		8347
 	};
+	protected static final int[] FIREMAKING_ANIMATION_IDS = {733, 6713, 6714, 6715, 6716, 6717, 6718, 6719};
+	private static final int TINDERBOX_ITEM_ID = 590;
+	// Fishing animations: fly fishing rod (621-623), bait (618-620), net/barb/cage/harpoon variants
+	protected static final int[] FISHING_ANIMATION_IDS = {618, 619, 620, 621, 622, 623, 6705, 6706, 6707, 7542};
 	protected static final String GROUND_ITEMS_CONFIG_GROUP = "grounditems";
 	protected static final String GROUND_ITEMS_HIGHLIGHTED_ITEMS = "highlightedItems";
 	protected static final String GROUND_ITEMS_HIDDEN_ITEMS = "hiddenItems";
@@ -473,6 +477,11 @@ public class CvHelperModPlugin extends Plugin
 	protected volatile Map<String, Object> lastSelectedWoodcuttingTarget = null;
 	protected volatile long lastWoodcuttingTargetClickTime = 0L;
 	protected volatile long lastMiningTargetClickTime = 0L;
+	protected final AtomicBoolean firemakingFarmerRunning = new AtomicBoolean(false);
+	protected volatile boolean firemakingFarmerLiveMode;
+	protected volatile Map<String, Object> lastFiremakingFarmerStatus = new LinkedHashMap<>();
+	protected volatile int lastFiremakingXpTick = -1;
+	protected volatile long lastFiremakingClickMillis = 0L;
 	// XP-drop based mining completion + short-lived depleted-tile blacklist
 	protected volatile int lastMiningXp = -1;
 	// Combat XP-drop confirmation: melee XP is granted on the exact tick the swing lands
@@ -511,6 +520,18 @@ public class CvHelperModPlugin extends Plugin
 	protected volatile Map<String, Object> lastCompletedWoodcuttingTarget = null;
 	protected volatile String woodcuttingCompletionReason = null;
 	protected volatile int lastWoodcuttingInvalidationTick = -1;
+	// Fishing farmer: NPC-based, spots move instead of depleting in place.
+	protected final AtomicBoolean fishingFarmerRunning = new AtomicBoolean(false);
+	protected volatile boolean fishingFarmerLiveMode;
+	protected volatile String fishingFarmerTarget = "fishing spot";
+	protected volatile int fishingFarmerScanRadius = SKILL_FARMER_SCAN_RADIUS_TILES;
+	protected volatile int fishingFarmerMaxCandidates = SKILL_FARMER_MAX_CANDIDATES;
+	protected volatile Map<String, Object> lastFishingFarmerStatus = new LinkedHashMap<>();
+	protected volatile Map<String, Object> lastSelectedFishingSpot = null;
+	protected volatile Map<String, Object> lastCompletedFishingSpot = null;
+	protected volatile String fishingCompletionReason = null;
+	protected volatile int lastFishingInvalidationTick = -1;
+	protected volatile long lastFishingSpotClickTime = 0L;
 	// key "x,y,plane" -> game tick until which the tile is skipped after a successful mine
 	protected final Map<String, Integer> miningDepletedTileUntilTick = new java.util.concurrent.ConcurrentHashMap<>();
 	// key "skill:x,y,plane" -> game tick this tile was last selected; breaks pathDistance
@@ -938,6 +959,9 @@ public class CvHelperModPlugin extends Plugin
 		miningFarmerMaxCandidates = config.miningMaxCandidates();
 		woodcuttingFarmerScanRadius = config.woodcuttingScanRadius();
 		woodcuttingFarmerMaxCandidates = config.woodcuttingMaxCandidates();
+		fishingFarmerTarget = config.fishingFarmerTarget();
+		fishingFarmerScanRadius = config.fishingScanRadius();
+		fishingFarmerMaxCandidates = config.fishingMaxCandidates();
 		enabledPrayers.addAll(getPrayerNames());
 		enabledSpellbooks.addAll(getSpellbookNames());
 		overlayManager.add(overlay);
@@ -994,7 +1018,7 @@ public class CvHelperModPlugin extends Plugin
 
 	private void updateAntiIdleState()
 	{
-		boolean anyFarmerRunning = mobFarmerRunning.get() || miningFarmerRunning.get() || woodcuttingFarmerRunning.get();
+		boolean anyFarmerRunning = mobFarmerRunning.get() || miningFarmerRunning.get() || woodcuttingFarmerRunning.get() || firemakingFarmerRunning.get() || fishingFarmerRunning.get();
 		boolean manualOverride = config.antiIdleManualOverride();
 		boolean shouldBeActive = config.antiIdleEnabled() && (anyFarmerRunning || manualOverride);
 		boolean wasActive = antiIdleActive;
@@ -1181,6 +1205,8 @@ public class CvHelperModPlugin extends Plugin
 		}
 		runSkillFarmerTick("mining");
 		runSkillFarmerTick("woodcutting");
+		runFiremakingFarmerTick();
+		runFishingFarmerTick();
 	}
 
 	@Subscribe
@@ -1273,6 +1299,11 @@ public class CvHelperModPlugin extends Plugin
 		if (skill == Skill.MINING)
 		{
 			handleMiningStatChanged(event);
+			return;
+		}
+		if (skill == Skill.FIREMAKING)
+		{
+			handleFiremakingStatChanged(event);
 			return;
 		}
 		if (MOB_FARMER_COMBAT_XP_SKILLS.contains(skill))
@@ -3968,6 +3999,45 @@ public class CvHelperModPlugin extends Plugin
 		runSkillFarmerStep("woodcutting", live, "manual-step");
 	}
 
+	boolean getFiremakingFarmerRunning()
+	{
+		return firemakingFarmerRunning.get();
+	}
+
+	void startFiremakingFarmer(boolean live)
+	{
+		firemakingFarmerRunning.set(true);
+		firemakingFarmerLiveMode = live;
+		Map<String, Object> status = getFiremakingStatus();
+		status.put("currentAction", "started");
+		setFiremakingStatus(status);
+		updateAntiIdleState();
+		if (live)
+		{
+			ensureSkillFarmerRecoveryLoop();
+		}
+	}
+
+	void stopFiremakingFarmer()
+	{
+		firemakingFarmerRunning.set(false);
+		firemakingFarmerLiveMode = false;
+		Map<String, Object> status = getFiremakingStatus();
+		status.put("currentAction", "stopped");
+		setFiremakingStatus(status);
+		updateAntiIdleState();
+	}
+
+	void runFiremakingFarmerStep(boolean live)
+	{
+		runFiremakingFarmerStep(live, "manual-step");
+	}
+
+	CvHelperFiremakingLogType getFiremakingLogType()
+	{
+		return config.firemakingLogType();
+	}
+
 	String getMiningFarmerTarget()
 	{
 		return miningFarmerTarget;
@@ -6471,6 +6541,10 @@ public class CvHelperModPlugin extends Plugin
 		miningFarmerLiveMode = false;
 		woodcuttingFarmerRunning.set(false);
 		woodcuttingFarmerLiveMode = false;
+		firemakingFarmerRunning.set(false);
+		firemakingFarmerLiveMode = false;
+		fishingFarmerRunning.set(false);
+		fishingFarmerLiveMode = false;
 		clearMobFarmerReattackAfterPickup("panic-stop");
 		clearMobFarmerStabilization("panic-stop");
 		mobFarmerFocusClickNeeded = false;
@@ -9572,7 +9646,10 @@ public class CvHelperModPlugin extends Plugin
 			try
 			{
 				while (skillFarmerRecoveryGeneration.get() == generation
-					&& ((miningFarmerRunning.get() && miningFarmerLiveMode) || (woodcuttingFarmerRunning.get() && woodcuttingFarmerLiveMode)))
+					&& ((miningFarmerRunning.get() && miningFarmerLiveMode)
+						|| (woodcuttingFarmerRunning.get() && woodcuttingFarmerLiveMode)
+						|| (firemakingFarmerRunning.get() && firemakingFarmerLiveMode)
+						|| (fishingFarmerRunning.get() && fishingFarmerLiveMode)))
 				{
 					clientThread.invokeLater(() ->
 					{
@@ -9587,6 +9664,14 @@ public class CvHelperModPlugin extends Plugin
 						if (woodcuttingFarmerRunning.get() && woodcuttingFarmerLiveMode)
 						{
 							reportSkillFarmerNeedsLogin("woodcutting", true);
+						}
+						if (firemakingFarmerRunning.get() && firemakingFarmerLiveMode)
+						{
+							reportFiremakingFarmerNeedsLogin();
+						}
+						if (fishingFarmerRunning.get() && fishingFarmerLiveMode)
+						{
+							reportFishingFarmerNeedsLogin(true);
 						}
 					});
 					Thread.sleep(getMobFarmerRecoveryLoopDelayMs());
@@ -10972,6 +11057,344 @@ public class CvHelperModPlugin extends Plugin
 			lastWoodcuttingFarmerStatus = status;
 		}
 	}
+
+	// ── Firemaking farmer ────────────────────────────────────────────────────────
+
+	private void runFiremakingFarmerTick()
+	{
+		if (firemakingFarmerRunning.get())
+		{
+			runFiremakingFarmerStep(firemakingFarmerLiveMode, "game-tick");
+		}
+	}
+
+	private void runFiremakingFarmerStep(boolean live, String source)
+	{
+		if (client.getGameState() != GameState.LOGGED_IN || client.getLocalPlayer() == null)
+		{
+			reportFiremakingFarmerNeedsLogin();
+			return;
+		}
+		Map<String, Object> status = getFiremakingStatus();
+		status.put("source", source);
+		status.put("live", live);
+		if (isActivelyLightingFire())
+		{
+			status.put("currentAction", "lighting");
+			status.put("animating", true);
+			setFiremakingStatus(status);
+			return;
+		}
+		int currentTick = client.getTickCount();
+		if (lastFiremakingXpTick >= 0 && currentTick - lastFiremakingXpTick <= 2)
+		{
+			status.put("currentAction", "fire-placed-cooldown");
+			status.put("lastXpTick", lastFiremakingXpTick);
+			setFiremakingStatus(status);
+			return;
+		}
+		CvHelperFiremakingLogType logType = getFiremakingLogType();
+		Map<String, Object> tinderboxSlot = findTinderboxSlot();
+		if (tinderboxSlot == null)
+		{
+			status.put("currentAction", "missing-tinderbox");
+			status.put("currentState", CvHelperFiremakingState.MISSING_TINDERBOX.name());
+			setFiremakingStatus(status);
+			if (live)
+			{
+				firemakingFarmerRunning.set(false);
+				updateAntiIdleState();
+			}
+			return;
+		}
+		Map<String, Object> logSlot = findFiremakingLogSlot(logType);
+		if (logSlot == null)
+		{
+			status.put("currentAction", "inventory-empty");
+			status.put("currentState", CvHelperFiremakingState.INVENTORY_EMPTY.name());
+			setFiremakingStatus(status);
+			if (live)
+			{
+				firemakingFarmerRunning.set(false);
+				updateAntiIdleState();
+			}
+			return;
+		}
+		status.put("currentAction", live ? "lighting" : "dry-lighting");
+		status.put("currentState", CvHelperFiremakingState.LIGHTING.name());
+		status.put("tinderboxSlot", tinderboxSlot.get("index"));
+		status.put("logSlot", logSlot.get("index"));
+		status.put("logType", logType.getDisplayName());
+		setFiremakingStatus(status);
+		if (live)
+		{
+			invokeFiremakingLightLog(tinderboxSlot, logSlot);
+			lastFiremakingClickMillis = System.currentTimeMillis();
+		}
+	}
+
+	private Map<String, Object> getFiremakingStatus()
+	{
+		Map<String, Object> status = new LinkedHashMap<>(lastFiremakingFarmerStatus);
+		status.put("skill", "firemaking");
+		status.put("running", firemakingFarmerRunning.get());
+		status.put("live", firemakingFarmerLiveMode);
+		status.put("logType", config.firemakingLogType().getDisplayName());
+		status.put("logTypeId", config.firemakingLogType().getItemId());
+		status.put("lastXpTick", lastFiremakingXpTick);
+		status.put("lastClickMs", lastFiremakingClickMillis);
+		return status;
+	}
+
+	private void setFiremakingStatus(Map<String, Object> status)
+	{
+		status.put("updatedAt", Instant.now().toString());
+		lastFiremakingFarmerStatus = status;
+	}
+
+	private boolean isActivelyLightingFire()
+	{
+		Player localPlayer = client.getLocalPlayer();
+		if (localPlayer == null)
+		{
+			return false;
+		}
+		int animationId = localPlayer.getAnimation();
+		for (int id : FIREMAKING_ANIMATION_IDS)
+		{
+			if (animationId == id)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private Map<String, Object> findTinderboxSlot()
+	{
+		List<Map<String, Object>> targets = getLiveInventoryTargets();
+		for (Map<String, Object> t : targets)
+		{
+			if ("inventory".equals(t.get("surface")) && intValue(t.get("itemId"), -1) == TINDERBOX_ITEM_ID)
+			{
+				return t;
+			}
+		}
+		return null;
+	}
+
+	private Map<String, Object> findFiremakingLogSlot(CvHelperFiremakingLogType logType)
+	{
+		List<Map<String, Object>> targets = getLiveInventoryTargets();
+		for (Map<String, Object> t : targets)
+		{
+			if ("inventory".equals(t.get("surface")) && intValue(t.get("itemId"), -1) == logType.getItemId())
+			{
+				return t;
+			}
+		}
+		return null;
+	}
+
+	private void invokeFiremakingLightLog(Map<String, Object> tinderboxTarget, Map<String, Object> logTarget)
+	{
+		int tinderboxParam0 = intValue(tinderboxTarget.get("index"), -1);
+		int tinderboxWidgetId = intValue(tinderboxTarget.get("widgetId"), -1);
+		int logParam0 = intValue(logTarget.get("index"), -1);
+		int logWidgetId = intValue(logTarget.get("widgetId"), -1);
+		String logName = String.valueOf(logTarget.getOrDefault("itemName", "Log"));
+		if (tinderboxParam0 < 0 || tinderboxWidgetId < 0 || logParam0 < 0 || logWidgetId < 0)
+		{
+			log.warn("CV Helper firemaking: invalid widget params tinderbox={}/{} log={}/{}", tinderboxParam0, tinderboxWidgetId, logParam0, logWidgetId);
+			return;
+		}
+		client.menuAction(tinderboxParam0, tinderboxWidgetId, MenuAction.WIDGET_TARGET, 0, TINDERBOX_ITEM_ID, "Use", "Tinderbox");
+		client.menuAction(logParam0, logWidgetId, MenuAction.WIDGET_TARGET_ON_WIDGET, 0, intValue(logTarget.get("itemId"), -1), "Use", "Tinderbox -> " + logName);
+	}
+
+	private void handleFiremakingStatChanged(StatChanged event)
+	{
+		lastFiremakingXpTick = client.getTickCount();
+		Map<String, Object> status = getFiremakingStatus();
+		status.put("lastXpTick", lastFiremakingXpTick);
+		status.put("currentAction", "xp-gained");
+		setFiremakingStatus(status);
+	}
+
+	private void reportFiremakingFarmerNeedsLogin()
+	{
+		Map<String, Object> status = getFiremakingStatus();
+		boolean recoveryActive = firemakingFarmerLiveMode && tryGenericLoginRecovery();
+		status.put("currentAction", recoveryActive ? "login-recovery-active" : "needs-login");
+		status.put("lastFailureReason", recoveryActive ? null : "not-logged-in");
+		status.put("loginRecoveryActive", recoveryActive);
+		setFiremakingStatus(status);
+	}
+
+	private void handleFiremakingFarmerRequest(HttpExchange exchange, String action) throws IOException
+	{
+		try
+		{
+			if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod()))
+			{
+				writeResponse(exchange, 204, "");
+				return;
+			}
+			if ("status".equals(action))
+			{
+				writeJson(exchange, 200, getFiremakingStatusOnClientThread());
+				return;
+			}
+			if ("step".equals(action))
+			{
+				writeJson(exchange, 202, runFiremakingFarmerActionOnClientThread("step", Boolean.parseBoolean(queryParam(exchange, "live"))));
+				return;
+			}
+			if ("start".equals(action))
+			{
+				writeJson(exchange, 202, runFiremakingFarmerActionOnClientThread("start", Boolean.parseBoolean(queryParam(exchange, "live"))));
+				return;
+			}
+			if ("stop".equals(action))
+			{
+				writeJson(exchange, 202, runFiremakingFarmerActionOnClientThread("stop", false));
+				return;
+			}
+			writeResponse(exchange, 404, "{\"error\":\"unknown-firemaking-action\"}");
+		}
+		catch (RuntimeException e)
+		{
+			log.warn("CV Helper firemaking {} request failed", action, e);
+			Map<String, Object> error = new LinkedHashMap<>();
+			error.put("error", "firemaking-request-failed");
+			error.put("action", action);
+			error.put("message", e.getMessage());
+			writeJson(exchange, 500, error);
+		}
+		catch (InterruptedException e)
+		{
+			Thread.currentThread().interrupt();
+			writeResponse(exchange, 503, "{\"error\":\"interrupted\"}");
+		}
+	}
+
+	private Map<String, Object> runFiremakingFarmerActionOnClientThread(String action, boolean live) throws InterruptedException
+	{
+		CountDownLatch latch = new CountDownLatch(1);
+		AtomicReference<Map<String, Object>> result = new AtomicReference<>();
+		clientThread.invokeLater(() ->
+		{
+			try
+			{
+				if ("step".equals(action))
+				{
+					runFiremakingFarmerStep(live, "http-step");
+				}
+				else if ("start".equals(action))
+				{
+					startFiremakingFarmer(live);
+				}
+				else if ("stop".equals(action))
+				{
+					stopFiremakingFarmer();
+				}
+				result.set(getFiremakingStatus());
+			}
+			catch (RuntimeException e)
+			{
+				log.warn("CV Helper firemaking action failed: {}", action, e);
+				Map<String, Object> error = new LinkedHashMap<>();
+				error.put("action", action);
+				error.put("error", "client-thread-error");
+				error.put("message", e.getMessage());
+				result.set(error);
+			}
+			finally
+			{
+				latch.countDown();
+			}
+		});
+		if (!latch.await(1500, TimeUnit.MILLISECONDS))
+		{
+			Map<String, Object> timeout = new LinkedHashMap<>();
+			timeout.put("action", action);
+			timeout.put("error", "client-thread-timeout");
+			return timeout;
+		}
+		return result.get();
+	}
+
+	private Map<String, Object> getFiremakingStatusOnClientThread() throws InterruptedException
+	{
+		CountDownLatch latch = new CountDownLatch(1);
+		AtomicReference<Map<String, Object>> result = new AtomicReference<>();
+		clientThread.invokeLater(() ->
+		{
+			try
+			{
+				result.set(getFiremakingStatus());
+			}
+			catch (RuntimeException e)
+			{
+				log.warn("CV Helper firemaking status failed", e);
+				Map<String, Object> error = new LinkedHashMap<>();
+				error.put("skill", "firemaking");
+				error.put("error", "client-thread-error");
+				error.put("message", e.getMessage());
+				result.set(error);
+			}
+			finally
+			{
+				latch.countDown();
+			}
+		});
+		if (!latch.await(1500, TimeUnit.MILLISECONDS))
+		{
+			Map<String, Object> timeout = new LinkedHashMap<>();
+			timeout.put("skill", "firemaking");
+			timeout.put("error", "client-thread-timeout");
+			return timeout;
+		}
+		return result.get();
+	}
+
+	// ── Fishing farmer (scaffold — not yet implemented) ──────────────────────────
+
+	private void runFishingFarmerTick()
+	{
+		// TODO: implement fishing farmer step (OSR-XX)
+	}
+
+	private void reportFishingFarmerNeedsLogin(boolean live)
+	{
+		Map<String, Object> status = new LinkedHashMap<>(lastFishingFarmerStatus);
+		status.put("skill", "fishing");
+		status.put("running", fishingFarmerRunning.get());
+		status.put("currentAction", "needs-login");
+		status.put("updatedAt", Instant.now().toString());
+		lastFishingFarmerStatus = status;
+	}
+
+	private Map<String, Object> getFishingFarmerStatus()
+	{
+		Map<String, Object> status = new LinkedHashMap<>(lastFishingFarmerStatus);
+		status.put("skill", "fishing");
+		status.put("running", fishingFarmerRunning.get());
+		status.put("live", fishingFarmerLiveMode);
+		status.put("target", fishingFarmerTarget);
+		return status;
+	}
+
+	private void handleFishingFarmerRequest(HttpExchange exchange, String action) throws IOException
+	{
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("error", "not-implemented");
+		body.put("skill", "fishing");
+		body.put("action", action);
+		writeJson(exchange, 501, body);
+	}
+
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	private Map<String, Object> inventoryPolicyStatus()
 	{
@@ -12892,6 +13315,11 @@ public class CvHelperModPlugin extends Plugin
 			server.createContext("/automation/woodcutting/step", exchange -> handleSkillFarmerRequest(exchange, "woodcutting", "step"));
 			server.createContext("/automation/woodcutting/start", exchange -> handleSkillFarmerRequest(exchange, "woodcutting", "start"));
 			server.createContext("/automation/woodcutting/stop", exchange -> handleSkillFarmerRequest(exchange, "woodcutting", "stop"));
+			server.createContext("/automation/fishing/status", exchange -> handleFishingFarmerRequest(exchange, "status"));
+			server.createContext("/automation/fishing/config", exchange -> handleFishingFarmerRequest(exchange, "config"));
+			server.createContext("/automation/fishing/step", exchange -> handleFishingFarmerRequest(exchange, "step"));
+			server.createContext("/automation/fishing/start", exchange -> handleFishingFarmerRequest(exchange, "start"));
+			server.createContext("/automation/fishing/stop", exchange -> handleFishingFarmerRequest(exchange, "stop"));
 			server.createContext("/automation/panic-stop", this::handlePanicStopRequest);
 			server.createContext("/chat/responder", this::handleChatResponderRequest);
 			server.createContext("/login/click", exchange ->
@@ -14704,6 +15132,8 @@ public class CvHelperModPlugin extends Plugin
 		automation.put("mobFarmer", getMobFarmerStatus());
 		automation.put("mining", getSkillFarmerStatus("mining"));
 		automation.put("woodcutting", getSkillFarmerStatus("woodcutting"));
+		automation.put("firemaking", getFiremakingStatus());
+		automation.put("fishing", getFishingFarmerStatus());
 		return automation;
 	}
 
