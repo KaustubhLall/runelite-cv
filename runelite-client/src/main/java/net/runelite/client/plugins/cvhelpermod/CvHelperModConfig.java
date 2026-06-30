@@ -906,12 +906,12 @@ public interface CvHelperModConfig extends Config
 	@ConfigItem(
 		keyName = MOB_FARMER_DOOR_ALLOWLIST,
 		name = "Door allowlist (id or name)",
-		description = "Doors/gates the farmer may click Open/Close on, separated by |, comma, semicolon, or newlines (object id or exact name). Empty means no automatic door interaction; unknown doors report manual-action-required.",
+		description = "Doors/gates the farmer may click Open/Close on, separated by |, comma, semicolon, or newlines (object id or exact name). Defaults to common navigational doors/gates matched by name; clear it to require manual action on every door, or add object ids for non-standard ones. Unknown/unlisted doors still report manual-action-required, and the denylist always wins.",
 		section = mobFarmerSection
 	)
 	default String mobFarmerDoorAllowlist()
 	{
-		return "";
+		return "Door|Gate|Large door|Metal door|Wooden door|Oak door|Sturdy door";
 	}
 
 	@ConfigItem(
