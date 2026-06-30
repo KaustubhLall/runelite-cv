@@ -90,7 +90,18 @@ class CvHelperModPanel extends PluginPanel
 		panicButton.setForeground(Color.RED);
 		panicButton.addActionListener(e -> plugin.panicStop());
 
+		JButton copyPortButton = new JButton("Copy port");
+		copyPortButton.setToolTipText("Copy this client's HTTP server port to the clipboard (for the WebHelper / scripts).");
+		copyPortButton.addActionListener(e ->
+		{
+			int port = plugin.getLocalPort();
+			String text = port > 0 ? String.valueOf(port) : "";
+			java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(text), null);
+			updateStatus(port > 0 ? "Copied port " + port : "Server port not available yet");
+		});
+
 		buttons.add(panicButton);
+		buttons.add(copyPortButton);
 		buttons.add(captureButton);
 		buttons.add(screenButton);
 		buttons.add(minimapButton);
@@ -821,103 +832,123 @@ class CvHelperModPanel extends PluginPanel
 		JLabel help = new JLabel("<html>Farmer loop: survival guard, optional intermediate inventory actions, loot processing, then guarded attack selection. Use mob targets like goblin|spider or id:1234. Loot failures are diagnosed in /automation/mob-farmer/status.</html>");
 		help.setForeground(Color.LIGHT_GRAY);
 
-		for (JComponent quick : new JComponent[]{
-			help,
-			label("Mob target"),
-			target,
-			label("Never-attack mobs"),
-			targetBlacklist
-		})
+		stretch(help);
+		body.add(help);
+
+		JTextField search = new JTextField();
+		search.setToolTipText("Type to filter settings, e.g. loot, food, alch, login");
+		stretch(search);
+		body.add(search);
+
+		JPanel rowsHost = new JPanel();
+		rowsHost.setLayout(new BoxLayout(rowsHost, BoxLayout.Y_AXIS));
+		rowsHost.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		java.util.List<java.util.Map.Entry<String, JComponent>> searchRows = new java.util.ArrayList<>();
+
+		java.util.function.BiConsumer<String, JComponent> addField = (lbl, ctrl) ->
 		{
-			stretch(quick);
-			body.add(quick);
-		}
+			JComponent rowComp;
+			if (lbl == null)
+			{
+				rowComp = ctrl;
+			}
+			else
+			{
+				JPanel row = new JPanel(new BorderLayout(0, 1));
+				row.setBackground(ColorScheme.DARK_GRAY_COLOR);
+				row.add(label(lbl), BorderLayout.NORTH);
+				row.add(ctrl, BorderLayout.CENTER);
+				rowComp = row;
+			}
+			stretch(rowComp);
+			String key = lbl != null ? lbl
+				: ctrl instanceof javax.swing.AbstractButton ? ((javax.swing.AbstractButton) ctrl).getText()
+				: ctrl instanceof JLabel ? ((JLabel) ctrl).getText()
+				: "";
+			key = key == null ? "" : key.replaceAll("<[^>]*>", " ").toLowerCase();
+			searchRows.add(new java.util.AbstractMap.SimpleEntry<>(key, rowComp));
+			rowsHost.add(rowComp);
+		};
 
-		body.add(collapsibleGroup("Targeting",
-			label("Already-engaged mobs"),
-			engagedMode,
-			label("Undesired attacker"),
-			aggroResponse,
-			requireLineOfSight,
-			label("Max target distance"),
-			maxDistance,
-			label("Attack interaction"),
-			attackInteraction));
+		addField.accept("Mob target", target);
+		addField.accept("Never-attack mobs", targetBlacklist);
+		addField.accept("Already-engaged mobs", engagedMode);
+		addField.accept("Undesired attacker", aggroResponse);
+		addField.accept(null, requireLineOfSight);
+		addField.accept("Max target distance", maxDistance);
+		addField.accept("Attack interaction", attackInteraction);
+		addField.accept(null, autoEatEnabled);
+		addField.accept("Eat below HP %", eatThreshold);
+		addField.accept("Food items", foodItems);
+		addField.accept(null, stopIfNoFood);
+		addField.accept(null, survivalPreempts);
+		addField.accept(null, loginRecovery);
+		addField.accept(null, loginRecoveryF2p);
+		addField.accept(null, disconnectRecovery);
+		addField.accept(null, autoResumeAfterLogin);
+		addField.accept("Preferred login world", preferredLoginWorld);
+		addField.accept(null, label("<html>Idle handling: use RuneLite's Logout Timer plugin/settings for longer idle windows. CV Helper only recovers after logout.</html>"));
+		addField.accept(null, lootEnabled);
+		addField.accept(null, lootDuringCombat);
+		addField.accept(null, attackBeforeLoot);
+		addField.accept("Loot min GE value", lootMinValue);
+		addField.accept("Loot per-item GE", lootMinSingleGe);
+		addField.accept("Loot stack GE", lootMinStackGe);
+		addField.accept("Loot stack qty", lootMinStackQuantity);
+		addField.accept("Always loot stack GE", lootAlwaysStackGe);
+		addField.accept("Never loot below GE", lootNeverStackBelowGe);
+		addField.accept("High-priority GE value", highPriorityLootValue);
+		addField.accept("Urgent loot ticks", urgentLootTicks);
+		addField.accept("Cleanup pile count", cleanupPileCount);
+		addField.accept("Loot radius", lootRadius);
+		addField.accept("Always-loot items", lootItems);
+		addField.accept("Never-loot items", lootBlacklist);
+		addField.accept("Loot ownership", lootOwnership);
+		addField.accept("Loot interaction", lootInteraction);
+		addField.accept("Ground Items lists", groundItemsMode);
+		addField.accept(null, respectGroundItemsHidden);
+		addField.accept("Protected inventory", neverDrop);
+		addField.accept(null, highAlchEnabled);
+		addField.accept("Min HA value", highAlchMinHa);
+		addField.accept("Min HA delta", highAlchMinDelta);
+		addField.accept("Max HA loss", highAlchMaxLoss);
+		addField.accept("Alch allowlist", highAlchItems);
+		addField.accept("Never alch", highAlchBlacklist);
+		addField.accept(null, intermediateActions);
+		addField.accept("Intermediate items", intermediateItems);
+		addField.accept("Item -> action mappings", intermediateMappingsPane);
 
-		body.add(collapsibleGroup("Survival & Login",
-			autoEatEnabled,
-			label("Eat below HP %"),
-			eatThreshold,
-			label("Food items"),
-			foodItems,
-			stopIfNoFood,
-			survivalPreempts,
-			label("Login recovery"),
-			loginRecovery,
-			loginRecoveryF2p,
-			disconnectRecovery,
-			autoResumeAfterLogin,
-			label("Preferred login world"),
-			preferredLoginWorld,
-			label("<html>Idle handling: use RuneLite's Logout Timer plugin/settings for longer idle windows. CV Helper only recovers after logout.</html>")));
+		Runnable applySearch = () ->
+		{
+			String q = search.getText().trim().toLowerCase();
+			for (java.util.Map.Entry<String, JComponent> r : searchRows)
+			{
+				r.getValue().setVisible(q.isEmpty() || r.getKey().contains(q));
+			}
+			rowsHost.revalidate();
+			rowsHost.repaint();
+		};
+		search.getDocument().addDocumentListener(new javax.swing.event.DocumentListener()
+		{
+			public void insertUpdate(javax.swing.event.DocumentEvent e)
+			{
+				applySearch.run();
+			}
 
-		body.add(collapsibleGroup("Loot & Drop",
-			lootEnabled,
-			lootDuringCombat,
-			attackBeforeLoot,
-			label("Loot min GE value"),
-			lootMinValue,
-			label("Loot per-item GE"),
-			lootMinSingleGe,
-			label("Loot stack GE"),
-			lootMinStackGe,
-			label("Loot stack qty"),
-			lootMinStackQuantity,
-			label("Always loot stack GE"),
-			lootAlwaysStackGe,
-			label("Never loot below GE"),
-			lootNeverStackBelowGe,
-			label("High-priority GE value"),
-			highPriorityLootValue,
-			label("Urgent loot ticks"),
-			urgentLootTicks,
-			label("Cleanup pile count"),
-			cleanupPileCount,
-			label("Loot radius"),
-			lootRadius,
-			label("Always-loot items"),
-			lootItems,
-			label("Never-loot items"),
-			lootBlacklist,
-			label("Loot ownership"),
-			lootOwnership,
-			label("Loot interaction"),
-			lootInteraction,
-			label("Ground Items lists"),
-			groundItemsMode,
-			respectGroundItemsHidden,
-			label("Protected inventory"),
-			neverDrop));
+			public void removeUpdate(javax.swing.event.DocumentEvent e)
+			{
+				applySearch.run();
+			}
 
-		body.add(collapsibleGroup("High Alchemy",
-			highAlchEnabled,
-			label("Min HA value"),
-			highAlchMinHa,
-			label("Min HA delta"),
-			highAlchMinDelta,
-			label("Max HA loss"),
-			highAlchMaxLoss,
-			label("Alch allowlist"),
-			highAlchItems,
-			label("Never alch"),
-			highAlchBlacklist));
+			public void changedUpdate(javax.swing.event.DocumentEvent e)
+			{
+				applySearch.run();
+			}
+		});
 
-		body.add(collapsibleGroup("Intermediate actions",
-			intermediateActions,
-			label("Intermediate items"),
-			intermediateItems,
-			label("Item -> action mappings"),
-			intermediateMappingsPane));
+		rowsHost.setAlignmentX(Component.LEFT_ALIGNMENT);
+		rowsHost.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+		body.add(rowsHost);
 
 		for (JComponent action : new JComponent[]{
 			saveGuards,

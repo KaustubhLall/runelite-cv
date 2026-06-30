@@ -13752,6 +13752,12 @@ public class CvHelperModPlugin extends Plugin
 		return server != null ? server.getAddress().getPort() : -1;
 	}
 
+	/** The live HTTP server port (or -1 if not started). Exposed for the side panel's "Copy port". */
+	int getLocalPort()
+	{
+		return localPort();
+	}
+
 	private Map<String, Object> collectPrayerTargetsOnClientThread() throws InterruptedException
 	{
 		return collectTargetsOnClientThread("prayer", this::collectPrayerTargets);
