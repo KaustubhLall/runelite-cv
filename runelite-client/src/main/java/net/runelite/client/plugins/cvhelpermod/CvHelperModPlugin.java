@@ -927,10 +927,13 @@ public class CvHelperModPlugin extends Plugin
 		return configManager.getConfig(CvHelperModConfig.class);
 	}
 
-	@Override
-	protected void startUp()
+	/**
+	 * Re-read the farmer config values cached in volatile fields (targets, scan radii, max candidates)
+	 * so writes made through ConfigManager (e.g. the metadata-driven side panel) take effect at runtime
+	 * without a restart. Settings read live via {@code config.xxx()} don't need this.
+	 */
+	void syncFarmerConfigCaches()
 	{
-		log.info("CV Helper starting");
 		mobFarmerTarget = normalizedMobFarmerTarget(config.mobFarmerTarget());
 		miningFarmerTarget = config.miningFarmerTarget();
 		woodcuttingFarmerTarget = config.woodcuttingFarmerTarget();
@@ -938,6 +941,18 @@ public class CvHelperModPlugin extends Plugin
 		miningFarmerMaxCandidates = config.miningMaxCandidates();
 		woodcuttingFarmerScanRadius = config.woodcuttingScanRadius();
 		woodcuttingFarmerMaxCandidates = config.woodcuttingMaxCandidates();
+	}
+
+	ConfigManager getConfigManager()
+	{
+		return configManager;
+	}
+
+	@Override
+	protected void startUp()
+	{
+		log.info("CV Helper starting");
+		syncFarmerConfigCaches();
 		enabledPrayers.addAll(getPrayerNames());
 		enabledSpellbooks.addAll(getSpellbookNames());
 		overlayManager.add(overlay);
@@ -1476,6 +1491,9 @@ public class CvHelperModPlugin extends Plugin
 		{
 			return;
 		}
+		// Any cvhelper config write (e.g. from the metadata-driven side panel) re-syncs the cached
+		// farmer fields so changes apply live without a restart. Cheap: re-reads a handful of values.
+		syncFarmerConfigCaches();
 		String key = event.getKey();
 		if (CvHelperModConfig.ANTI_IDLE_ENABLED.equals(key)
 			|| CvHelperModConfig.ANTI_IDLE_TIMEOUT_MINUTES.equals(key)
@@ -2358,6 +2376,16 @@ public class CvHelperModPlugin extends Plugin
 	{
 		setEnabled(enabledSpellbooks, spell, value);
 		refreshSpellTargets();
+	}
+
+	boolean isPrayerEnabled(String prayer)
+	{
+		return enabledPrayers.contains(prayer);
+	}
+
+	boolean isSpellEnabled(String spell)
+	{
+		return enabledSpellbooks.contains(spell);
 	}
 
 	void setLocalExportEnabled(boolean value)
