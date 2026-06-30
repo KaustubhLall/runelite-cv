@@ -44,6 +44,9 @@ class CvHelperModPanel extends PluginPanel
 	private final JLabel status = new JLabel("Ready");
 	private final JLabel serverStatus = new JLabel("Server: starting");
 	private final JLabel loginRecoveryStatus = new JLabel("Login: unknown");
+	// Each collapsible section registers a filter here; the top-level search box broadcasts the
+	// query to all of them so one search drives every section (auto-expand matches, collapse rest).
+	private final java.util.List<java.util.function.Consumer<String>> sectionFilters = new java.util.ArrayList<>();
 
 	CvHelperModPanel(CvHelperModPlugin plugin)
 	{
@@ -156,6 +159,27 @@ class CvHelperModPanel extends PluginPanel
 		JPanel woodcuttingSection = createWoodcuttingSection();
 		JPanel miningSection = createMiningSection();
 
+		// Join every section to the one top-level search box. Prayer/Spellbook self-register inside
+		// createNestedSection; Mob farmer registers its own row filter and gets expand/collapse here.
+		registerSectionFilterFor(actionSection, "Action hotkeys");
+		registerSectionFilterFor(mobFarmerSection, "Mob farmer");
+		registerSectionFilterFor(woodcuttingSection, "Woodcutting farmer");
+		registerSectionFilterFor(miningSection, "Mining farmer");
+		// The always-visible Overlays checkboxes also filter to matches while searching.
+		sectionFilters.add(query ->
+		{
+			for (Component c : toggles.getComponents())
+			{
+				if (c instanceof JCheckBox)
+				{
+					String t = ((JCheckBox) c).getText().toLowerCase();
+					c.setVisible(query.isEmpty() || "overlays".contains(query) || t.contains(query));
+				}
+			}
+			toggles.revalidate();
+			toggles.repaint();
+		});
+
 		JPanel serverSettings = new JPanel(new BorderLayout(0, 4));
 		serverSettings.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		serverSettings.setBorder(BorderFactory.createTitledBorder("Server"));
@@ -208,6 +232,7 @@ class CvHelperModPanel extends PluginPanel
 		topStack.setLayout(new BoxLayout(topStack, BoxLayout.Y_AXIS));
 		topStack.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		topStack.add(createQuickStartSection());
+		topStack.add(buildSearchField());
 		setCompact(toggles);
 		topStack.add(toggles);
 		center.add(topStack, BorderLayout.NORTH);
@@ -415,6 +440,7 @@ class CvHelperModPanel extends PluginPanel
 
 		section.add(expand, BorderLayout.NORTH);
 		section.add(list, BorderLayout.CENTER);
+		registerSectionFilter(title, expand, list);
 		setCompact(section);
 		return section;
 	}
@@ -835,11 +861,6 @@ class CvHelperModPanel extends PluginPanel
 		stretch(help);
 		body.add(help);
 
-		JTextField search = new JTextField();
-		search.setToolTipText("Type to filter settings, e.g. loot, food, alch, login");
-		stretch(search);
-		body.add(search);
-
 		JPanel rowsHost = new JPanel();
 		rowsHost.setLayout(new BoxLayout(rowsHost, BoxLayout.Y_AXIS));
 		rowsHost.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -918,32 +939,16 @@ class CvHelperModPanel extends PluginPanel
 		addField.accept("Intermediate items", intermediateItems);
 		addField.accept("Item -> action mappings", intermediateMappingsPane);
 
-		Runnable applySearch = () ->
+		// The one top-level search box drives row visibility here; the section's own expand/collapse is
+		// handled by the generic section filter registered for it in the constructor.
+		sectionFilters.add(query ->
 		{
-			String q = search.getText().trim().toLowerCase();
 			for (java.util.Map.Entry<String, JComponent> r : searchRows)
 			{
-				r.getValue().setVisible(q.isEmpty() || r.getKey().contains(q));
+				r.getValue().setVisible(query.isEmpty() || r.getKey().contains(query));
 			}
 			rowsHost.revalidate();
 			rowsHost.repaint();
-		};
-		search.getDocument().addDocumentListener(new javax.swing.event.DocumentListener()
-		{
-			public void insertUpdate(javax.swing.event.DocumentEvent e)
-			{
-				applySearch.run();
-			}
-
-			public void removeUpdate(javax.swing.event.DocumentEvent e)
-			{
-				applySearch.run();
-			}
-
-			public void changedUpdate(javax.swing.event.DocumentEvent e)
-			{
-				applySearch.run();
-			}
 		});
 
 		rowsHost.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -1228,6 +1233,121 @@ class CvHelperModPanel extends PluginPanel
 		component.setMaximumSize(new Dimension(Integer.MAX_VALUE, Short.MAX_VALUE));
 	}
 
+	/**
+	 * The one visible, top-level search box (Quest-Helper style). Typing here broadcasts the query to
+	 * every registered {@link #sectionFilters} entry, so a single search drives the whole panel:
+	 * matching sections auto-expand (and Mob farmer additionally filters its rows), the rest collapse.
+	 */
+	private JComponent buildSearchField()
+	{
+		JPanel wrap = new JPanel(new BorderLayout(0, 2));
+		wrap.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		wrap.setBorder(BorderFactory.createTitledBorder("Search settings"));
+
+		JTextField field = new JTextField();
+		field.setToolTipText("Search every section at once, e.g. prayer, loot, food, alch, rocks, login");
+		field.getDocument().addDocumentListener(new javax.swing.event.DocumentListener()
+		{
+			private void apply()
+			{
+				String q = field.getText().trim().toLowerCase();
+				for (java.util.function.Consumer<String> filter : sectionFilters)
+				{
+					filter.accept(q);
+				}
+				revalidate();
+				repaint();
+			}
+
+			public void insertUpdate(javax.swing.event.DocumentEvent e)
+			{
+				apply();
+			}
+
+			public void removeUpdate(javax.swing.event.DocumentEvent e)
+			{
+				apply();
+			}
+
+			public void changedUpdate(javax.swing.event.DocumentEvent e)
+			{
+				apply();
+			}
+		});
+
+		wrap.add(field, BorderLayout.CENTER);
+		setCompact(wrap);
+		return wrap;
+	}
+
+	/**
+	 * Registers a collapsible section so the top-level search box can drive it: when the query matches
+	 * the section title or any descendant label/control text, the section auto-expands; otherwise it
+	 * returns to its collapsed default. Empty query restores the collapsed default.
+	 */
+	private void registerSectionFilter(String title, JToggleButton toggle, JComponent body)
+	{
+		String key = title.toLowerCase();
+		sectionFilters.add(query ->
+		{
+			boolean expand = !query.isEmpty() && (key.contains(query) || containsTextMatch(body, query));
+			setSectionExpanded(toggle, body, expand);
+		});
+	}
+
+	/**
+	 * Constructor-side convenience: pulls the expand toggle (NORTH) and body (CENTER) out of an
+	 * already-built section panel and registers a generic search filter for it. Lets sections that
+	 * don't self-register (Action hotkeys, Mob/Woodcutting/Mining) join the global search.
+	 */
+	private void registerSectionFilterFor(JPanel section, String title)
+	{
+		if (!(section.getLayout() instanceof BorderLayout))
+		{
+			return;
+		}
+		BorderLayout layout = (BorderLayout) section.getLayout();
+		Component north = layout.getLayoutComponent(BorderLayout.NORTH);
+		Component center = layout.getLayoutComponent(BorderLayout.CENTER);
+		if (north instanceof JToggleButton && center instanceof JComponent)
+		{
+			registerSectionFilter(title, (JToggleButton) north, (JComponent) center);
+		}
+	}
+
+	private void setSectionExpanded(JToggleButton toggle, JComponent body, boolean expanded)
+	{
+		toggle.setSelected(!expanded);
+		toggle.setText(expanded ? "Collapse" : "Expand");
+		body.setVisible(expanded);
+		body.revalidate();
+	}
+
+	private boolean containsTextMatch(java.awt.Container container, String query)
+	{
+		for (Component child : container.getComponents())
+		{
+			String text = null;
+			if (child instanceof JLabel)
+			{
+				text = ((JLabel) child).getText();
+			}
+			else if (child instanceof javax.swing.AbstractButton)
+			{
+				text = ((javax.swing.AbstractButton) child).getText();
+			}
+			if (text != null && text.replaceAll("<[^>]*>", " ").toLowerCase().contains(query))
+			{
+				return true;
+			}
+			if (child instanceof java.awt.Container && containsTextMatch((java.awt.Container) child, query))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private void stretch(JComponent component)
 	{
 		component.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -1241,46 +1361,6 @@ class CvHelperModPanel extends PluginPanel
 		Dimension preferred = component.getPreferredSize();
 		component.setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(24, preferred.height)));
 		component.setPreferredSize(new Dimension(Math.max(160, preferred.width), Math.max(24, preferred.height)));
-	}
-
-	/**
-	 * A labeled, collapsed-by-default sub-group: a full-width header button that toggles a vertical
-	 * body of stretched components. Lets a dense section (e.g. Mob farmer) be broken into navigable
-	 * groups instead of one long flat scroll. Pattern mirrors the top-level section toggles.
-	 */
-	private JPanel collapsibleGroup(String title, JComponent... components)
-	{
-		JPanel group = new JPanel(new BorderLayout(0, 2));
-		group.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		group.setBorder(new EmptyBorder(2, 0, 2, 0));
-
-		JPanel inner = new JPanel();
-		inner.setLayout(new BoxLayout(inner, BoxLayout.Y_AXIS));
-		inner.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		for (JComponent component : components)
-		{
-			stretch(component);
-			inner.add(component);
-		}
-		inner.setVisible(false);
-
-		JToggleButton toggle = new JToggleButton("▸  " + title);
-		toggle.setSelected(true);
-		toggle.setHorizontalAlignment(SwingConstants.LEFT);
-		toggle.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		toggle.setForeground(Color.LIGHT_GRAY);
-		toggle.addActionListener(e ->
-		{
-			boolean collapsed = toggle.isSelected();
-			toggle.setText((collapsed ? "▸  " : "▾  ") + title);
-			inner.setVisible(!collapsed);
-			group.revalidate();
-		});
-
-		group.add(toggle, BorderLayout.NORTH);
-		group.add(inner, BorderLayout.CENTER);
-		setCompact(group);
-		return group;
 	}
 
 	/**
