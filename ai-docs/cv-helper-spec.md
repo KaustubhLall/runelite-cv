@@ -476,6 +476,18 @@ Switch the farmer to live (`start?live=true`) only when you want it to actually 
 - If action clicks land high/left after resizing/fullscreening, verify the rebuilt client includes the stretched-mode coordinate conversion and then refresh the relevant target surface.
 - Before runtime verification, ask the user to log in to the newest launched client. Avoid interpreting logged-out export state as a plugin bug.
 
+## Input and interaction model
+
+The farmers issue game actions through two distinct mechanisms, and the choice matters for both reliability and multi-client operation:
+
+1. **Direct invocation — preferred, mouse-free.** `client.menuAction(...)` (by NPC index or scene tile) and synthetic `canvas.dispatchEvent(MouseEvent/KeyEvent)` events run on the client thread, are **focus-independent**, and never move the OS cursor. They work for backgrounded / secondary-monitor clients and allow several clients to run at once. Attack (`MENU_ACTION` mode), loot (`MENU_ACTION` mode), and door/gate transitions (`Open`/`Close`/`Enter`/`Pass`/`Climb-over`) use this path. **This is the default and should be preferred wherever a menu/scene action exists.**
+
+2. **OS cursor — `java.awt.Robot`, used occasionally and on purpose.** Some interactions have no clean direct-invocation equivalent, or exist to recover a wedged client. These move the real pointer and click at screen coordinates: panel/tab opens, the run-energy/`autorun` toggle, the post-login focus click, anti-idle, and any interaction explicitly set to `CLICK_POINT` mode. This path is **global** (one OS cursor shared by every client) and **focus-dependent**, so it is the thing that limits true multi-client.
+
+**Design intent (the invariant to hold):** the OS-cursor path is legitimate but should fire **rarely**, and **before any `Robot` action the correct client window must be focused/raised** so the click lands on the intended client and not whatever happens to be in front. The long-term direction is to keep migrating these to direct invocation / per-client widget toggles and to gate the remainder behind an explicit focus step, so that with a fleet running, a given client takes over the mouse only for brief, necessary moments. Remaining `Robot` users (autorun, panel-open, focus-click, anti-idle, `CLICK_POINT` modes) are tracked for that migration; treat new mouse-based interactions as a last resort.
+
+**Stuck-combat recovery (genuinely required).** The OSRS client can occasionally stop acting on invoked menu actions ("engaged but attacks never register"); a real left-click on the world wakes it. `tryMobFarmerStuckCombatRecovery` reproduces this focus-independently with a synthetic canvas left-click on the nearest target (or a viewport ground point). It fires only when combat XP has stalled for the configured window **and** the player is **stationary** (`getPoseAnimation() == getIdlePoseAnimation()`) — the stationary guard is essential: without it the watchdog mistook normal travel (walking the long way around a building to a far / off-screen target, where XP simply hasn't ticked yet) for a freeze and scattered ground-clicks. Keep recovery clicks rare, target-directed, and never fired while the player is moving.
+
 ## Engineering Constraints
 
 - RuneLite widget access must happen on the client thread.
