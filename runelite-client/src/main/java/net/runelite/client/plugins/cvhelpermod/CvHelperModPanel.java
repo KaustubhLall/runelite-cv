@@ -193,7 +193,13 @@ class CvHelperModPanel extends PluginPanel
 
 		JPanel center = new JPanel(new BorderLayout(0, 4));
 		center.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		center.add(toggles, BorderLayout.NORTH);
+		JPanel topStack = new JPanel();
+		topStack.setLayout(new BoxLayout(topStack, BoxLayout.Y_AXIS));
+		topStack.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		topStack.add(createQuickStartSection());
+		setCompact(toggles);
+		topStack.add(toggles);
+		center.add(topStack, BorderLayout.NORTH);
 		JPanel lower = new JPanel();
 		lower.setLayout(new BoxLayout(lower, BoxLayout.Y_AXIS));
 		lower.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -228,6 +234,133 @@ class CvHelperModPanel extends PluginPanel
 		add(header, BorderLayout.NORTH);
 		add(content, BorderLayout.CENTER);
 		refreshStatus();
+	}
+
+	/**
+	 * Always-visible quick-start card: pick a farmer, set its target, Start/Stop, see live status —
+	 * the common "just start farming" path without digging into the detailed config sections below.
+	 */
+	private JPanel createQuickStartSection()
+	{
+		JPanel section = new JPanel(new BorderLayout(0, 4));
+		section.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		section.setBorder(BorderFactory.createTitledBorder("Quick start"));
+
+		JPanel body = new JPanel();
+		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
+		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
+
+		JComboBox<String> farmer = new JComboBox<>(new String[]{"Mob farmer", "Mining", "Woodcutting"});
+		JTextField target = new JTextField();
+		JLabel status = new JLabel();
+		status.setForeground(Color.LIGHT_GRAY);
+
+		Runnable refresh = () ->
+		{
+			String f = (String) farmer.getSelectedItem();
+			if ("Mining".equals(f))
+			{
+				target.setText(plugin.getMiningFarmerTarget());
+				status.setText("Status: " + (plugin.getMiningFarmerRunning() ? "Running" : "Stopped"));
+			}
+			else if ("Woodcutting".equals(f))
+			{
+				target.setText(plugin.getWoodcuttingFarmerTarget());
+				status.setText("Status: " + (plugin.getWoodcuttingFarmerRunning() ? "Running" : "Stopped"));
+			}
+			else
+			{
+				target.setText(plugin.getMobFarmerTarget());
+				status.setText("Status: " + (plugin.getMobFarmerRunning() ? "Running" : "Stopped"));
+			}
+		};
+		farmer.addActionListener(e -> refresh.run());
+
+		Runnable applyTarget = () ->
+		{
+			String f = (String) farmer.getSelectedItem();
+			if ("Mining".equals(f))
+			{
+				plugin.setMiningFarmerTarget(target.getText());
+			}
+			else if ("Woodcutting".equals(f))
+			{
+				plugin.setWoodcuttingFarmerTarget(target.getText());
+			}
+			else
+			{
+				plugin.setMobFarmerTarget(target.getText());
+			}
+		};
+
+		JButton start = new JButton("Start");
+		start.addActionListener(e ->
+		{
+			applyTarget.run();
+			String f = (String) farmer.getSelectedItem();
+			if ("Mining".equals(f))
+			{
+				plugin.startMiningFarmer(true);
+			}
+			else if ("Woodcutting".equals(f))
+			{
+				plugin.startWoodcuttingFarmer(true);
+			}
+			else
+			{
+				plugin.startMobFarmer(true);
+			}
+			refresh.run();
+			updateStatus("Started " + f);
+		});
+
+		JButton stop = new JButton("Stop");
+		stop.addActionListener(e ->
+		{
+			String f = (String) farmer.getSelectedItem();
+			if ("Mining".equals(f))
+			{
+				plugin.stopMiningFarmer();
+			}
+			else if ("Woodcutting".equals(f))
+			{
+				plugin.stopWoodcuttingFarmer();
+			}
+			else
+			{
+				plugin.stopMobFarmer();
+			}
+			refresh.run();
+			updateStatus("Stopped " + f);
+		});
+
+		JButton refreshBtn = new JButton("Refresh");
+		refreshBtn.addActionListener(e -> refresh.run());
+
+		JPanel buttonsRow = new JPanel(new GridLayout(1, 3, 4, 0));
+		buttonsRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		buttonsRow.add(start);
+		buttonsRow.add(stop);
+		buttonsRow.add(refreshBtn);
+
+		refresh.run();
+
+		for (JComponent component : new JComponent[]{
+			label("Farmer"),
+			farmer,
+			label("Target"),
+			target,
+			buttonsRow,
+			status
+		})
+		{
+			stretch(component);
+			body.add(component);
+		}
+
+		section.add(body, BorderLayout.CENTER);
+		setCompact(section);
+		return section;
 	}
 
 	private JPanel createNestedSection(String title, List<String> entries, boolean prayers, boolean collapsed)
@@ -482,7 +615,7 @@ class CvHelperModPanel extends PluginPanel
 
 		JTextField target = new JTextField(plugin.getMobFarmerTarget());
 		target.setToolTipText("Partial name or id:<npc id>, for example cow or id:2790");
-		JTextField targetBlacklist = new JTextField(plugin.getMobFarmerTargetBlacklist());
+		ListEditorField targetBlacklist = new ListEditorField(plugin.getMobFarmerTargetBlacklist());
 		targetBlacklist.setToolTipText("NPCs to never attack even if they match the target (wins over the target). Same format, e.g. deadly red spider|id:1234");
 		JComboBox<CvHelperMobEngagedMode> engagedMode = new JComboBox<>(CvHelperMobEngagedMode.values());
 		engagedMode.setSelectedItem(plugin.getMobFarmerEngagedMode());
@@ -504,7 +637,7 @@ class CvHelperModPanel extends PluginPanel
 		autoEatEnabled.addActionListener(e -> plugin.setMobFarmerAutoEatEnabled(autoEatEnabled.isSelected()));
 		JTextField eatThreshold = new JTextField(String.valueOf(plugin.getMobFarmerEatHitpointPercent()));
 		eatThreshold.setToolTipText("Eat when HP percent is at or below this value.");
-		JTextField foodItems = new JTextField(plugin.getMobFarmerFoodItems());
+		ListEditorField foodItems = new ListEditorField(plugin.getMobFarmerFoodItems());
 		foodItems.setToolTipText("Food names or id:<item id>, separated by |, comma, semicolon, or newlines.");
 		JCheckBox stopIfNoFood = new JCheckBox("Stop if no food", plugin.getMobFarmerStopIfNoFood());
 		styleCheckbox(stopIfNoFood);
@@ -551,9 +684,9 @@ class CvHelperModPanel extends PluginPanel
 		cleanupPileCount.setToolTipText("If this many selectable loot piles are present, cleanup can override combat; 0 disables pile pressure.");
 		JTextField lootRadius = new JTextField(String.valueOf(plugin.getMobFarmerLootRadius()));
 		lootRadius.setToolTipText("0 disables the loot radius guard.");
-		JTextField lootItems = new JTextField(plugin.getMobFarmerLootItems());
+		ListEditorField lootItems = new ListEditorField(plugin.getMobFarmerLootItems());
 		lootItems.setToolTipText("Items to always loot even below the value threshold.");
-		JTextField lootBlacklist = new JTextField(plugin.getMobFarmerLootBlacklist());
+		ListEditorField lootBlacklist = new ListEditorField(plugin.getMobFarmerLootBlacklist());
 		lootBlacklist.setToolTipText("Items to never loot.");
 		JTextField lootMinSingleGe = new JTextField(String.valueOf(plugin.getMobFarmerLootMinSingleGe()));
 		lootMinSingleGe.setToolTipText("Minimum GE value per individual item before unlisted loot is eligible.");
@@ -609,7 +742,7 @@ class CvHelperModPanel extends PluginPanel
 		saveGuards.addActionListener(e ->
 		{
 			plugin.setMobFarmerTarget(target.getText());
-			plugin.setMobFarmerTargetBlacklist(targetBlacklist.getText());
+			plugin.setMobFarmerTargetBlacklist(targetBlacklist.getValue());
 			plugin.setMobFarmerEngagedMode((CvHelperMobEngagedMode) engagedMode.getSelectedItem());
 			plugin.setMobFarmerAggroResponse((CvHelperMobAggroResponse) aggroResponse.getSelectedItem());
 			plugin.setMobFarmerRequireLineOfSight(requireLineOfSight.isSelected());
@@ -617,7 +750,7 @@ class CvHelperModPanel extends PluginPanel
 			plugin.setMobFarmerAttackInteractionMode((CvHelperMobInteractionMode) attackInteraction.getSelectedItem());
 			plugin.setMobFarmerAutoEatEnabled(autoEatEnabled.isSelected());
 			plugin.setMobFarmerEatHitpointPercent(parseNonNegativeInt(eatThreshold.getText(), plugin.getMobFarmerEatHitpointPercent()));
-			plugin.setMobFarmerFoodItems(foodItems.getText());
+			plugin.setMobFarmerFoodItems(foodItems.getValue());
 			plugin.setMobFarmerStopIfNoFood(stopIfNoFood.isSelected());
 			plugin.setMobFarmerSurvivalPreemptsActions(survivalPreempts.isSelected());
 			plugin.setMobFarmerLoginRecoveryEnabled(loginRecovery.isSelected());
@@ -633,8 +766,8 @@ class CvHelperModPanel extends PluginPanel
 			plugin.setMobFarmerLootUrgentDespawnTicks(parseNonNegativeInt(urgentLootTicks.getText(), plugin.getMobFarmerLootUrgentDespawnTicks()));
 			plugin.setMobFarmerLootCleanupPileCount(parseNonNegativeInt(cleanupPileCount.getText(), plugin.getMobFarmerLootCleanupPileCount()));
 			plugin.setMobFarmerLootRadius(parseNonNegativeInt(lootRadius.getText(), plugin.getMobFarmerLootRadius()));
-			plugin.setMobFarmerLootItems(lootItems.getText());
-			plugin.setMobFarmerLootBlacklist(lootBlacklist.getText());
+			plugin.setMobFarmerLootItems(lootItems.getValue());
+			plugin.setMobFarmerLootBlacklist(lootBlacklist.getValue());
 			plugin.setMobFarmerLootMinSingleGe(parseNonNegativeInt(lootMinSingleGe.getText(), plugin.getMobFarmerLootMinSingleGe()));
 			plugin.setMobFarmerLootMinStackGe(parseNonNegativeInt(lootMinStackGe.getText(), plugin.getMobFarmerLootMinStackGe()));
 			plugin.setMobFarmerLootMinStackQuantity(parseNonNegativeInt(lootMinStackQuantity.getText(), plugin.getMobFarmerLootMinStackQuantity()));
@@ -1067,6 +1200,13 @@ class CvHelperModPanel extends PluginPanel
 	private void stretch(JComponent component)
 	{
 		component.setAlignmentX(Component.LEFT_ALIGNMENT);
+		// Dynamic-height components (the list editor grows/shrinks as rows are added/removed) must
+		// NOT have their height pinned, or new rows get clipped. Fill width, leave height free.
+		if (component instanceof ListEditorField)
+		{
+			component.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+			return;
+		}
 		Dimension preferred = component.getPreferredSize();
 		component.setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(24, preferred.height)));
 		component.setPreferredSize(new Dimension(Math.max(160, preferred.width), Math.max(24, preferred.height)));
@@ -1110,6 +1250,98 @@ class CvHelperModPanel extends PluginPanel
 		group.add(inner, BorderLayout.CENTER);
 		setCompact(group);
 		return group;
+	}
+
+	/**
+	 * Dynamic list editor: one text row per entry, each with a "−" remove button, plus an "Add"
+	 * button. Splits the initial pipe/comma/semicolon/newline value into rows and joins back with
+	 * "|" via {@link #getValue()}. Mirrors the per-row add/remove list pattern of plugins like NPC
+	 * Indicators, so multi-entry config (target/loot/food lists) is editable item-by-item instead of
+	 * one fiddly pipe-separated text field.
+	 */
+	private final class ListEditorField extends JPanel
+	{
+		private final JPanel rowsPanel = new JPanel();
+
+		private ListEditorField(String initial)
+		{
+			setLayout(new BorderLayout(0, 2));
+			setBackground(ColorScheme.DARK_GRAY_COLOR);
+			rowsPanel.setLayout(new BoxLayout(rowsPanel, BoxLayout.Y_AXIS));
+			rowsPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
+
+			if (initial != null)
+			{
+				for (String entry : initial.split("\\s*(?:\\||,|;|\\r?\\n)\\s*"))
+				{
+					if (!entry.trim().isEmpty())
+					{
+						addRow(entry.trim());
+					}
+				}
+			}
+
+			JButton add = new JButton("+ Add");
+			add.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+			add.setForeground(Color.LIGHT_GRAY);
+			add.addActionListener(e ->
+			{
+				addRow("");
+				revalidate();
+				repaint();
+			});
+
+			add(rowsPanel, BorderLayout.CENTER);
+			add(add, BorderLayout.SOUTH);
+		}
+
+		private void addRow(String text)
+		{
+			JPanel row = new JPanel(new BorderLayout(4, 0));
+			row.setBackground(ColorScheme.DARK_GRAY_COLOR);
+			row.setAlignmentX(LEFT_ALIGNMENT);
+			JTextField field = new JTextField(text);
+			JButton remove = new JButton("−");
+			remove.setForeground(Color.RED);
+			remove.addActionListener(e ->
+			{
+				rowsPanel.remove(row);
+				ListEditorField.this.revalidate();
+				ListEditorField.this.repaint();
+			});
+			row.add(field, BorderLayout.CENTER);
+			row.add(remove, BorderLayout.EAST);
+			row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(22, field.getPreferredSize().height)));
+			rowsPanel.add(row);
+		}
+
+		String getValue()
+		{
+			StringBuilder sb = new StringBuilder();
+			for (Component rowComp : rowsPanel.getComponents())
+			{
+				if (!(rowComp instanceof JPanel))
+				{
+					continue;
+				}
+				for (Component c : ((JPanel) rowComp).getComponents())
+				{
+					if (c instanceof JTextField)
+					{
+						String t = ((JTextField) c).getText().trim();
+						if (!t.isEmpty())
+						{
+							if (sb.length() > 0)
+							{
+								sb.append("|");
+							}
+							sb.append(t);
+						}
+					}
+				}
+			}
+			return sb.toString();
+		}
 	}
 
 	void updateStatus(String message)

@@ -3983,6 +3983,11 @@ public class CvHelperModPlugin extends Plugin
 		return miningFarmerRunning.get();
 	}
 
+	boolean getMobFarmerRunning()
+	{
+		return mobFarmerRunning.get();
+	}
+
 	void startMiningFarmer(boolean live)
 	{
 		startSkillFarmer("mining", live);
