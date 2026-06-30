@@ -5953,6 +5953,17 @@ public class CvHelperModPlugin extends Plugin
 		{
 			return false;
 		}
+		// Normal travel is not "stuck". While the player is actually walking/running -- e.g.
+		// pathing the long way around a building to a far or off-screen target -- the input
+		// pipeline is clearly alive; XP just hasn't ticked because we aren't in range yet.
+		// Firing the canvas ground-click here is exactly what made the farmer scatter clicks
+		// and oscillate around an off-screen target. Only the genuinely frozen case (stationary,
+		// no XP for the stall window, a reachable target present) should drive the recovery click.
+		if (localPlayer != null && localPlayer.getPoseAnimation() != localPlayer.getIdlePoseAnimation())
+		{
+			mobFarmerUnstickAttempts = 0;
+			return false;
+		}
 		// Only intervene when there is genuinely something to fight nearby.
 		Map<String, Object> nearTarget = mobFarmerNearestReachableTarget();
 		if (nearTarget == null)
